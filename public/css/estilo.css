@@ -61,6 +61,9 @@ input:focus,select:focus,button:focus-visible{outline:2px solid var(--tech);outl
 
 .grid-attr{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px}
 .attr{border:1px solid var(--line);background:var(--panel2);padding:10px;display:flex;flex-direction:column;align-items:center;gap:5px}
+.attr.warn{border-color:var(--perigo)}
+.sel-pool{padding:4px;font-size:12px;width:100%}
+.sec header .extra{margin-left:auto;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--dim)}
 .attr-nome{font-family:'Chakra Petch',sans-serif;font-size:12px;letter-spacing:.14em;color:var(--dim)}
 .attr-total{font-family:'IBM Plex Mono',monospace;font-size:24px;color:var(--tech)}
 .attr input{width:60px;text-align:center;padding:4px}
