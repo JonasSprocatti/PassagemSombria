@@ -4,7 +4,7 @@
 // ============================================================
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./config.js";
-import { RACAS, CLASSES, FILOSOFIAS, IMPLANTES, SCRIPTS, ARMAS, ARMADURAS, PERICIAS, NAVES, ESTACOES, REGRAS_NAVE, RIQUEZA, TEMAS } from "./dados-jogo.js";
+import { RACAS, CLASSES, FILOSOFIAS, IMPLANTES, SCRIPTS, ARMAS, ARMADURAS, PERICIAS, NAVES, ESTACOES, REGRAS_NAVE, RIQUEZA, TEMAS, CONVERTE_2D8, RENOME_PERICIAS } from "./dados-jogo.js";
 
 export const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const app = document.getElementById("app");
@@ -13,6 +13,14 @@ const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "
 const sign = (n) => (n >= 0 ? `+${n}` : `${n}`);
 const d = (f) => 1 + Math.floor(Math.random() * f);
 const rollNd = (n, f) => Array.from({ length: n }, () => d(f));
+// Migra perícias de fichas antigas para a nomenclatura unificada v1.4
+const migrarPericias = (pe) => {
+  const out = { ...(pe || {}) };
+  for (const [velho, novo] of Object.entries(RENOME_PERICIAS)) {
+    if (out[velho] != null) { out[novo] = (out[novo] || 0) + out[velho]; delete out[velho]; }
+  }
+  return out;
+};
 const parseDice = (s) => { const m = /^(\d*)d(\d+)([+-]\d+)?$/i.exec(String(s).trim()); return m ? { n: +(m[1] || 1), f: +m[2], mod: +(m[3] || 0) } : null; };
 const comprimirFoto = (file, cb) => {
   const fr = new FileReader();
@@ -50,9 +58,10 @@ export function calc(f) {
   const pontosDireito = Math.max(0, (f.nivel || 1) - 1) + (r?.livre && f.modoAttr !== "rolagem" ? 4 : 0);
   const pontosGastos = Object.values(f.pontosAttr || {}).reduce((s, v) => s + (v || 0), 0);
   const perDireito = Math.max(0, (f.nivel || 1) - 1) + (r?.livre ? 3 : 0);
-  const perGastas = Object.values(f.periciasExtra || {}).reduce((s, v) => s + (v || 0), 0);
+  const peMig = migrarPericias(f.periciasExtra);
+  const perGastas = Object.values(peMig).reduce((s, v) => s + (v || 0), 0);
   const per = {};
-  PERICIAS.forEach(([p]) => { per[p] = (c?.pericias[p] || 0) + (f.periciasExtra?.[p] || 0); });
+  PERICIAS.forEach(([p]) => { per[p] = (c?.pericias[p] || 0) + (peMig[p] || 0); });
   const isCin = !!c?.cinetico;
   const limite = Math.max(1, 2 + (isCin ? attr.Int : attr.Con));
   const limiteOrg = Math.max(1, 2 + attr.Con);
@@ -70,7 +79,11 @@ export function calc(f) {
   const placas = f.implantes?.includes("Placas Subdérmicas de Titânio") ? 1 : 0;
   const cd = 10 + desAdj + (armRef?.cd || 0) + placas + (f.cdExtra || 0);
   const deckMax = Math.max(3, f.nivel + per["Tecnomancia"]);
-  return { attr, per, isCin, limite, limiteOrg, carga, ramMax, ramLivre, conj, cd, armRef, deckMax, pontosDireito, pontosGastos, perDireito, perGastas };
+  const iniBonus = (f.classe === "Batedor" ? 2 : 0) + (f.filosofia === "Código do Sobrevivente" ? 2 : 0);
+  const iniciativa = attr.Des + iniBonus;
+  const deslocBase = f.raca === "Mercusys" ? 18 : 9;
+  const deslocamento = deslocBase + 2 * attr.Des;
+  return { attr, per, isCin, limite, limiteOrg, carga, ramMax, ramLivre, conj, cd, armRef, deckMax, pontosDireito, pontosGastos, perDireito, perGastas, iniciativa, iniBonus, deslocBase, deslocamento };
 }
 
 // O que se ganha ao subir para o nível n (para o preview e o registro)
@@ -188,6 +201,7 @@ async function telaFicha(id) {
   if (!p) return (location.hash = "#/hangar");
   let f = { ...novaFichaDados(), ...(p.dados || {}) };
   f.rolagem = { ...novaFichaDados().rolagem, ...(f.rolagem || {}) };
+  f.periciasExtra = migrarPericias(f.periciasExtra);
   aplicarTema(f);
   const registrar = (texto) => { f.log = [{ q: new Date().toISOString(), t: texto }, ...(f.log || [])].slice(0, 60); };
   const salvar = async () => {
@@ -244,9 +258,9 @@ async function telaFicha(id) {
         <div class="filtros">
           <a href="javascript:void 0" id="modo-pontos" class="${f.modoAttr !== "rolagem" ? "on" : ""}">Por pontos</a>
           <a href="javascript:void 0" id="modo-rolagem" class="${f.modoAttr === "rolagem" ? "on" : ""}">Por rolagem</a>
-          ${f.modoAttr === "rolagem" ? `<a href="javascript:void 0" id="rolar-pool" class="on" style="color:var(--chrome);border-color:var(--chrome)">🎲 ROLAR 6×(1d4−1)</a>` : ""}
+          ${f.modoAttr === "rolagem" ? `<a href="javascript:void 0" id="rolar-pool" class="on" style="color:var(--chrome);border-color:var(--chrome)">🎲 ROLAR A ORIGEM (2d8×7)</a>` : ""}
         </div>
-        ${f.modoAttr === "rolagem" && f.rolagemPool.length ? `<p class="regra">Valores disponíveis: ${pool.length ? pool.map((v) => `<b class="chrome">${sign(v)}</b>`).join(" ") : "<i>todos distribuídos</i>"} — escolha em cada atributo abaixo. Os pontos de nível (caixinha) somam por cima.</p>` : ""}
+        ${f.modoAttr === "rolagem" && f.rolagemPool.length ? `<p class="regra">Modificadores de Origem disponíveis: ${pool.length ? pool.map((v) => `<b class="chrome">${sign(v)}</b>`).join(" ") : "<i>todos distribuídos</i>"} — escolha em cada atributo abaixo. Regra: 2d8 sete vezes, descarta a pior soma; converte (2–4=−1 · 5–10=+0 · 11–15=+1 · 16=+2). Raça e pontos de nível (caixinha) somam por cima. Teto natural +6.</p>` : ""}
         <div class="grid-attr">${["For","Des","Con","Int","Sab","Car"].map((a) => `
           <div class="attr ${k.attr[a] > 6 ? "warn" : ""}"><span class="attr-nome">${a}</span><span class="attr-total">${sign(k.attr[a])}</span>
           <span class="regra" style="margin:0">racial ${sign(raca ? raca.attrs[a] : 0)}</span>
@@ -259,6 +273,7 @@ async function telaFicha(id) {
           <label>Defesa (auto)<input value="${k.cd}" disabled/></label>
           <label>RAM<input value="${k.ramLivre}/${k.ramMax}" disabled/></label>
         </div>
+        <p class="regra">⏱️ Iniciativa <b class="chrome">${sign(k.iniciativa)}</b> (Des ${sign(k.attr.Des)}${k.iniBonus ? ` +${k.iniBonus} bônus de classe/filosofia` : ""}) · 🏃 Deslocamento <b class="chrome">${k.deslocamento}m</b> (base ${k.deslocBase} + 2m×Des${k.deslocBase === 18 ? ", ×2 Mercusys" : ""})</p>
         ${classe && raca && f.pvMax === 0 ? `<button id="pv-inicial" class="mini eq">CALCULAR PV INICIAL (classe +${classe.pv} ${sign(raca.vidaMod)} raça ${sign(k.attr.Con)} Con)</button>` : ""}
         <p class="regra">Limite Cibernético: ${f.implantes.length}/${k.limite} · Patrimônio ref. NV${f.nivel}: ${RIQUEZA[f.nivel]} CG · Deck: ${f.deck.length}/${k.deckMax}${k.attr && ["For","Des","Con","Int","Sab","Car"].some((a) => k.attr[a] > 6) ? " · ⚠ atributo acima do teto +6" : ""}</p>
       </section>
@@ -332,9 +347,12 @@ async function telaFicha(id) {
     $("#modo-pontos").onclick = () => { f.modoAttr = "pontos"; render(); };
     $("#modo-rolagem").onclick = () => { f.modoAttr = "rolagem"; render(); };
     $("#rolar-pool")?.addEventListener("click", () => {
-      f.rolagemPool = rollNd(6, 4).map((v) => v - 1);
+      const somas = Array.from({ length: 7 }, () => rollNd(2, 8).reduce((a, b) => a + b, 0));
+      somas.sort((a, b) => a - b);
+      const pior = somas.shift(); // descarta a pior (menor soma)
+      f.rolagemPool = somas.map((v) => CONVERTE_2D8(v));
       f.rolagem = { For: null, Des: null, Con: null, Int: null, Sab: null, Car: null };
-      registrar(`🎲 Atributos rolados — 6×(1d4−1): [${f.rolagemPool.map(sign).join(", ")}] (soma ${sign(f.rolagemPool.reduce((a, b) => a + b, 0))}). Distribua nos atributos.`);
+      registrar(`🎲 Origem rolada — 2d8×7, descartada a pior soma (${pior}). Somas: [${somas.join(", ")}] → modificadores [${f.rolagemPool.map(sign).join(", ")}] (total ${sign(f.rolagemPool.reduce((a, b) => a + b, 0))}). Distribua nos atributos; raça e pontos somam por cima.`);
       render();
     });
     app.querySelectorAll(".sel-pool").forEach((s) => s.onchange = () => {
