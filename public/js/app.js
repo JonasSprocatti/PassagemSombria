@@ -23,15 +23,23 @@ export const novaFichaDados = () => ({
   nivel: 1, foto: null, tema: { ...TEMAS["Vácuo"] },
   raca: "", classe: "", filosofia: "",
   pontosAttr: { For: 0, Des: 0, Con: 0, Int: 0, Sab: 0, Car: 0 },
+  modoAttr: "pontos", rolagem: { For: null, Des: null, Con: null, Int: null, Sab: null, Car: null }, rolagemPool: [],
   pvAtual: 0, pvMax: 0, cdExtra: 0, creditos: 100,
   periciasExtra: {}, implantes: [], patrocinados: [],
   deck: [], ramGasta: 0, usos: {}, inventario: [], notas: "",
+  metodoNivel: "manual", xp: 0, xpMeta: 1000, marcos: 0, log: [],
 });
 
 export function calc(f) {
   const r = RACAS.find((x) => x.nome === f.raca), c = CLASSES[f.classe];
   const attr = {};
-  ["For", "Des", "Con", "Int", "Sab", "Car"].forEach((a) => { attr[a] = (r ? r.attrs[a] : 0) + (f.pontosAttr?.[a] || 0); });
+  ["For", "Des", "Con", "Int", "Sab", "Car"].forEach((a) => {
+    attr[a] = (r ? r.attrs[a] : 0) + (f.pontosAttr?.[a] || 0) + (f.modoAttr === "rolagem" ? (f.rolagem?.[a] ?? 0) : 0);
+  });
+  const pontosDireito = Math.max(0, (f.nivel || 1) - 1) + (r?.livre && f.modoAttr !== "rolagem" ? 4 : 0);
+  const pontosGastos = Object.values(f.pontosAttr || {}).reduce((s, v) => s + (v || 0), 0);
+  const perDireito = Math.max(0, (f.nivel || 1) - 1) + (r?.livre ? 3 : 0);
+  const perGastas = Object.values(f.periciasExtra || {}).reduce((s, v) => s + (v || 0), 0);
   const per = {};
   PERICIAS.forEach(([p]) => { per[p] = (c?.pericias[p] || 0) + (f.periciasExtra?.[p] || 0); });
   const isCin = !!c?.cinetico;
@@ -51,7 +59,17 @@ export function calc(f) {
   const placas = f.implantes?.includes("Placas Subdérmicas de Titânio") ? 1 : 0;
   const cd = 10 + desAdj + (armRef?.cd || 0) + placas + (f.cdExtra || 0);
   const deckMax = Math.max(3, f.nivel + per["Tecnomancia"]);
-  return { attr, per, isCin, limite, limiteOrg, carga, ramMax, ramLivre, conj, cd, armRef, deckMax };
+  return { attr, per, isCin, limite, limiteOrg, carga, ramMax, ramLivre, conj, cd, armRef, deckMax, pontosDireito, pontosGastos, perDireito, perGastas };
+}
+
+// O que se ganha ao subir para o nível n (para o preview e o registro)
+export function ganhosDoNivel(n, f) {
+  const c = CLASSES[f.classe], r = RACAS.find((x) => x.nome === f.raca);
+  const g = ["+1 Ponto de Atributo (teto natural +6)", "Vida: 4d6 (tira o menor) " + (r ? sign(r.vidaMod) + " raça" : "") + " + Con", "+1 Ponto de Perícia"];
+  if ([3, 5, 7, 9].includes(n)) g.push("+1 Slot de RAM (nível ímpar)");
+  if (n === 5) { g.push("Teto de perícias sobe para +7"); if (c) g.push(`★ Especialização Veterana — ${c.vet.n}: ${c.vet.d}`); }
+  if (n === 10 && r?.lendaria) g.push(`★★ Lendária da raça — ${r.lendaria.n}: ${r.lendaria.d}`);
+  return g;
 }
 
 function aplicarTema(f) {
@@ -153,20 +171,28 @@ async function telaHangar() {
   });
 }
 
-// ---------------- FICHA (essencial de jogo; edição completa) ----------------
+// ---------------- FICHA (edição completa + level up + registro) ----------------
 async function telaFicha(id) {
   const { data: p } = await sb.from("personagens").select("*").eq("id", id).single();
   if (!p) return (location.hash = "#/hangar");
   let f = { ...novaFichaDados(), ...(p.dados || {}) };
+  f.rolagem = { ...novaFichaDados().rolagem, ...(f.rolagem || {}) };
   aplicarTema(f);
+  const registrar = (texto) => { f.log = [{ q: new Date().toISOString(), t: texto }, ...(f.log || [])].slice(0, 60); };
   const salvar = async () => {
     await sb.from("personagens").update({ nome: f.nomeVisivel ?? p.nome, dados: f, atualizado_em: new Date().toISOString() }).eq("id", id);
   };
   const render = () => {
     const k = calc(f);
     const raca = RACAS.find((r) => r.nome === f.raca), classe = CLASSES[f.classe];
+    const sobra = k.pontosDireito - k.pontosGastos, sobraPer = k.perDireito - k.perGastas;
+    const usados = ["For","Des","Con","Int","Sab","Car"].map((a) => f.rolagem[a]).filter((v) => v !== null);
+    const pool = [...(f.rolagemPool || [])];
+    usados.forEach((v) => { const i = pool.indexOf(v); if (i >= 0) pool.splice(i, 1); });
+    const ganhos = ganhosDoNivel(f.nivel + 1, f);
     shell("ficha", `
       <nav class="topo"><a class="btn-ghost" href="#/hangar">← HANGAR</a><div class="topo-status" id="st"></div><button id="salvar" class="btn-primario">SALVAR</button></nav>
+
       <section class="sec">
         <header><span class="tag">ID</span><h2>Identidade</h2></header>
         <div class="linha-3">
@@ -176,16 +202,34 @@ async function telaFicha(id) {
         </div>
         <div class="linha-3">
           <label>Filosofia<select id="filosofia"><option value="">—</option>${Object.keys(FILOSOFIAS).map((n) => `<option ${f.filosofia === n ? "selected" : ""}>${n}</option>`).join("")}</select></label>
-          <label>Nível<input id="nivel" type="number" min="1" max="10" value="${f.nivel}"/></label>
           <label>Créditos<input id="creditos" type="number" value="${f.creditos}"/></label>
+          <label>Nível (atual)<input value="${f.nivel}" disabled title="Suba de nível na seção Progressão"/></label>
         </div>
-        ${raca ? `<details class="det"><summary>${esc(raca.titulo)} — lore completa</summary><p>${esc(raca.lore)}</p>
-          ${raca.habilidades.map((h) => `<p><b>${esc(h.n)}:</b> ${esc(h.d)}</p>`).join("")}
-          ${raca.lendaria ? `<p class="sombra-c"><b>Lendária NV10 — ${esc(raca.lendaria.n)}:</b> ${esc(raca.lendaria.d)}</p>` : ""}</details>` : ""}
+        ${raca ? `<details class="det grande" open><summary>🧬 <b>${esc(raca.nome)}</b> (${raca.planeta}) — ${esc(raca.titulo)}</summary>
+          <p>${esc(raca.lore)}</p>
+          <p class="regra">Vida por nível: 4d6 (tira o menor) ${sign(raca.vidaMod)} · ${["For","Des","Con","Int","Sab","Car"].map((a) => `${a} ${sign(raca.attrs[a])}`).join(" · ")}${raca.livre ? " · +4 pontos livres (máx. +2 cada) e +3 perícias" : ""}</p>
+          ${raca.habilidades.map((h) => `<p><b class="tech-c">${esc(h.n)}:</b> ${esc(h.d)}</p>`).join("")}
+          ${raca.lendaria ? `<p class="sombra-c"><b>★★ Lendária (NV10) — ${esc(raca.lendaria.n)}:</b> ${esc(raca.lendaria.d)}${f.nivel < 10 ? " <i>(bloqueada até o nível 10)</i>" : " ✓ DESBLOQUEADA"}</p>` : ""}</details>` : ""}
+        ${classe ? `<details class="det grande" open><summary>⚙ <b>${esc(f.classe)}</b> — Vida base +${classe.pv}${k.isCin ? " · usa Int no Limite Cibernético" : ""}</summary>
+          <p class="regra">Perícias de classe: ${Object.entries(classe.pericias).map(([pn, v]) => `${pn} +${v}`).join(", ")}</p>
+          ${classe.hab.map((h) => `<p><b class="tech-c">${h.tipo} — ${esc(h.n)}:</b> ${esc(h.d)}</p>`).join("")}
+          <p><b class="chrome">★ Veterana (NV5) — ${esc(classe.vet.n)}:</b> ${esc(classe.vet.d)}${f.nivel < 5 ? " <i>(bloqueada até o nível 5)</i>" : " ✓ DESBLOQUEADA"}</p></details>` : ""}
+        ${f.filosofia ? `<details class="det" open><summary>☯ <b>${esc(f.filosofia)}</b></summary><p>${esc(FILOSOFIAS[f.filosofia].d)}</p></details>` : ""}
       </section>
-      <section class="sec"><header><span class="tag">Δ</span><h2>Atributos & Vitais</h2></header>
+
+      <section class="sec"><header><span class="tag">Δ</span><h2>Atributos & Vitais</h2>
+        <span class="extra">${f.modoAttr === "rolagem" ? "modo rolagem" : `${sobra} ponto${sobra === 1 ? "" : "s"} de nível ${sobra >= 0 ? "livre" + (sobra === 1 ? "" : "s") : "⚠ EXCEDIDO"}`}</span></header>
+        <div class="filtros">
+          <a href="javascript:void 0" id="modo-pontos" class="${f.modoAttr !== "rolagem" ? "on" : ""}">Por pontos</a>
+          <a href="javascript:void 0" id="modo-rolagem" class="${f.modoAttr === "rolagem" ? "on" : ""}">Por rolagem</a>
+          ${f.modoAttr === "rolagem" ? `<a href="javascript:void 0" id="rolar-pool" class="on" style="color:var(--chrome);border-color:var(--chrome)">🎲 ROLAR 6×(1d4−1)</a>` : ""}
+        </div>
+        ${f.modoAttr === "rolagem" && f.rolagemPool.length ? `<p class="regra">Valores disponíveis: ${pool.length ? pool.map((v) => `<b class="chrome">${sign(v)}</b>`).join(" ") : "<i>todos distribuídos</i>"} — escolha em cada atributo abaixo. Os pontos de nível (caixinha) somam por cima.</p>` : ""}
         <div class="grid-attr">${["For","Des","Con","Int","Sab","Car"].map((a) => `
-          <div class="attr"><span class="attr-nome">${a}</span><span class="attr-total">${sign(k.attr[a])}</span>
+          <div class="attr ${k.attr[a] > 6 ? "warn" : ""}"><span class="attr-nome">${a}</span><span class="attr-total">${sign(k.attr[a])}</span>
+          <span class="regra" style="margin:0">racial ${sign(raca ? raca.attrs[a] : 0)}</span>
+          ${f.modoAttr === "rolagem" ? `<select class="sel-pool" data-a="${a}"><option value="">rolado —</option>
+            ${[...new Set([...pool, ...(f.rolagem[a] !== null ? [f.rolagem[a]] : [])])].sort((x, y) => y - x).map((v) => `<option value="${v}" ${f.rolagem[a] === v ? "selected" : ""}>${sign(v)}</option>`).join("")}</select>` : ""}
           <input class="pt-attr" data-a="${a}" type="number" min="0" value="${f.pontosAttr[a] || 0}" title="pontos de nível"/></div>`).join("")}</div>
         <div class="linha-4" style="margin-top:12px">
           <label>PV atual<input id="pvAtual" type="number" value="${f.pvAtual}"/></label>
@@ -193,13 +237,39 @@ async function telaFicha(id) {
           <label>Defesa (auto)<input value="${k.cd}" disabled/></label>
           <label>RAM<input value="${k.ramLivre}/${k.ramMax}" disabled/></label>
         </div>
-        <p class="regra">Limite Cibernético: ${f.implantes.length}/${k.limite} · Patrimônio ref. NV${f.nivel}: ${RIQUEZA[f.nivel]} CG · Deck: ${f.deck.length}/${k.deckMax}</p>
+        ${classe && raca && f.pvMax === 0 ? `<button id="pv-inicial" class="mini eq">CALCULAR PV INICIAL (classe +${classe.pv} ${sign(raca.vidaMod)} raça ${sign(k.attr.Con)} Con)</button>` : ""}
+        <p class="regra">Limite Cibernético: ${f.implantes.length}/${k.limite} · Patrimônio ref. NV${f.nivel}: ${RIQUEZA[f.nivel]} CG · Deck: ${f.deck.length}/${k.deckMax}${k.attr && ["For","Des","Con","Int","Sab","Car"].some((a) => k.attr[a] > 6) ? " · ⚠ atributo acima do teto +6" : ""}</p>
       </section>
-      <section class="sec"><header><span class="tag">%</span><h2>Perícias</h2></header>
+
+      <section class="sec"><header><span class="tag">▲</span><h2>Progressão & Level Up</h2>
+        <span class="extra">nível ${f.nivel} · ${f.nivel === 1 ? "Recruta" : f.nivel <= 8 ? "Veterano" : "Lenda"}</span></header>
+        <div class="linha-3">
+          <label>Método<select id="metodo">
+            <option value="manual" ${f.metodoNivel === "manual" ? "selected" : ""}>Manual (o Mestre manda)</option>
+            <option value="xp" ${f.metodoNivel === "xp" ? "selected" : ""}>Por XP</option>
+            <option value="marcos" ${f.metodoNivel === "marcos" ? "selected" : ""}>Por marcos da história</option>
+          </select></label>
+          ${f.metodoNivel === "xp" ? `
+            <label>XP atual<input id="xp" type="number" value="${f.xp}"/></label>
+            <label>XP para subir<input id="xpMeta" type="number" value="${f.xpMeta}"/></label>` : ""}
+          ${f.metodoNivel === "marcos" ? `
+            <label>Marcos concluídos<input id="marcos" type="number" value="${f.marcos}"/></label>
+            <label>&nbsp;<button id="add-marco" class="mini eq">+1 MARCO ALCANÇADO</button></label>` : ""}
+        </div>
+        ${f.metodoNivel === "xp" ? `<div class="barra" style="margin-bottom:10px"><span>Progresso: ${f.xp}/${f.xpMeta} XP ${f.xp >= f.xpMeta ? "— PRONTO PARA SUBIR!" : ""}</span><div><i style="width:${Math.min(100, (100 * f.xp / Math.max(1, f.xpMeta)) | 0)}%;background:var(--tech)"></i></div></div>` : ""}
+        ${f.nivel < 10 ? `
+        <details class="det"><summary>O que você ganha no nível ${f.nivel + 1}</summary>${ganhos.map((g) => `<p>· ${esc(g)}</p>`).join("")}</details>
+        <button id="levelup" class="btn-primario" ${f.metodoNivel === "xp" && f.xp < f.xpMeta ? "disabled title='XP insuficiente'" : ""}>▲ SUBIR PARA O NÍVEL ${f.nivel + 1}</button>
+        <span class="regra" style="margin-left:10px">rola a vida na hora, aplica os ganhos e registra tudo abaixo</span>` : `<p class="regra">★★ Nível máximo alcançado — uma Lenda do sistema.</p>`}
+      </section>
+
+      <section class="sec"><header><span class="tag">%</span><h2>Perícias</h2>
+        <span class="extra">${sobraPer} pt${sobraPer === 1 ? "" : "s"} livre${sobraPer === 1 ? "" : "s"} · teto ${f.nivel >= 5 ? "+7" : "+5"}</span></header>
         <div class="grid-per">${PERICIAS.map(([pn, at]) => `
           <div class="per ${k.per[pn] > 0 ? "ativa" : ""}"><span class="per-n">${pn} <i>(${at})</i></span>
           <span class="per-ctl"><input class="pt-per" data-p="${pn}" type="number" min="0" value="${f.periciasExtra[pn] || 0}"/><b class="tech-c">${sign(k.per[pn])}</b></span></div>`).join("")}</div>
       </section>
+
       <section class="sec"><header><span class="tag">⧉</span><h2>Implantes & Deck & Inventário</h2></header>
         <div class="colunas">
           <div><h4>Implantes (${f.implantes.length}/${k.limite})</h4>${IMPLANTES.map((i) => `
@@ -215,17 +285,61 @@ async function telaFicha(id) {
               <button class="mini rm" data-rm="${ix}">✕</button></span></div>`).join("")}</div></div>
         </div>
       </section>
+
       <section class="sec"><header><span class="tag">◧</span><h2>Tema</h2></header>
         <div class="temas">${Object.entries(TEMAS).map(([n, t]) => `<button class="tema-btn" data-tema="${n}">
           <span class="tema-sw"><i style="background:${t.tech}"></i><i style="background:${t.chrome}"></i><i style="background:${t.sombra}"></i></span>${n}</button>`).join("")}</div>
+      </section>
+
+      <section class="sec"><header><span class="tag">✎</span><h2>Registro da Ficha</h2>
+        <span class="extra">${(f.log || []).length} evento${(f.log || []).length === 1 ? "" : "s"}</span></header>
+        ${(f.log || []).length ? (f.log || []).map((e) => `<div class="det"><span class="regra" style="margin:0">${new Date(e.q).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</span><p style="margin:4px 0 0">${esc(e.t)}</p></div>`).join("") : `<p class="regra">Rolagens de atributo e level ups aparecem aqui, gravados na ficha.</p>`}
       </section>`);
-    // binds
+
+    // ---- binds ----
     $("#salvar").onclick = async () => { $("#st").textContent = "Transmitindo…"; await salvar(); $("#st").textContent = "Salvo ✓"; };
     $("#nome").oninput = (e) => { p.nome = e.target.value; f.nomeVisivel = e.target.value; };
     ["raca", "classe", "filosofia"].forEach((c) => $("#" + c).onchange = (e) => { f[c] = e.target.value; render(); });
-    ["nivel", "creditos", "pvAtual", "pvMax"].forEach((c) => $("#" + c).oninput = (e) => { f[c] = +e.target.value; });
+    ["creditos", "pvAtual", "pvMax"].forEach((c) => { const el = $("#" + c); if (el) el.oninput = (e) => { f[c] = +e.target.value; }; });
+    $("#modo-pontos").onclick = () => { f.modoAttr = "pontos"; render(); };
+    $("#modo-rolagem").onclick = () => { f.modoAttr = "rolagem"; render(); };
+    $("#rolar-pool")?.addEventListener("click", () => {
+      f.rolagemPool = rollNd(6, 4).map((v) => v - 1);
+      f.rolagem = { For: null, Des: null, Con: null, Int: null, Sab: null, Car: null };
+      registrar(`🎲 Atributos rolados — 6×(1d4−1): [${f.rolagemPool.map(sign).join(", ")}] (soma ${sign(f.rolagemPool.reduce((a, b) => a + b, 0))}). Distribua nos atributos.`);
+      render();
+    });
+    app.querySelectorAll(".sel-pool").forEach((s) => s.onchange = () => {
+      const a = s.dataset.a; f.rolagem[a] = s.value === "" ? null : +s.value;
+      if (s.value !== "") registrar(`Δ ${a} recebeu ${sign(+s.value)} da rolagem.`);
+      render();
+    });
     app.querySelectorAll(".pt-attr").forEach((i) => i.oninput = () => { f.pontosAttr[i.dataset.a] = +i.value; });
     app.querySelectorAll(".pt-per").forEach((i) => i.oninput = () => { f.periciasExtra[i.dataset.p] = +i.value; });
+    $("#pv-inicial")?.addEventListener("click", () => {
+      const k2 = calc(f); const base = Math.max(1, CLASSES[f.classe].pv + RACAS.find((r) => r.nome === f.raca).vidaMod + k2.attr.Con);
+      f.pvMax = base; f.pvAtual = base;
+      registrar(`❤ PV inicial calculado: ${CLASSES[f.classe].pv} classe ${sign(RACAS.find((r) => r.nome === f.raca).vidaMod)} raça ${sign(k2.attr.Con)} Con = ${base}.`);
+      render();
+    });
+    $("#metodo")?.addEventListener("change", (e) => { f.metodoNivel = e.target.value; render(); });
+    $("#xp")?.addEventListener("input", (e) => { f.xp = +e.target.value; });
+    $("#xpMeta")?.addEventListener("input", (e) => { f.xpMeta = +e.target.value; });
+    $("#marcos")?.addEventListener("input", (e) => { f.marcos = +e.target.value; });
+    $("#add-marco")?.addEventListener("click", () => { f.marcos = (f.marcos || 0) + 1; registrar(`⚑ Marco da história alcançado (total: ${f.marcos}).`); render(); });
+    $("#levelup")?.addEventListener("click", async () => {
+      if (f.nivel >= 10) return;
+      const novoNv = f.nivel + 1;
+      const k2 = calc(f); const r = RACAS.find((x) => x.nome === f.raca);
+      const dados = rollNd(4, 6); const menor = Math.min(...dados);
+      const ganhoPV = Math.max(1, menor + (r?.vidaMod || 0) + k2.attr.Con);
+      f.nivel = novoNv; f.pvMax += ganhoPV; f.pvAtual += ganhoPV;
+      if (f.metodoNivel === "xp") { f.xp = Math.max(0, f.xp - f.xpMeta); f.xpMeta = novoNv * 1000; }
+      const extras = ganhosDoNivel(novoNv, f).filter((g) => !g.startsWith("Vida"));
+      registrar(`▲ NÍVEL ${novoNv - 1} → ${novoNv}! Vida: 4d6 [${dados.join(", ")}] → menor ${menor} ${sign(r?.vidaMod || 0)} raça ${sign(k2.attr.Con)} Con = +${ganhoPV} PV (agora ${f.pvMax}). Ganhos: ${extras.join(" · ")}`);
+      await salvar(); render();
+      $("#st").textContent = `Nível ${novoNv}! +${ganhoPV} PV ✓ (salvo)`;
+    });
     app.querySelectorAll(".ck-impl").forEach((c) => c.onchange = () => {
       f.implantes = c.checked ? [...f.implantes, c.dataset.n] : f.implantes.filter((x) => x !== c.dataset.n); render(); });
     app.querySelectorAll(".ck-scr").forEach((c) => c.onchange = () => {
