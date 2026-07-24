@@ -14,6 +14,17 @@ const sign = (n) => (n >= 0 ? `+${n}` : `${n}`);
 const d = (f) => 1 + Math.floor(Math.random() * f);
 const rollNd = (n, f) => Array.from({ length: n }, () => d(f));
 const parseDice = (s) => { const m = /^(\d*)d(\d+)([+-]\d+)?$/i.exec(String(s).trim()); return m ? { n: +(m[1] || 1), f: +m[2], mod: +(m[3] || 0) } : null; };
+const comprimirFoto = (file, cb) => {
+  const fr = new FileReader();
+  fr.onload = () => { const img = new Image();
+    img.onload = () => { const c = document.createElement("canvas");
+      const max = 420, sc = Math.min(1, max / Math.max(img.width, img.height));
+      c.width = Math.round(img.width * sc); c.height = Math.round(img.height * sc);
+      c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+      cb(c.toDataURL("image/jpeg", 0.82)); };
+    img.src = fr.result; };
+  fr.readAsDataURL(file);
+};
 
 let usuario = null, perfil = null;
 let canalMesa = null; // realtime da mesa aberta
@@ -195,6 +206,15 @@ async function telaFicha(id) {
 
       <section class="sec">
         <header><span class="tag">ID</span><h2>Identidade</h2></header>
+        <div class="id-topo">
+          <div class="retrato">
+            ${f.foto ? `<img src="${f.foto}" alt="Retrato do personagem"/>` : `<div class="retrato-vazio"><span>◈</span><small>sem holograma</small></div>`}
+            <div class="retrato-btns">
+              <label class="btn-foto">${f.foto ? "TROCAR" : "+ FOTO"}<input id="foto-in" type="file" accept="image/*" hidden/></label>
+              ${f.foto ? `<button id="foto-rm" class="btn-foto rm">✕</button>` : ""}
+            </div>
+          </div>
+          <div class="id-campos">
         <div class="linha-3">
           <label>Nome<input id="nome" value="${esc(p.nome)}"/></label>
           <label>Raça<select id="raca"><option value="">—</option>${RACAS.map((r) => `<option ${f.raca === r.nome ? "selected" : ""}>${r.nome}</option>`).join("")}</select></label>
@@ -204,6 +224,8 @@ async function telaFicha(id) {
           <label>Filosofia<select id="filosofia"><option value="">—</option>${Object.keys(FILOSOFIAS).map((n) => `<option ${f.filosofia === n ? "selected" : ""}>${n}</option>`).join("")}</select></label>
           <label>Créditos<input id="creditos" type="number" value="${f.creditos}"/></label>
           <label>Nível (atual)<input value="${f.nivel}" disabled title="Suba de nível na seção Progressão"/></label>
+        </div>
+          </div>
         </div>
         ${raca ? `<details class="det grande" open><summary>🧬 <b>${esc(raca.nome)}</b> (${raca.planeta}) — ${esc(raca.titulo)}</summary>
           <p>${esc(raca.lore)}</p>
@@ -299,6 +321,12 @@ async function telaFicha(id) {
     // ---- binds ----
     $("#salvar").onclick = async () => { $("#st").textContent = "Transmitindo…"; await salvar(); $("#st").textContent = "Salvo ✓"; };
     $("#nome").oninput = (e) => { p.nome = e.target.value; f.nomeVisivel = e.target.value; };
+    $("#foto-in")?.addEventListener("change", (e) => {
+      const file = e.target.files?.[0]; if (!file) return;
+      comprimirFoto(file, (data) => { f.foto = data; registrar("◈ Retrato do personagem atualizado."); render(); });
+      e.target.value = "";
+    });
+    $("#foto-rm")?.addEventListener("click", () => { f.foto = null; render(); });
     ["raca", "classe", "filosofia"].forEach((c) => $("#" + c).onchange = (e) => { f[c] = e.target.value; render(); });
     ["creditos", "pvAtual", "pvMax"].forEach((c) => { const el = $("#" + c); if (el) el.oninput = (e) => { f[c] = +e.target.value; }; });
     $("#modo-pontos").onclick = () => { f.modoAttr = "pontos"; render(); };
@@ -390,7 +418,7 @@ async function telaMesa(id) {
     sb.from("campanhas").select("*").eq("id", id).single(),
     sb.from("campanha_membros").select("perfil_id,posto,perfis(apelido)").eq("campanha_id", id),
     sb.from("personagens").select("id,nome,dono_id,dados").eq("campanha_id", id),
-    sb.from("mensagens").select("*,perfis:autor_id(apelido)").eq("campanha_id", id).order("criado_em", { ascending: true }).limit(120),
+    sb.from("mensagens").select("*,perfis:autor_id(apelido,avatar_url)").eq("campanha_id", id).order("criado_em", { ascending: true }).limit(120),
   ]);
   if (!camp) return (location.hash = "#/campanhas");
   const { data: meus } = await sb.from("personagens").select("id,nome").eq("dono_id", usuario.id);
@@ -482,7 +510,10 @@ async function telaMesa(id) {
           ${p.aplicado ? `<span class="m-extra">aplicado ✓</span>` : meu ? `<button class="mini ${m.tipo === "dano" ? "dano" : "eq"}" data-aplicar="${m.id}">APLICAR ${m.tipo === "dano" ? "−" : "+"}${p.valor} PV</button>` : `<span class="m-extra">aguardando o dono aplicar…</span>`}</div>`; }
       else if (m.tipo === "nave") corpo = `<div class="m-txt sistema">🚀 ${esc(m.conteudo)}</div>`;
       const el = document.createElement("div");
-      el.className = "m"; el.innerHTML = `<div class="m-cab">${quem}${persN ? ` <i>como ${persN}</i>` : ""} <time>${new Date(m.criado_em).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</time></div>${corpo}`;
+      const persMsg = m.personagem_id ? pers?.find((x) => x.id === m.personagem_id) : null;
+      const av = persMsg?.dados?.foto || m.perfis?.avatar_url || null;
+      const avatarHtml = av ? `<img class="m-avatar" src="${esc(av)}" alt=""/>` : `<div class="m-avatar vazia">◈</div>`;
+      el.className = "m"; el.innerHTML = `${avatarHtml}<div class="m-corpo"><div class="m-cab">${quem}${persN ? ` <i>como ${persN}</i>` : ""} <time>${new Date(m.criado_em).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</time></div>${corpo}</div>`;
       chatEl.appendChild(el); chatEl.scrollTop = chatEl.scrollHeight;
       el.querySelector("[data-aplicar]")?.addEventListener("click", async (ev) => {
         const p = m.payload; const alvo = pers.find((x) => x.id === p.alvo_id);
@@ -498,7 +529,7 @@ async function telaMesa(id) {
     // ---- realtime ----
     canalMesa = sb.channel(`mesa-${id}`)
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "mensagens", filter: `campanha_id=eq.${id}` },
-        async (pl) => { const { data: m } = await sb.from("mensagens").select("*,perfis:autor_id(apelido)").eq("id", pl.new.id).single(); if (m) addMsg(m); })
+        async (pl) => { const { data: m } = await sb.from("mensagens").select("*,perfis:autor_id(apelido,avatar_url)").eq("id", pl.new.id).single(); if (m) addMsg(m); })
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "campanhas", filter: `id=eq.${id}` },
         (pl) => { camp.nave = pl.new.nave; render(); })
       .subscribe();
