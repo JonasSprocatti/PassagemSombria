@@ -84,6 +84,21 @@ input:focus,select:focus,button:focus-visible{outline:2px solid var(--tech);outl
 .inv{display:flex;justify-content:space-between;align-items:center;gap:8px;border:1px solid var(--line);background:var(--panel2);padding:8px 12px;margin-bottom:6px;font-size:13px}
 
 .temas{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px}
+
+/* retrato da ficha */
+.id-topo{display:flex;gap:16px;align-items:flex-start}
+.id-campos{flex:1;min-width:0}
+.retrato{display:flex;flex-direction:column;gap:6px;flex-shrink:0}
+.retrato img{width:110px;height:110px;object-fit:cover;border:1px solid var(--tech);box-shadow:0 0 14px rgba(0,0,0,.5)}
+.retrato-vazio{width:110px;height:110px;border:1px dashed var(--line);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;color:var(--dim)}
+.retrato-vazio span{font-size:26px;color:var(--line)}
+.retrato-vazio small{font-size:9px;font-family:'IBM Plex Mono',monospace}
+.retrato-btns{display:flex;gap:6px}
+.btn-foto{flex:1;text-align:center;background:none;border:1px solid var(--line);color:var(--dim);padding:7px 4px;font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.08em;cursor:pointer;text-transform:none;flex-direction:row;justify-content:center;margin:0}
+.btn-foto:hover{color:var(--tech);border-color:var(--tech)}
+.btn-foto.rm{flex:0 0 32px}
+.btn-foto.rm:hover{color:var(--perigo);border-color:var(--perigo)}
+@media(max-width:680px){.id-topo{flex-direction:column}.retrato{flex-direction:row;align-items:flex-end}.retrato-btns{flex-direction:column}}
 .tema-btn{display:flex;align-items:center;gap:9px;background:var(--panel2);border:1px solid var(--line);color:var(--dim);padding:8px 11px;font-family:'IBM Plex Mono',monospace;font-size:11px;cursor:pointer}
 .tema-sw{display:flex;gap:3px}.tema-sw i{width:11px;height:11px;border-radius:50%}
 
@@ -101,6 +116,10 @@ input:focus,select:focus,button:focus-visible{outline:2px solid var(--tech);outl
 .mesa-lateral .sec{padding:14px}
 .mesa-chat{display:flex;flex-direction:column;min-height:70vh}
 .chat{flex:1;overflow-y:auto;max-height:62vh;display:flex;flex-direction:column;gap:8px;padding:4px 2px;margin-bottom:10px}
+.m{display:flex;gap:10px;align-items:flex-start}
+.m-avatar{width:34px;height:34px;object-fit:cover;border:1px solid var(--line);flex-shrink:0;border-radius:4px}
+.m-avatar.vazia{display:flex;align-items:center;justify-content:center;color:var(--line);background:var(--panel2);font-size:14px}
+.m-corpo{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
 .m-cab{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--dim)}
 .m-cab i{color:var(--tech);font-style:normal}
 .m-txt{border:1px solid var(--line);background:var(--panel2);padding:8px 12px;font-size:13.5px}
