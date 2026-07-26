@@ -20,6 +20,14 @@ const rolaDadoVida = (raca, fixo = false) => {
   const val = fixo ? (raca?.vidaFixa ?? Math.ceil((faces + 1) / 2)) : d(faces);
   return { faces, fixo, val };
 };
+// Vida INICIAL (nível 1): 4d6, DESCARTA o menor, soma os 3 maiores + vidaMod da raça.
+// Diferente do dado por nível (rolaDadoVida): o nível 1 é sempre este 4d6 tira-menor.
+const rolaVidaInicial = (raca) => {
+  const ds = rollNd(4, 6);
+  const menor = Math.min(...ds);
+  const soma3 = ds.reduce((a, b) => a + b, 0) - menor;
+  return { ds, menor, soma3, subtotal: soma3 + (raca?.vidaMod || 0) };
+};
 // Migra perícias de fichas antigas para a nomenclatura unificada v1.4
 const migrarPericias = (pe) => {
   const out = { ...(pe || {}) };
@@ -392,10 +400,10 @@ async function telaFicha(id) {
     app.querySelectorAll(".pt-per").forEach((i) => i.oninput = () => { f.periciasExtra[i.dataset.p] = +i.value; });
     $("#pv-inicial")?.addEventListener("click", () => {
       const k2 = calc(f); const r = RACAS.find((x) => x.nome === f.raca);
-      const { faces, fixo, val } = rolaDadoVida(r, f.usarVidaFixa);
-      const base = Math.max(1, val + k2.attr.Con);
+      const { ds, menor, soma3, subtotal } = rolaVidaInicial(r);
+      const base = Math.max(1, subtotal + k2.attr.Con);
       f.pvMax = base; f.pvAtual = base;
-      registrar(`❤ PV do nível 1: ${fixo ? `fixo ${val}` : `1d${faces} [${val}]`} ${sign(k2.attr.Con)} Con = ${base} PV.`);
+      registrar(`❤ PV do nível 1: 4d6 [${ds.join(", ")}] descarta ${menor}, soma ${soma3} ${sign(r?.vidaMod || 0)} raça ${sign(k2.attr.Con)} Con = ${base} PV.`);
       render();
     });
     $("#vida-fixa")?.addEventListener("change", (e) => { f.usarVidaFixa = e.target.checked; render(); });
