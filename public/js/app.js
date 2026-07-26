@@ -13,6 +13,13 @@ const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "
 const sign = (n) => (n >= 0 ? `+${n}` : `${n}`);
 const d = (f) => 1 + Math.floor(Math.random() * f);
 const rollNd = (n, f) => Array.from({ length: n }, () => d(f));
+// Dado de vida por grupo racial (Pesado 1d10 · Médio 1d8 · Leve 1d6), OU o valor fixo
+// (5/4/3). Devolve as faces, se foi fixo, e o valor rolado/fixo do dado.
+const rolaDadoVida = (raca, fixo = false) => {
+  const faces = raca?.dadoVida || 8;
+  const val = fixo ? (raca?.vidaFixa ?? Math.ceil((faces + 1) / 2)) : d(faces);
+  return { faces, fixo, val };
+};
 // Migra perícias de fichas antigas para a nomenclatura unificada v1.4
 const migrarPericias = (pe) => {
   const out = { ...(pe || {}) };
@@ -37,6 +44,23 @@ const comprimirFoto = (file, cb) => {
 let usuario = null, perfil = null;
 let canalMesa = null; // realtime da mesa aberta
 
+// Valida a sessão contra o servidor de auth. Se estiver morta (refresh token
+// revogado/expirado), limpa o cache podre e força re-login. Devolve o user ou null.
+async function sessaoAtiva() {
+  const { data: { user } = {}, error } = await sb.auth.getUser();
+  if (error || !user) {
+    try { await sb.auth.signOut(); } catch (_) {}
+    try { Object.keys(localStorage).filter((k) => k.startsWith("sb-")).forEach((k) => localStorage.removeItem(k)); } catch (_) {}
+    usuario = null; perfil = null;
+    alert("Sua sessão expirou. Faça login novamente para continuar.");
+    location.hash = "#/login";
+    return null;
+  }
+  usuario = user;
+  return user;
+}
+
+
 // ---------------- FICHA: modelo e cálculos (mesmo formato do Deck de Campo) ----------------
 export const novaFichaDados = () => ({
   nivel: 1, foto: null, tema: { ...TEMAS["Vácuo"] },
@@ -46,14 +70,14 @@ export const novaFichaDados = () => ({
   pvAtual: 0, pvMax: 0, cdExtra: 0, creditos: 100,
   periciasExtra: {}, implantes: [], patrocinados: [],
   deck: [], ramGasta: 0, usos: {}, inventario: [], notas: "",
-  metodoNivel: "manual", xp: 0, xpMeta: 1000, marcos: 0, log: [],
+  metodoNivel: "manual", xp: 0, xpMeta: 1000, marcos: 0, log: [], usarVidaFixa: false,
 });
 
 export function calc(f) {
   const r = RACAS.find((x) => x.nome === f.raca), c = CLASSES[f.classe];
   const attr = {};
   ["For", "Des", "Con", "Int", "Sab", "Car"].forEach((a) => {
-    attr[a] = (r ? r.attrs[a] : 0) + (f.pontosAttr?.[a] || 0) + (f.modoAttr === "rolagem" ? (f.rolagem?.[a] ?? 0) : 0);
+    attr[a] = (r ? r.attrs[a] : 0) + (f.pontosAttr?.[a] || 0) + (f.modoAttr === "rolagem" && f.rolagem?.[a] != null ? CONVERTE_2D8(f.rolagem[a]) : 0);
   });
   const pontosDireito = Math.max(0, (f.nivel || 1) - 1) + (r?.livre && f.modoAttr !== "rolagem" ? 4 : 0);
   const pontosGastos = Object.values(f.pontosAttr || {}).reduce((s, v) => s + (v || 0), 0);
@@ -89,7 +113,7 @@ export function calc(f) {
 // O que se ganha ao subir para o nível n (para o preview e o registro)
 export function ganhosDoNivel(n, f) {
   const c = CLASSES[f.classe], r = RACAS.find((x) => x.nome === f.raca);
-  const g = ["+1 Ponto de Atributo (teto natural +6)", "Vida: 4d6 (tira o menor) " + (r ? sign(r.vidaMod) + " raça" : "") + " + Con", "+1 Ponto de Perícia"];
+  const g = ["+1 Ponto de Atributo (teto natural +6)", "Vida: role 1d" + (r?.dadoVida || 6) + " (ou pegue a média fixa " + (r?.vidaFixa || 3) + ") + Con", "+1 Ponto de Perícia"];
   if ([3, 5, 7, 9].includes(n)) g.push("+1 Slot de RAM (nível ímpar)");
   if (n === 5) { g.push("Teto de perícias sobe para +7"); if (c) g.push(`★ Especialização Veterana — ${c.vet.n}: ${c.vet.d}`); }
   if (n === 10 && r?.lendaria) g.push(`★★ Lendária da raça — ${r.lendaria.n}: ${r.lendaria.d}`);
@@ -185,8 +209,10 @@ async function telaHangar() {
     <div class="grid-fichas">${cards || `<div class="vazio"><p class="vazio-t">Nenhum tripulante registrado.</p></div>`}</div>
     <button id="novo" class="btn-novo">+ REGISTRAR NOVO TRIPULANTE</button>`, "hangar");
   $("#novo").onclick = async () => {
-    const { data, error } = await sb.from("personagens").insert({ dono_id: usuario.id, nome: "", dados: novaFichaDados() }).select("id").single();
-    if (!error) location.hash = `#/ficha/${data.id}`;
+    const u = await sessaoAtiva(); if (!u) return;
+    const { data, error } = await sb.from("personagens").insert({ dono_id: u.id, nome: "", dados: novaFichaDados() }).select("id").single();
+    if (error) return alert(error.message);
+    location.hash = `#/ficha/${data.id}`;
   };
   app.querySelectorAll(".card").forEach((c) => c.onclick = (e) => { if (!e.target.dataset.del) location.hash = `#/ficha/${c.dataset.id}`; });
   app.querySelectorAll("[data-del]").forEach((b) => b.onclick = async (e) => {
@@ -243,10 +269,10 @@ async function telaFicha(id) {
         </div>
         ${raca ? `<details class="det grande" open><summary>🧬 <b>${esc(raca.nome)}</b> (${raca.planeta}) — ${esc(raca.titulo)}</summary>
           <p>${esc(raca.lore)}</p>
-          <p class="regra">Vida por nível: 4d6 (tira o menor) ${sign(raca.vidaMod)} · ${["For","Des","Con","Int","Sab","Car"].map((a) => `${a} ${sign(raca.attrs[a])}`).join(" · ")}${raca.livre ? " · +4 pontos livres (máx. +2 cada) e +3 perícias" : ""}</p>
+          <p class="regra">Vida inicial (nível 1): 4d6 descarta o menor ${sign(raca.vidaMod)} + Con · Vida por nível: 1d${raca.dadoVida} (ou fixo ${raca.vidaFixa}) + Con · ${["For","Des","Con","Int","Sab","Car"].map((a) => `${a} ${sign(raca.attrs[a])}`).join(" · ")}${raca.livre ? " · +4 pontos livres (máx. +2 cada) e +3 perícias" : ""}</p>
           ${raca.habilidades.map((h) => `<p><b class="tech-c">${esc(h.n)}:</b> ${esc(h.d)}</p>`).join("")}
           ${raca.lendaria ? `<p class="sombra-c"><b>★★ Lendária (NV10) — ${esc(raca.lendaria.n)}:</b> ${esc(raca.lendaria.d)}${f.nivel < 10 ? " <i>(bloqueada até o nível 10)</i>" : " ✓ DESBLOQUEADA"}</p>` : ""}</details>` : ""}
-        ${classe ? `<details class="det grande" open><summary>⚙ <b>${esc(f.classe)}</b> — Vida base +${classe.pv}${k.isCin ? " · usa Int no Limite Cibernético" : ""}</summary>
+        ${classe ? `<details class="det grande" open><summary>⚙ <b>${esc(f.classe)}</b>${k.isCin ? " · usa Int no Limite Cibernético" : ""}</summary>
           <p class="regra">Perícias de classe: ${Object.entries(classe.pericias).map(([pn, v]) => `${pn} +${v}`).join(", ")}</p>
           ${classe.hab.map((h) => `<p><b class="tech-c">${h.tipo} — ${esc(h.n)}:</b> ${esc(h.d)}</p>`).join("")}
           <p><b class="chrome">★ Veterana (NV5) — ${esc(classe.vet.n)}:</b> ${esc(classe.vet.d)}${f.nivel < 5 ? " <i>(bloqueada até o nível 5)</i>" : " ✓ DESBLOQUEADA"}</p></details>` : ""}
@@ -260,12 +286,13 @@ async function telaFicha(id) {
           <a href="javascript:void 0" id="modo-rolagem" class="${f.modoAttr === "rolagem" ? "on" : ""}">Por rolagem</a>
           ${f.modoAttr === "rolagem" ? `<a href="javascript:void 0" id="rolar-pool" class="on" style="color:var(--chrome);border-color:var(--chrome)">🎲 ROLAR A ORIGEM (2d8×7)</a>` : ""}
         </div>
-        ${f.modoAttr === "rolagem" && f.rolagemPool.length ? `<p class="regra">Modificadores de Origem disponíveis: ${pool.length ? pool.map((v) => `<b class="chrome">${sign(v)}</b>`).join(" ") : "<i>todos distribuídos</i>"} — escolha em cada atributo abaixo. Regra: 2d8 sete vezes, descarta a pior soma; converte (2–4=−1 · 5–10=+0 · 11–15=+1 · 16=+2). Raça e pontos de nível (caixinha) somam por cima. Teto natural +6.</p>` : ""}
+        ${f.modoAttr === "rolagem" && f.rolagemPool.length ? `<p class="regra">Somas de Origem disponíveis: ${pool.length ? pool.map((v) => `<b class="chrome">${v}</b>`).join(" · ") : "<i>todas distribuídas</i>"} — escolha uma soma em cada atributo abaixo. Regra: 2d8 sete vezes, descarta a pior soma; a conversão em modificador (2–4=−1 · 5–10=+0 · 11–15=+1 · 16=+2) aparece ao lado ao distribuir. Raça e pontos de nível (caixinha) somam por cima. Teto natural +6.</p>` : ""}
         <div class="grid-attr">${["For","Des","Con","Int","Sab","Car"].map((a) => `
           <div class="attr ${k.attr[a] > 6 ? "warn" : ""}"><span class="attr-nome">${a}</span><span class="attr-total">${sign(k.attr[a])}</span>
           <span class="regra" style="margin:0">racial ${sign(raca ? raca.attrs[a] : 0)}</span>
           ${f.modoAttr === "rolagem" ? `<select class="sel-pool" data-a="${a}"><option value="">rolado —</option>
-            ${[...new Set([...pool, ...(f.rolagem[a] !== null ? [f.rolagem[a]] : [])])].sort((x, y) => y - x).map((v) => `<option value="${v}" ${f.rolagem[a] === v ? "selected" : ""}>${sign(v)}</option>`).join("")}</select>` : ""}
+            ${[...new Set([...pool, ...(f.rolagem[a] !== null ? [f.rolagem[a]] : [])])].sort((x, y) => y - x).map((v) => `<option value="${v}" ${f.rolagem[a] === v ? "selected" : ""}>${v} → ${sign(CONVERTE_2D8(v))}</option>`).join("")}</select>
+            ${f.rolagem[a] !== null ? `<span class="regra" style="margin:0">rolou ${f.rolagem[a]} → <b class="chrome">${sign(CONVERTE_2D8(f.rolagem[a]))}</b></span>` : ""}` : ""}
           <input class="pt-attr" data-a="${a}" type="number" min="0" value="${f.pontosAttr[a] || 0}" title="pontos de nível"/></div>`).join("")}</div>
         <div class="linha-4" style="margin-top:12px">
           <label>PV atual<input id="pvAtual" type="number" value="${f.pvAtual}"/></label>
@@ -274,7 +301,7 @@ async function telaFicha(id) {
           <label>RAM<input value="${k.ramLivre}/${k.ramMax}" disabled/></label>
         </div>
         <p class="regra">⏱️ Iniciativa <b class="chrome">${sign(k.iniciativa)}</b> (Des ${sign(k.attr.Des)}${k.iniBonus ? ` +${k.iniBonus} bônus de classe/filosofia` : ""}) · 🏃 Deslocamento <b class="chrome">${k.deslocamento}m</b> (base ${k.deslocBase} + 2m×Des${k.deslocBase === 18 ? ", ×2 Mercusys" : ""})</p>
-        ${classe && raca && f.pvMax === 0 ? `<button id="pv-inicial" class="mini eq">CALCULAR PV INICIAL (classe +${classe.pv} ${sign(raca.vidaMod)} raça ${sign(k.attr.Con)} Con)</button>` : ""}
+        ${classe && raca && f.pvMax === 0 ? `<button id="pv-inicial" class="mini eq">🎲 ROLAR PV DO NÍVEL 1 (4d6 tira o menor ${sign(raca.vidaMod)} raça ${sign(k.attr.Con)} Con)</button>` : ""}
         <p class="regra">Limite Cibernético: ${f.implantes.length}/${k.limite} · Patrimônio ref. NV${f.nivel}: ${RIQUEZA[f.nivel]} CG · Deck: ${f.deck.length}/${k.deckMax}${k.attr && ["For","Des","Con","Int","Sab","Car"].some((a) => k.attr[a] > 6) ? " · ⚠ atributo acima do teto +6" : ""}</p>
       </section>
 
@@ -296,8 +323,9 @@ async function telaFicha(id) {
         ${f.metodoNivel === "xp" ? `<div class="barra" style="margin-bottom:10px"><span>Progresso: ${f.xp}/${f.xpMeta} XP ${f.xp >= f.xpMeta ? "— PRONTO PARA SUBIR!" : ""}</span><div><i style="width:${Math.min(100, (100 * f.xp / Math.max(1, f.xpMeta)) | 0)}%;background:var(--tech)"></i></div></div>` : ""}
         ${f.nivel < 10 ? `
         <details class="det"><summary>O que você ganha no nível ${f.nivel + 1}</summary>${ganhos.map((g) => `<p>· ${esc(g)}</p>`).join("")}</details>
+        <label class="chk" style="margin:6px 0"><input type="checkbox" id="vida-fixa" ${f.usarVidaFixa ? "checked" : ""}/> Usar média fixa da vida ao subir de nível${raca ? ` (${raca.vidaFixa} + Con, sem rolar)` : ""}</label>
         <button id="levelup" class="btn-primario" ${f.metodoNivel === "xp" && f.xp < f.xpMeta ? "disabled title='XP insuficiente'" : ""}>▲ SUBIR PARA O NÍVEL ${f.nivel + 1}</button>
-        <span class="regra" style="margin-left:10px">rola a vida na hora, aplica os ganhos e registra tudo abaixo</span>` : `<p class="regra">★★ Nível máximo alcançado — uma Lenda do sistema.</p>`}
+        <span class="regra" style="margin-left:10px">${f.usarVidaFixa ? `soma a média fixa${raca ? ` (${raca.vidaFixa})` : ""}` : `rola 1d${raca ? raca.dadoVida : "?"}`} + Con, aplica os ganhos e registra abaixo</span>` : `<p class="regra">★★ Nível máximo alcançado — uma Lenda do sistema.</p>`}
       </section>
 
       <section class="sec"><header><span class="tag">%</span><h2>Perícias</h2>
@@ -350,9 +378,9 @@ async function telaFicha(id) {
       const somas = Array.from({ length: 7 }, () => rollNd(2, 8).reduce((a, b) => a + b, 0));
       somas.sort((a, b) => a - b);
       const pior = somas.shift(); // descarta a pior (menor soma)
-      f.rolagemPool = somas.map((v) => CONVERTE_2D8(v));
+      f.rolagemPool = somas; // guarda as SOMAS BRUTAS; a conversão acontece ao distribuir
       f.rolagem = { For: null, Des: null, Con: null, Int: null, Sab: null, Car: null };
-      registrar(`🎲 Origem rolada — 2d8×7, descartada a pior soma (${pior}). Somas: [${somas.join(", ")}] → modificadores [${f.rolagemPool.map(sign).join(", ")}] (total ${sign(f.rolagemPool.reduce((a, b) => a + b, 0))}). Distribua nos atributos; raça e pontos somam por cima.`);
+      registrar(`🎲 Origem rolada — 2d8 sete vezes, descartada a pior soma (${pior}). Somas guardadas: [${somas.join(", ")}]. Distribua cada soma num atributo; a conversão em modificador aparece ao lado. Raça e pontos somam por cima.`);
       render();
     });
     app.querySelectorAll(".sel-pool").forEach((s) => s.onchange = () => {
@@ -363,11 +391,14 @@ async function telaFicha(id) {
     app.querySelectorAll(".pt-attr").forEach((i) => i.oninput = () => { f.pontosAttr[i.dataset.a] = +i.value; });
     app.querySelectorAll(".pt-per").forEach((i) => i.oninput = () => { f.periciasExtra[i.dataset.p] = +i.value; });
     $("#pv-inicial")?.addEventListener("click", () => {
-      const k2 = calc(f); const base = Math.max(1, CLASSES[f.classe].pv + RACAS.find((r) => r.nome === f.raca).vidaMod + k2.attr.Con);
+      const k2 = calc(f); const r = RACAS.find((x) => x.nome === f.raca);
+      const { faces, fixo, val } = rolaDadoVida(r, f.usarVidaFixa);
+      const base = Math.max(1, val + k2.attr.Con);
       f.pvMax = base; f.pvAtual = base;
-      registrar(`❤ PV inicial calculado: ${CLASSES[f.classe].pv} classe ${sign(RACAS.find((r) => r.nome === f.raca).vidaMod)} raça ${sign(k2.attr.Con)} Con = ${base}.`);
+      registrar(`❤ PV do nível 1: ${fixo ? `fixo ${val}` : `1d${faces} [${val}]`} ${sign(k2.attr.Con)} Con = ${base} PV.`);
       render();
     });
+    $("#vida-fixa")?.addEventListener("change", (e) => { f.usarVidaFixa = e.target.checked; render(); });
     $("#metodo")?.addEventListener("change", (e) => { f.metodoNivel = e.target.value; render(); });
     $("#xp")?.addEventListener("input", (e) => { f.xp = +e.target.value; });
     $("#xpMeta")?.addEventListener("input", (e) => { f.xpMeta = +e.target.value; });
@@ -377,12 +408,19 @@ async function telaFicha(id) {
       if (f.nivel >= 10) return;
       const novoNv = f.nivel + 1;
       const k2 = calc(f); const r = RACAS.find((x) => x.nome === f.raca);
-      const dados = rollNd(4, 6); const menor = Math.min(...dados);
-      const ganhoPV = Math.max(1, menor + (r?.vidaMod || 0) + k2.attr.Con);
+      let ganhoPV, detalhe;
+      if (f.usarVidaFixa) {
+        ganhoPV = Math.max(1, (r?.vidaFixa || 3) + k2.attr.Con);
+        detalhe = `média fixa ${r?.vidaFixa} ${sign(k2.attr.Con)} Con`;
+      } else {
+        const rolou = d(r?.dadoVida || 6);
+        ganhoPV = Math.max(1, rolou + k2.attr.Con);
+        detalhe = `1d${r?.dadoVida} [${rolou}] ${sign(k2.attr.Con)} Con`;
+      }
       f.nivel = novoNv; f.pvMax += ganhoPV; f.pvAtual += ganhoPV;
       if (f.metodoNivel === "xp") { f.xp = Math.max(0, f.xp - f.xpMeta); f.xpMeta = novoNv * 1000; }
       const extras = ganhosDoNivel(novoNv, f).filter((g) => !g.startsWith("Vida"));
-      registrar(`▲ NÍVEL ${novoNv - 1} → ${novoNv}! Vida: 4d6 [${dados.join(", ")}] → menor ${menor} ${sign(r?.vidaMod || 0)} raça ${sign(k2.attr.Con)} Con = +${ganhoPV} PV (agora ${f.pvMax}). Ganhos: ${extras.join(" · ")}`);
+      registrar(`▲ NÍVEL ${novoNv - 1} → ${novoNv}! Vida: ${detalhe} = +${ganhoPV} PV (agora ${f.pvMax}). Ganhos: ${extras.join(" · ")}`);
       await salvar(); render();
       $("#st").textContent = `Nível ${novoNv}! +${ganhoPV} PV ✓ (salvo)`;
     });
@@ -418,12 +456,14 @@ async function telaCampanhas() {
     </section>`, "campanhas");
   $("#criar").onclick = async () => {
     const nome = $("#nova-nome").value.trim(); if (!nome) return;
-    const { data, error } = await sb.from("campanhas").insert({ nome, mestre_id: usuario.id }).select("id").single();
+    const u = await sessaoAtiva(); if (!u) return;
+    const { data, error } = await sb.from("campanhas").insert({ nome, mestre_id: u.id }).select("id").single();
     if (error) return alert(error.message);
-    await sb.from("campanha_membros").insert({ campanha_id: data.id, perfil_id: usuario.id });
+    await sb.from("campanha_membros").insert({ campanha_id: data.id, perfil_id: u.id });
     location.hash = `#/mesa/${data.id}`;
   };
   $("#entrar").onclick = async () => {
+    if (!(await sessaoAtiva())) return;
     const { data, error } = await sb.rpc("entrar_campanha", { cod: $("#codigo").value.trim() });
     if (error) return alert(error.message);
     location.hash = `#/mesa/${data}`;
@@ -443,15 +483,19 @@ async function telaMesa(id) {
   let meuPers = pers?.find((x) => x.dono_id === usuario.id) || null;
   const souMestre = camp.mestre_id === usuario.id;
 
-  const enviar = (tipo, conteudo, payload = null) =>
-    sb.from("mensagens").insert({ campanha_id: id, autor_id: usuario.id, personagem_id: meuPers?.id || null, tipo, conteudo, payload });
+  const enviar = async (tipo, conteudo, payload = null) => {
+    const { error } = await sb.from("mensagens").insert({ campanha_id: id, autor_id: usuario.id, personagem_id: meuPers?.id || null, tipo, conteudo, payload });
+    if (error) { alert("Não consegui transmitir: " + error.message); return false; }
+    return true;
+  };
 
   const rolarEEnviar = (titulo, mod, extras = {}) => {
     const nat = d(20), total = nat + mod;
     return enviar("rolagem", null, { titulo, detalhe: `d20 [${nat}] ${sign(mod)}`, total, crit: nat === 20, fumble: nat === 1, ...extras });
   };
 
-  const render = () => {
+  const render = async () => {
+    if (canalMesa) { sb.removeChannel(canalMesa); canalMesa = null; }
     const f = meuPers ? { ...novaFichaDados(), ...meuPers.dados } : null;
     const k = f ? calc(f) : null;
     const armasEq = f ? (f.inventario || []).filter((i) => i.tipo === "arma" && i.equip) : [];
@@ -510,7 +554,9 @@ async function telaMesa(id) {
 
     // ---- chat render ----
     const chatEl = $("#chat");
+    const idsVistos = new Set();
     const addMsg = (m) => {
+      if (idsVistos.has(m.id)) return; idsVistos.add(m.id);
       const quem = esc(m.perfis?.apelido || "?");
       const persN = m.personagem_id ? esc(pers?.find((x) => x.id === m.personagem_id)?.nome || "") : "";
       let corpo = "";
@@ -545,6 +591,9 @@ async function telaMesa(id) {
     (msgs || []).forEach(addMsg);
 
     // ---- realtime ----
+    // Passa o token do usuário pro socket realtime; sem isso o canal entra como
+    // anônimo e a RLS de mensagens filtra tudo (nada chega na mesa).
+    try { const { data: { session } } = await sb.auth.getSession(); if (session?.access_token) sb.realtime.setAuth(session.access_token); } catch (_) {}
     canalMesa = sb.channel(`mesa-${id}`)
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "mensagens", filter: `campanha_id=eq.${id}` },
         async (pl) => { const { data: m } = await sb.from("mensagens").select("*,perfis:autor_id(apelido,avatar_url)").eq("id", pl.new.id).single(); if (m) addMsg(m); })

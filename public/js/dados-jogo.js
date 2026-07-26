@@ -3,10 +3,12 @@
 export const RACAS = [
  {
   "nome": "Mercusys",
+  "vidaMod": -2,
+  "dadoVida": 6,
+  "vidaFixa": 3,
   "planeta": "Mercúrio",
   "titulo": "Os Nômades da Velocidade e do Momento Presente",
   "lore": "Nascidos sob a fúria implacável da estrela central do sistema, os Mercusys são seres humanoides altos, esguios, de pele avermelhada e quatro pernas que lhes conferem uma estabilidade e propulsão inigualáveis. Para sobreviver à radiação e ao calor de Mercúrio, evoluíram com um metabolismo alucinante. Tudo neles é rápido: o movimento, o raciocínio, a regeneração celular e, tragicamente, o esquecimento.Culturalmente, os Mercusys não constroem grandes bibliotecas ou impérios duradouros. Eles vivem num eterno \"agora\". A sua sociedade baseia-se na tradição oral e sensorial. Os inaladores sensitivos nas pontas dos seus quatro dedos permitem-lhes ler a composição química do universo apenas pelo toque. São exploradores natos, mensageiros de elite e batedores que preferem a liberdade de correr pelos desertos escaldantes ou pelos corredores de uma nave a ficarem presos a burocracias que, de qualquer forma, esquecerão em duas semanas.",
-  "vidaMod": -2,
   "attrs": {
    "For": 0,
    "Des": 3,
@@ -37,10 +39,12 @@ export const RACAS = [
  },
  {
   "nome": "Ven'y",
+  "vidaMod": -1,
+  "dadoVida": 8,
+  "vidaFixa": 4,
   "planeta": "Vênus",
   "titulo": "Os Predadores da Bruma e Alquimistas do Fôlego",
   "lore": "A atmosfera maciça e esmagadora de Vénus forjou uma raça de predadores formidáveis. Os Ven'y possuem uma pele em tons de azul e verde, desenhada para se camuflar nas densas florestas de gases do seu mundo, e uma estrutura muscular capaz de suportar pressões que esmagariam um humano num instante. Não são conhecidos pela sua filosofia ou tecnologia avançada, mas sim pela sua intuição predatória de excelência e pelo seu sistema respiratório único. Os Ven'y possuem múltiplos pulmões e câmaras internas capazes de processar, isolar e sintetizar quase qualquer gás do universo. Na sua cultura tribal de caçadores, o ar não é apenas sobrevivência; é combustível mágico. Um guerreiro Ven'y carrega frequentemente cilindros de gases comprimidos como se fossem poções, alterando a sua própria biologia a meio de uma caçada para se adaptar à presa.",
-  "vidaMod": -1,
   "attrs": {
    "For": 1,
    "Des": 2,
@@ -63,10 +67,12 @@ export const RACAS = [
  },
  {
   "nome": "Terráqueo",
+  "vidaMod": 0,
+  "dadoVida": 8,
+  "vidaFixa": 4,
   "planeta": "Terra",
   "titulo": "A Força da Adaptação e a Gestão da Sobrevivência",
   "lore": "Os seres humanos não possuem a força esmagadora dos Marcianos, os pulmões alquímicos dos Ven'y ou o intelecto telepático dos Proturnos. Aos olhos do universo, a biologia terráquea é tragicamente frágil. Contudo, a sua verdadeira vantagem evolutiva é a resiliência absoluta. Em um universo implacável, os Terráqueos são os mestres indiscutíveis da sobrevivência e da gestão de crises.",
-  "vidaMod": 0,
   "attrs": {
    "For": 0,
    "Des": 0,
@@ -93,10 +99,12 @@ export const RACAS = [
  },
  {
   "nome": "Marciano",
+  "vidaMod": 2,
+  "dadoVida": 10,
+  "vidaFixa": 5,
   "planeta": "Marte",
   "titulo": "O Conclave da Guerra e a Dualidade do Sangue",
   "lore": "Marte é um mundo fraturado por milênios de conflitos. Antes um planeta verdejante, hoje é um deserto vermelho forjado pelo fogo de milhares de bombas nucleares. A sociedade marciana se dividiu em grandes conclaves e irmandades ideológicas que disputam cada centímetro de poeira e recursos, sendo as duas maiores facções os Phobos e os Deimos.",
-  "vidaMod": 2,
   "attrs": {
    "For": 3,
    "Des": -1,
@@ -123,10 +131,12 @@ export const RACAS = [
  },
  {
   "nome": "Conjupitero",
+  "vidaMod": -3,
+  "dadoVida": 8,
+  "vidaFixa": 4,
   "planeta": "Júpiter",
   "titulo": "Os Titãs da Engenharia e os Senhores da Gravidade",
   "lore": "Viver no maior e mais esmagador planeta do Sistema Solar forjou os Conjupiteros de maneira única. Sob uma gravidade que transformaria um humano em geléia, eles evoluíram como seres extremamente compactos: medem em média apenas 80 centímetros, mas pesa 120 quilos de puro músculo denso e ossos reforçados.",
-  "vidaMod": -3,
   "attrs": {
    "For": 2,
    "Des": -2,
@@ -157,10 +167,12 @@ export const RACAS = [
  },
  {
   "nome": "Sata",
+  "vidaMod": -1,
+  "dadoVida": 6,
+  "vidaFixa": 3,
   "planeta": "Saturno",
   "titulo": "Os Cultistas do Anel e Moldadores Genéticos",
   "lore": "Altos, serenos e de formato humanoide (medindo cerca de 1,90m), os Satas são uma raça profundamente religiosa e cientificamente brilhante. Para eles, a fé e a biologia são a mesma coisa. Eles cultuam os anéis de Saturno, acreditando serem estilhaços do núcleo primordial que deu origem à vida. Esta devoção levou-os a desenvolver a medicina e a manipulação genética mais avançadas de todo o sistema.",
-  "vidaMod": -1,
   "attrs": {
    "For": -1,
    "Des": 1,
@@ -191,10 +203,12 @@ export const RACAS = [
  },
  {
   "nome": "Urak",
+  "vidaMod": -1,
+  "dadoVida": 8,
+  "vidaFixa": 4,
   "planeta": "Urano",
   "titulo": "A Voz do Zero Absoluto",
   "lore": "Ninguém fora do seu planeta sabe como é o rosto de um Urak. Escondidos sob pesadas camadas de pelagens grossas e trajes de contenção térmica, eles habitam os desertos gelados de Urano. A sua anatomia foi desenhada para o Zero Absoluto. Mais impressionante do que a sua resistência ao frio é o seu aparelho fonador: possuem cerca de 150 cordas vocais, capazes de replicar qualquer frequência, instrumento ou timbre com uma perfeição assustadora.",
-  "vidaMod": -1,
   "attrs": {
    "For": 0,
    "Des": -1,
@@ -225,10 +239,12 @@ export const RACAS = [
  },
  {
   "nome": "Proturno",
+  "vidaMod": -3,
+  "dadoVida": 6,
+  "vidaFixa": 3,
   "planeta": "Netuno",
   "titulo": "O Domínio da Sombra e a Soberania Mental",
   "lore": "Habitantes dos confins gelados e escuros do Cinturão de Kuiper, os Proturnos desenvolveram a sociedade mais intelectualmente rígida da galáxia. Fisicamente, possuem pele azulada, estatura mediana (1,70m) e crânios levemente alongados para acomodar cérebros que funcionam como super computadores quânticos.",
-  "vidaMod": -3,
   "attrs": {
    "For": -1,
    "Des": 0,
@@ -255,10 +271,12 @@ export const RACAS = [
  },
  {
   "nome": "Infimor",
+  "vidaMod": 3,
+  "dadoVida": 10,
+  "vidaFixa": 5,
   "planeta": "Plutão",
   "titulo": "Os Titãs Esquecidos do Vácuo",
   "lore": "Com quase três metros de altura no seu estado relaxado, os Infimor's são lentos, milenares e carregam o ressentimento de um sistema inteiro. O rebaixamento de Plutão a \"planeta anão\" não foi apenas uma ofensa astronômica; para eles, foi um insulto cultural imperdoável. A sua anatomia reflete a vastidão do espaço profundo: não respiram, sobrevivem perfeitamente no vácuo e os seus membros são compostos por cartilagens hiper-elásticas que se podem esticar até 10 metros.",
-  "vidaMod": 3,
   "attrs": {
    "For": 3,
    "Des": -1,
