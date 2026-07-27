@@ -458,7 +458,7 @@ async function telaCampanhas() {
     <header class="masthead"><h1>CAMPANHAS<span> ATIVAS</span></h1></header>
     <section class="sec"><header><span class="tag">☄</span><h2>Minhas mesas</h2></header>
       ${(minhas || []).map((c) => `<div class="inv"><span><b>${esc(c.nome)}</b> · código <b class="chrome">${c.codigo}</b>${c.mestre_id === usuario.id ? " · você é o Mestre" : ""}</span>
-        <a class="mini" href="#/mesa/${c.id}">ABRIR MESA</a></div>`).join("") || `<p class="regra">Nenhuma campanha ainda.</p>`}
+        <span style="display:flex;gap:6px"><a class="mini" href="#/mesa/${c.id}">ABRIR MESA</a>${c.mestre_id === usuario.id ? `<button class="mini rm" data-del-camp="${c.id}" data-nome="${esc(c.nome)}">EXCLUIR</button>` : ""}</span></div>`).join("") || `<p class="regra">Nenhuma campanha ainda.</p>`}
     </section>
     <section class="sec"><header><span class="tag">+</span><h2>Criar ou entrar</h2></header>
       <div class="linha-add"><input id="nova-nome" placeholder="Nome da nova campanha"/><button id="criar" class="btn-primario">CRIAR</button></div>
@@ -478,6 +478,13 @@ async function telaCampanhas() {
     if (error) return alert(error.message);
     location.hash = `#/mesa/${data}`;
   };
+  app.querySelectorAll("[data-del-camp]").forEach((b) => b.onclick = async () => {
+    if (!confirm(`Excluir a campanha "${b.dataset.nome}"?\n\nIsso apaga a mesa e todo o histórico de mensagens, e remove os jogadores da campanha. Os personagens deles NÃO são apagados — apenas desvinculados. Esta ação é permanente.`)) return;
+    if (!(await sessaoAtiva())) return;
+    const { error } = await sb.from("campanhas").delete().eq("id", b.dataset.delCamp);
+    if (error) return alert("Não consegui excluir: " + error.message);
+    telaCampanhas();
+  });
 }
 
 // ---------------- MESA (chat + rolagens + dano + nave) ----------------
