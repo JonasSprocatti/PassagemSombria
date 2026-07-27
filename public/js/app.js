@@ -418,7 +418,8 @@ async function telaFicha(id) {
           ${f.modoAttr === "rolagem" ? `<select class="sel-pool" data-a="${a}"><option value="">rolado —</option>
             ${[...new Set([...pool, ...(f.rolagem[a] !== null ? [f.rolagem[a]] : [])])].sort((x, y) => y - x).map((v) => `<option value="${v}" ${f.rolagem[a] === v ? "selected" : ""}>${v} → ${sign(CONVERTE_2D8(v))}</option>`).join("")}</select>
             ${f.rolagem[a] !== null ? `<span class="regra" style="margin:0">rolou ${f.rolagem[a]} → <b class="chrome">${sign(CONVERTE_2D8(f.rolagem[a]))}</b></span>` : ""}` : ""}
-          <input class="pt-attr" data-a="${a}" type="number" min="0" value="${f.pontosAttr[a] || 0}" title="pontos de nível"/></div>`).join("")}</div>
+          <span class="regra" style="margin:6px 0 0;display:block;font-size:9px">pontos de nível (+1/nível a partir do NV2)</span>
+          <input class="pt-attr" data-a="${a}" type="number" min="0" value="${f.pontosAttr[a] || 0}" title="Distribua aqui os pontos de atributo ganhos ao subir de nível (+1 por nível, a partir do nível 2)."/></div>`).join("")}</div>
         <div class="linha-4" style="margin-top:12px">
           <label>PV atual<input id="pvAtual" type="number" value="${f.pvAtual}"/></label>
           <label>PV máx<input id="pvMax" type="number" value="${f.pvMax}"/></label>
@@ -630,10 +631,13 @@ async function telaMesa(id) {
   const { data: meus } = await sb.from("personagens").select("id,nome").eq("dono_id", usuario.id);
   let meuPers = pers?.find((x) => x.dono_id === usuario.id) || null;
   const souMestre = camp.mestre_id === usuario.id;
+  let pintarMsg = null;          // aponta pro addMsg do render atual (renderização otimista)
+  const historico = msgs || [];  // lista mutável de mensagens (sobrevive a re-renders)
 
   const enviar = async (tipo, conteudo, payload = null) => {
-    const { error } = await sb.from("mensagens").insert({ campanha_id: id, autor_id: usuario.id, personagem_id: meuPers?.id || null, tipo, conteudo, payload });
+    const { data, error } = await sb.from("mensagens").insert({ campanha_id: id, autor_id: usuario.id, personagem_id: meuPers?.id || null, tipo, conteudo, payload }).select("*,perfis:autor_id(apelido,avatar_url)").single();
     if (error) { alert("Não consegui transmitir: " + error.message); return false; }
+    pintarMsg?.(data, true); // mostra na hora, sem depender do realtime voltar
     return true;
   };
 
@@ -692,11 +696,14 @@ async function telaMesa(id) {
           <section class="sec"><header><span class="tag">👥</span><h2>Tripulação</h2></header>
             ${(membros || []).map((m) => `<p class="regra">${esc(m.perfis?.apelido)}${m.posto ? ` · ${ESTACOES[m.posto]?.n}` : ""}${m.perfil_id === camp.mestre_id ? " · MESTRE" : ""}</p>`).join("")}
           </section>
+          ${souMestre ? `<section class="sec"><header><span class="tag">☾</span><h2>Controles do Mestre</h2></header>
+            <p class="regra">Convoque um descanso para toda a mesa. Cada jogador conectado com personagem vinculado recupera automaticamente na própria ficha.</p>
+            <div class="filtros" style="margin-top:8px"><button id="mestre-curto" class="mini">☾ Descanso Curto (todos)</button><button id="mestre-longo" class="mini eq">🌙 Descanso Longo (todos)</button></div>
+          </section>` : ""}
         </div>
         <section class="sec mesa-chat">
           <header><span class="tag">≣</span><h2>Mesa · transmissão ao vivo</h2></header>
           <div id="chat" class="chat"></div>
-          ${souMestre ? `<div class="filtros" style="margin:6px 0"><span class="regra" style="margin:0 4px 0 0">Mestre:</span><button id="mestre-curto" class="mini">☾ Descanso Curto (todos)</button><button id="mestre-longo" class="mini eq">🌙 Descanso Longo (todos)</button></div>` : ""}
           <div class="linha-add"><input id="msg" placeholder="Transmitir mensagem… (/r 2d6+1 rola dados)"/><button id="enviar-msg" class="btn-primario">▶</button></div>
         </section>
       </div>`, "campanhas");
@@ -706,6 +713,7 @@ async function telaMesa(id) {
     const idsVistos = new Set();
     const addMsg = (m, aoVivo = false) => {
       if (idsVistos.has(m.id)) return; idsVistos.add(m.id);
+      if (aoVivo && !historico.some((x) => x.id === m.id)) historico.push(m); // persiste entre re-renders
       const quem = esc(m.perfis?.apelido || "?");
       const persN = m.personagem_id ? esc(pers?.find((x) => x.id === m.personagem_id)?.nome || "") : "";
       let corpo = "";
@@ -748,7 +756,8 @@ async function telaMesa(id) {
         })();
       }
     };
-    (msgs || []).forEach((m) => addMsg(m));
+    pintarMsg = addMsg;
+    historico.forEach((m) => addMsg(m));
 
     // ---- realtime ----
     // Passa o token do usuário pro socket realtime; sem isso o canal entra como
