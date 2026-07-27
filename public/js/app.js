@@ -128,6 +128,72 @@ export function ganhosDoNivel(n, f) {
   return g;
 }
 
+// ---------------- FICHA IMPRIMÍVEL (PDF / download) ----------------
+// Gera um documento HTML autossuficiente, tema claro (economiza tinta), pronto p/ impressão.
+function gerarFichaHTML(nome, f, k) {
+  const raca = RACAS.find((r) => r.nome === f.raca), classe = CLASSES[f.classe];
+  const filo = f.filosofia ? FILOSOFIAS[f.filosofia] : null;
+  const ATTRS = ["For", "Des", "Con", "Int", "Sab", "Car"];
+  const attrCard = (a) => `<div class="a"><span class="an">${a}</span><span class="av">${sign(k.attr[a])}</span></div>`;
+  const perLinha = (pn, at) => { const tot = (k.attr[at] || 0) + (k.per[pn] || 0); const tr = (k.per[pn] || 0) > 0; return `<tr class="${tr ? "tr" : ""}"><td>${tr ? "▣" : "☐"}</td><td>${esc(pn)}</td><td class="dim">${at}</td><td class="tot">${sign(tot)}</td></tr>`; };
+  const half = Math.ceil(PERICIAS.length / 2);
+  const perTab = (lista) => `<table class="per"><thead><tr><th></th><th>Perícia</th><th>Atr</th><th>Tot</th></tr></thead><tbody>${lista.map(([pn, at]) => perLinha(pn, at)).join("")}</tbody></table>`;
+  const habs = [];
+  if (raca) raca.habilidades.forEach((h) => habs.push([`${raca.nome} — ${h.n}`, h.d]));
+  if (raca?.lendaria && f.nivel >= 10) habs.push([`★★ Lendária — ${raca.lendaria.n}`, raca.lendaria.d]);
+  if (classe) classe.hab.forEach((h) => habs.push([`${f.classe} (${h.tipo}) — ${h.n}`, h.d]));
+  if (classe && f.nivel >= 5) habs.push([`★ Veterana — ${classe.vet.n}`, classe.vet.d]);
+  if (filo) habs.push([`Filosofia — ${f.filosofia}`, filo.d]);
+  const implantes = (f.implantes || []).map((nm) => { const im = Object.values(IMPLANTES).find((x) => x.n === nm); return im ? `<li><b>${esc(im.n)}</b> <span class="dim">(${esc(im.g)})</span> — ${esc(im.e)}</li>` : `<li>${esc(nm)}</li>`; }).join("");
+  const deck = (f.deck || []).map((nm) => { const s = SCRIPTS.find((x) => x.n === nm); return s ? `<li><b>${esc(s.n)}</b> <span class="dim">${s.c}◈ · ${esc(s.a)}</span> — ${esc(s.d)}</li>` : `<li>${esc(nm)}</li>`; }).join("");
+  const inv = (f.inventario || []).map((it) => `<li>${it.equip ? "▣ " : ""}<b>${esc(it.nome)}</b> <span class="dim">(${esc(it.tipo)}${it.qtd > 1 ? ` ×${it.qtd}` : ""})</span></li>`).join("");
+  const css = `*{box-sizing:border-box}body{font-family:'Segoe UI',system-ui,sans-serif;color:#15181f;margin:0;padding:26px;background:#fff;font-size:12px;line-height:1.4}
+  h1{font-size:22px;margin:0 0 2px;letter-spacing:.02em}h2{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:#7a4bd0;border-bottom:1.5px solid #d9c9f5;padding-bottom:3px;margin:16px 0 8px}
+  .sub{color:#555;margin:0 0 10px;font-size:13px}.top{display:flex;gap:16px;align-items:flex-start}.retr{width:96px;height:96px;border:2px solid #cbb6ef;border-radius:10px;object-fit:cover;flex:0 0 auto}
+  .grid6{display:grid;grid-template-columns:repeat(6,1fr);gap:6px}.a{border:1.5px solid #d9c9f5;border-radius:8px;text-align:center;padding:7px 2px}.an{display:block;font-size:10px;color:#777;text-transform:uppercase}.av{display:block;font-size:20px;font-weight:700;color:#111}
+  .vit{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:8px}.vit div{border:1px solid #e0e0e0;border-radius:6px;padding:6px 8px}.vit b{display:block;font-size:16px}
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:14px}.per{width:100%;border-collapse:collapse}.per th{text-align:left;font-size:9px;color:#999;text-transform:uppercase;padding:2px 4px}.per td{padding:2px 4px;border-bottom:1px solid #eee}.per .tot{text-align:right;font-weight:700}.per .tr{background:#faf6ff}.dim{color:#999}
+  ul{margin:4px 0;padding-left:16px}li{margin:3px 0}.hab b{color:#0e7a68}.notas{white-space:pre-wrap;border:1px solid #e0e0e0;border-radius:6px;padding:8px;min-height:40px}
+  @page{margin:14mm}@media print{body{padding:0}h2{break-after:avoid}li,tr,.a{break-inside:avoid}}`;
+  return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Ficha — ${esc(nome || "Personagem")}</title><style>${css}</style></head><body>
+  <div class="top">${f.foto ? `<img class="retr" src="${f.foto}"/>` : ""}<div>
+    <h1>${esc(nome || "Sem nome")}</h1>
+    <p class="sub">${[raca ? `${raca.nome} (${raca.planeta})` : "", f.classe, f.filosofia].filter(Boolean).join(" · ")} — Nível ${f.nivel}</p>
+    <div class="grid6">${ATTRS.map(attrCard).join("")}</div>
+    <div class="vit">
+      <div><span class="dim">Pontos de Vida</span><b>${f.pvAtual || 0} / ${f.pvMax || 0}</b></div>
+      <div><span class="dim">Defesa (CD)</span><b>${k.cd}</b></div>
+      <div><span class="dim">RAM</span><b>${k.ramLivre} / ${k.ramMax}</b></div>
+      <div><span class="dim">Iniciativa</span><b>${sign(k.iniciativa)}</b></div>
+      <div><span class="dim">Deslocamento</span><b>${k.deslocamento} m</b></div>
+      <div><span class="dim">Créditos</span><b>${f.creditos ?? 0} CG</b></div>
+    </div>
+  </div></div>
+  <h2>Perícias</h2><div class="cols">${perTab(PERICIAS.slice(0, half))}${perTab(PERICIAS.slice(half))}</div>
+  ${habs.length ? `<h2>Habilidades</h2><ul class="hab">${habs.map(([n, d]) => `<li><b>${esc(n)}:</b> ${esc(d)}</li>`).join("")}</ul>` : ""}
+  ${implantes ? `<h2>Implantes</h2><ul>${implantes}</ul>` : ""}
+  ${deck ? `<h2>Deck de Scripts (${f.deck.length}/${k.deckMax})</h2><ul>${deck}</ul>` : ""}
+  ${inv ? `<h2>Inventário</h2><ul>${inv}</ul>` : ""}
+  <h2>Anotações</h2><div class="notas">${esc(f.notas || "")}</div>
+  </body></html>`;
+}
+function imprimirFichaHTML(html) {
+  const ifr = document.createElement("iframe");
+  ifr.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0";
+  document.body.appendChild(ifr);
+  const doc = ifr.contentWindow.document;
+  doc.open(); doc.write(html); doc.close();
+  setTimeout(() => { try { ifr.contentWindow.focus(); ifr.contentWindow.print(); } catch (_) {} setTimeout(() => ifr.remove(), 1500); }, 350);
+}
+function baixarFichaHTML(html, nome) {
+  const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = `Ficha - ${(nome || "personagem").replace(/[^\w\s-]/g, "").trim() || "personagem"}.html`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
 function aplicarTema(f) {
   const t = f?.tema || TEMAS["Vácuo"];
   document.documentElement.style.setProperty("--tech", t.tech);
@@ -252,7 +318,7 @@ async function telaFicha(id) {
     usados.forEach((v) => { const i = pool.indexOf(v); if (i >= 0) pool.splice(i, 1); });
     const ganhos = ganhosDoNivel(f.nivel + 1, f);
     shell("ficha", `
-      <nav class="topo"><a class="btn-ghost" href="#/hangar">← HANGAR</a><div class="topo-status" id="st"></div><button id="salvar" class="btn-primario">SALVAR</button></nav>
+      <nav class="topo"><a class="btn-ghost" href="#/hangar">← HANGAR</a><div class="topo-status" id="st"></div><button id="imprimir" class="btn-ghost" title="Abre o diálogo de impressão — escolha 'Salvar como PDF'">🖨 PDF</button><button id="baixar" class="btn-ghost" title="Baixa a ficha como arquivo .html">💾 .html</button><button id="salvar" class="btn-primario">SALVAR</button></nav>
 
       <section class="sec">
         <header><span class="tag">ID</span><h2>Identidade</h2></header>
@@ -373,6 +439,8 @@ async function telaFicha(id) {
 
     // ---- binds ----
     $("#salvar").onclick = async () => { $("#st").textContent = "Transmitindo…"; await salvar(); $("#st").textContent = "Salvo ✓"; };
+    $("#imprimir").onclick = () => { const nome = $("#nome")?.value || p.nome; imprimirFichaHTML(gerarFichaHTML(nome, f, calc(f))); };
+    $("#baixar").onclick = () => { const nome = $("#nome")?.value || p.nome; baixarFichaHTML(gerarFichaHTML(nome, f, calc(f)), nome); };
     $("#nome").oninput = (e) => { p.nome = e.target.value; f.nomeVisivel = e.target.value; };
     $("#foto-in")?.addEventListener("change", (e) => {
       const file = e.target.files?.[0]; if (!file) return;
