@@ -4,7 +4,7 @@
 // ============================================================
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./config.js";
-import { RACAS, CLASSES, FILOSOFIAS, IMPLANTES, SCRIPTS, ARMAS, ARMADURAS, PERICIAS, NAVES, ESTACOES, REGRAS_NAVE, RIQUEZA, TEMAS, CONVERTE_2D8, RENOME_PERICIAS } from "./dados-jogo.js";
+import { RACAS, CLASSES, FILOSOFIAS, IMPLANTES, SCRIPTS, ARMAS, ARMADURAS, PERICIAS, NAVES, ESTACOES, REGRAS_NAVE, RIQUEZA, TEMAS, CONVERTE_2D8, RENOME_PERICIAS, KEYWORDS, propsArma } from "./dados-jogo.js";
 
 export const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const app = document.getElementById("app");
@@ -684,8 +684,10 @@ async function telaMesa(id) {
             <div class="acoes-mesa">
               <select id="sel-per">${PERICIAS.map(([pn]) => `<option>${pn}</option>`).join("")}</select>
               <button id="rolar-per" class="mini">TESTE</button>
-              ${armasEq.map((a, i) => { const cat = ARMAS.find((x) => x.n === a.nome);
-                return `<button class="mini atq" data-atq="${i}">⚔ ${esc(a.nome)} (${cat?.dano})</button>`; }).join("")}
+              ${armasEq.length ? `<label class="chk" style="margin:0" title="Ataque furtivo: +2 no acerto (armas Ocultas / Assassino) e dano DOBRADO para o Assassino."><input type="checkbox" id="atq-furtivo"/> 🥷 Furtivo</label>` : ""}
+              ${armasEq.map((a, i) => { const cat = ARMAS.find((x) => x.n === a.nome); const pr = cat ? propsArma(cat) : {};
+                const tip = [cat?.kw ? `${cat.kw}: ${pr.efeito}` : "", pr.area ? `Área: ${pr.areaTxt}` : "", pr.alcance ? `Alcance: ${pr.alcanceTxt}` : "", pr.agil ? "Ágil (Des)" : ""].filter(Boolean).join(" · ");
+                return `<button class="mini atq" data-atq="${i}" title="${esc(tip)}">⚔ ${esc(a.nome)} (${cat?.dano})${pr.area ? " ◎" : ""}${pr.agil ? " ⚡" : ""}</button>`; }).join("")}
               <select id="sel-scr">${(f.deck.length ? SCRIPTS.filter((s) => f.deck.includes(s.n)) : SCRIPTS.filter((s) => s.c === 0)).map((s) => `<option>${esc(s.n)}</option>`).join("")}</select>
               <button id="conjurar" class="mini">⚡ CONJURAR</button>
               <input id="dado-livre" placeholder="2d6+1" style="width:80px"/><button id="rolar-livre" class="mini">🎲</button>
@@ -808,12 +810,28 @@ async function telaMesa(id) {
         rolarEEnviar(`Teste de ${pn}`, k.attr[at] + k.per[pn]); };
       app.querySelectorAll("[data-atq]").forEach((b) => b.onclick = () => {
         const a = armasEq[+b.dataset.atq]; const cat = ARMAS.find((x) => x.n === a.nome);
-        const mod = k.attr[cat.attr] + k.per[cat.per] + (cat.tipo === "fogo" && f.implantes.includes("Olho Biônico de Precisão") ? 2 : 0);
-        const nat = d(20); const pd = parseDice(cat.dano); const mult = nat === 20 ? 2 : 1;
-        const dados = rollNd(pd.n * mult, pd.f);
-        const danoMod = k.attr[cat.attr] + (cat.tipo === "branca" && f.implantes.includes("Braço Mecânico Hidráulico") ? 2 : 0);
-        enviar("rolagem", null, { titulo: `Ataque — ${a.nome}`, detalhe: `d20 [${nat}] ${sign(mod)} · dano ${cat.dano}${nat === 20 ? "×2" : ""} [${dados.join(", ")}] ${sign(danoMod)}`,
-          total: nat + mod, crit: nat === 20, fumble: nat === 1, extra: `Dano: ${dados.reduce((x, y) => x + y, 0) + danoMod}` }); });
+        const pr = propsArma(cat);
+        const furtivo = $("#atq-furtivo")?.checked;
+        const assassino = f.classe === "Assassino";
+        // Ágil: usa o melhor de For/Des no acerto e no dano
+        const atkAttr = pr.agil ? (k.attr.Des >= k.attr.For ? "Des" : "For") : cat.attr;
+        const mod = k.attr[atkAttr] + k.per[cat.per]
+          + (cat.tipo === "fogo" && f.implantes.includes("Olho Biônico de Precisão") ? 2 : 0)
+          + (furtivo && pr.oculta ? 2 : 0)          // Oculta: +2 no furtivo
+          + (furtivo && assassino ? 2 : 0);          // Assassino: +2 no furtivo
+        const nat = d(20);
+        const pd = parseDice(cat.dano);
+        // dobra o dano por Crítico (20) e/ou Ataque Furtivo do Assassino (cada um adiciona um conjunto de dados)
+        const sets = 1 + (nat === 20 ? 1 : 0) + (furtivo && assassino ? 1 : 0);
+        let dados = rollNd(pd.n * sets, pd.f);
+        if (pr.brutal) { const d2 = rollNd(pd.n * sets, pd.f); if (d2.reduce((x, y) => x + y, 0) > dados.reduce((x, y) => x + y, 0)) dados = d2; } // Brutal: vantagem no dano
+        const danoMod = k.attr[atkAttr] + (cat.tipo === "branca" && f.implantes.includes("Braço Mecânico Hidráulico") ? 2 : 0);
+        const marcadores = [nat === 20 ? "CRÍTICO ×2" : "", furtivo && assassino ? "FURTIVO ×2" : furtivo ? "furtivo +2 acerto" : "", pr.agil ? `Ágil (${atkAttr})` : "", pr.brutal ? "Brutal (vantagem)" : ""].filter(Boolean).join(" · ");
+        const infoArma = [pr.area ? `◎ Área: ${pr.areaTxt}` : "", pr.alcance ? `⟿ Alcance: ${pr.alcanceTxt}` : "", cat.kw ? `🏷 ${cat.kw}: ${pr.efeito}` : ""].filter(Boolean).join("  ·  ");
+        enviar("rolagem", null, { titulo: `Ataque — ${a.nome}${furtivo ? " 🥷" : ""}`,
+          detalhe: `d20 [${nat}] ${sign(mod)} · dano ${cat.dano}${sets > 1 ? `×${sets}` : ""} [${dados.join(", ")}] ${sign(danoMod)}${marcadores ? " · " + marcadores : ""}`,
+          total: nat + mod, crit: nat === 20, fumble: nat === 1,
+          extra: `Dano: ${dados.reduce((x, y) => x + y, 0) + danoMod}${infoArma ? "  —  " + infoArma : ""}` }); });
       $("#conjurar").onclick = async () => {
         const s = SCRIPTS.find((x) => x.n === $("#sel-scr").value);
         if (s.c > k.ramLivre) return enviar("sistema", `${p.nome || perfil.apelido} tentou conjurar ${s.n} sem RAM suficiente (Overclock manual: 1d6/ponto).`);

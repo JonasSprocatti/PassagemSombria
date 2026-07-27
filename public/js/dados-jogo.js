@@ -991,3 +991,69 @@ export const TEMAS = {
  "Vênus":{tech:"#8be05a",chrome:"#f0d060",sombra:"#50c8a0"},
  "Mercúrio":{tech:"#ffd24d",chrome:"#ff8c42",sombra:"#f0e68c"},
 };
+
+// ---------------- PROPRIEDADES DE ARMAS (palavras-chave mecanizadas) ----------------
+// Efeito curto de cada palavra-chave, para exibir na rolagem e o jogador aplicar.
+export const KEYWORDS = {
+  "Oculta": "+2 no acerto contra desprevenidos ou em Ataque Furtivo.",
+  "Ultra-Oculta / Surpresa": "Quase indetectável; +2 no acerto em surpresa/furtivo.",
+  "Ágil": "Pode usar Destreza no lugar de Força no acerto e no dano.",
+  "Compacto e Ágil": "Compacta; pode usar Destreza no acerto e no dano.",
+  "Híbrida de Atributo": "Usa o melhor entre Força e Destreza.",
+  "Aderência": "Vantagem em Acrobacia para escalar; +2 de dano fixo atacando de um ponto elevado.",
+  "Derretimento": "Ignora qualquer bônus de armadura metálica do alvo.",
+  "Concussão": "Acerto Crítico (20 natural) deixa o alvo Atordoado por 1 turno.",
+  "Atordoante": "Dano máximo no dado faz o alvo perder a Ação de Movimento no próximo turno.",
+  "Alcance": "Atinge a até 3m; sem ataque de oportunidade ao recuar.",
+  "Alcance Maior": "Alcance estendido no corpo a corpo.",
+  "Impacto": "Ao acertar, pode empurrar o alvo 2m para trás.",
+  "Puxão": "Ao acertar, pode puxar o alvo 2m em sua direção.",
+  "Derrubar": "Ao acertar, pode derrubar o alvo (fica Caído).",
+  "Investida": "Bônus ao atacar após se mover em linha reta contra o alvo.",
+  "Perfurante": "Ignora parte da armadura do alvo.",
+  "Perfurante Leve": "Ignora uma pequena parte da armadura.",
+  "Sangramento": "Ao acertar, o alvo sofre dano de sangramento nos turnos seguintes.",
+  "Sangramento em Área": "Estilhaços: sangramento em todos os alvos da área.",
+  "Tóxica": "Injeta toxina; o alvo testa Constituição ou sofre veneno.",
+  "Silenciosa": "Disparo sem ruído — não denuncia sua posição.",
+  "Silenciosa / Toxina Lenta": "Silenciosa; injeta toxina de ação lenta.",
+  "Rajada": "Gasta o dobro de munição (conta como 2 turnos de disparo).",
+  "Rajada Silenciosa": "Rajada sem ruído; gasta munição em dobro.",
+  "Anti-Sintético": "Dano extra contra androides, drones e sintéticos.",
+  "Marcador Térmico": "Marca o alvo; aliados o veem através de fumaça/paredes finas.",
+  "Mira Telescópica": "Longo alcance; gaste a ação para mirar e ganhar bônus.",
+  "Cone de Repulsão": "Empurra todos num cone à frente.",
+  "Área 3x3m": "Atinge todos numa área de 3×3 metros.",
+  "Explosão em Área 3x3": "Explode numa área de 3×3m; alvos testam para reduzir o dano.",
+  "Sobreaquecimento": "Pode superaquecer se disparada em excesso.",
+  "Curto Alcance": "Só é eficaz a curta distância.",
+  "Curto Alcance / Descarregar": "Curto alcance; pode descarregar toda a carga de uma vez.",
+  "Pesada": "Pesada — pode exigir preparação/apoio para disparar.",
+  "Pesada / Queimadura": "Pesada; causa queimadura contínua.",
+  "Pesada / Fogo de Supressão": "Pesada; suprime uma área (inimigos acovardados).",
+  "Artilharia": "Arma de artilharia — dano massivo em área.",
+  "Atravessa Paredes": "O disparo atravessa coberturas e paredes finas.",
+  "Inesquivável / Contínuo": "Difícil de esquivar; dano contínuo.",
+  "Despedaçador": "Dano brutal contra estruturas e armaduras.",
+  "Destruidora": "Devastadora — dano muito alto.",
+  "Brutal": "Rola o dado de dano com Vantagem (o maior de dois).",
+  "Defensiva": "Concede bônus defensivo enquanto empunhada.",
+  "Aparar": "Pode gastar a Reação para aparar um ataque corpo a corpo.",
+  "Confiável": "Nunca falha por defeito; dano mínimo garantido.",
+  "Saque Rápido": "Pode ser sacada como Ação Livre.",
+  "Ferramenta": "Também funciona como ferramenta utilitária.",
+};
+// Deriva propriedades mecânicas a partir da palavra-chave da arma.
+export function propsArma(cat) {
+  const kw = (cat && cat.kw) || "";
+  const low = kw.toLowerCase();
+  const has = (t) => low.includes(t);
+  const agil = has("ágil") || has("agil") || has("híbrida") || has("hibrida");
+  const oculta = has("oculta") || has("surpresa");
+  const brutal = has("brutal");
+  const area = /área|area|cone|explos|rajada|supress|artilharia|atravessa|3x3/i.test(kw);
+  const areaTxt = /3x3/i.test(kw) ? "3×3m" : has("cone") ? "cone frontal" : has("supress") || has("rajada") ? "área/linha" : area ? "área" : "";
+  const alcance = has("alcance") || has("mira") || has("telesc");
+  const alcanceTxt = has("curto") ? "curto" : has("mira") || has("telesc") ? "longo (mirar)" : has("alcance maior") ? "estendido" : has("alcance") ? "3m (corpo a corpo)" : "";
+  return { agil, oculta, brutal, area, areaTxt, alcance, alcanceTxt, efeito: KEYWORDS[kw] || kw || "" };
+}
