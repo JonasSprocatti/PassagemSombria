@@ -154,6 +154,7 @@ async function rotear() {
 function shell(titulo, corpo, ativo = "") {
   const nav = usuario ? `
     <nav class="menu">
+      <a href="#/hangar" class="brand" title="Passagem Sombria"><img src="logo.svg" alt="Passagem Sombria" class="brand-logo"/><span class="brand-txt">PASSAGEM<b>SOMBRIA</b></span></a>
       <a href="#/hangar" class="${ativo === "hangar" ? "on" : ""}">◈ Hangar</a>
       <a href="#/campanhas" class="${ativo === "campanhas" ? "on" : ""}">☄ Campanhas</a>
       <a href="#/biblioteca" class="${ativo === "biblioteca" ? "on" : ""}">📖 Biblioteca</a>
@@ -180,7 +181,8 @@ async function iniciar() {
 
 function telaLogin() {
   shell("login", `
-    <header class="masthead">
+    <header class="masthead login-mast">
+      <img src="logo.svg" alt="Passagem Sombria" class="login-logo"/>
       <div class="mast-eyebrow">CONFEDERAÇÃO SOLAR · TERMINAL DE ACESSO</div>
       <h1>PASSAGEM<span> SOMBRIA</span></h1>
       <div class="mast-sub">Deck de Campo Online — fichas, campanhas e mesa em tempo real</div>

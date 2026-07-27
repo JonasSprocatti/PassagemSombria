@@ -10,6 +10,15 @@ b{font-weight:600}
 @keyframes pl{50%{opacity:.25}}
 
 .menu{display:flex;gap:10px;align-items:center;margin-bottom:16px;flex-wrap:wrap}
+.menu a.brand{display:flex;align-items:center;gap:9px;border:none;padding:2px 8px 2px 2px;margin-right:4px}
+.menu a.brand:hover{border:none}
+.brand-logo{width:34px;height:34px;display:block;filter:drop-shadow(0 0 6px rgba(89,227,200,.25))}
+.brand-txt{font-family:'Chakra Petch',sans-serif;font-weight:700;font-size:13px;letter-spacing:.06em;line-height:1;color:var(--ink);display:flex;flex-direction:column}
+.brand-txt b{color:var(--sombra);font-weight:700}
+@media(max-width:560px){.brand-txt{display:none}}
+.login-mast{text-align:center;border-left:none;border-top:3px solid var(--tech)}
+.login-logo{width:96px;height:96px;margin:0 auto 10px;display:block;filter:drop-shadow(0 0 18px rgba(89,227,200,.3))}
+.login-mast h1{margin-top:2px}
 .menu a{text-decoration:none;color:var(--dim);border:1px solid var(--line);padding:8px 14px;font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.08em}
 .menu a.on,.menu a:hover{color:var(--tech);border-color:var(--tech)}
 .menu-user{margin-left:auto;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--dim)}
