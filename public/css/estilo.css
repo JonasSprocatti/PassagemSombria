@@ -154,3 +154,11 @@ input:focus,select:focus,button:focus-visible{outline:2px solid var(--tech);outl
 
 @media(max-width:820px){.mesa{grid-template-columns:1fr}.colunas{grid-template-columns:1fr}.linha-3,.linha-4{grid-template-columns:1fr 1fr}}
 @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+/* Catálogo de habilidades por descanso */
+.usos-lista{display:flex;flex-direction:column;gap:4px;margin-top:6px}
+.uso-item{display:flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:7px;padding:6px 8px;margin:0}
+.uso-item small{display:inline;margin-left:0;color:var(--dim)}
+.uso-item .uso-tag{margin-left:auto;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--tech);border:1px solid var(--tech);border-radius:20px;padding:1px 8px;white-space:nowrap}
+.uso-item.usado{opacity:.62;border-color:var(--perigo)}
+.uso-item.usado b{text-decoration:line-through;color:var(--dim)}
+.uso-item.usado .uso-tag{color:var(--perigo);border-color:var(--perigo)}

@@ -194,6 +194,55 @@ function baixarFichaHTML(html, nome) {
   setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
 
+// ---------------- DESCANSOS (catálogo de usos + recuperação) ----------------
+// Detecta a frequência de descanso de uma habilidade: usa o campo freq quando existe,
+// senão procura "Descanso Curto/Longo" no texto.
+function freqDescanso(h) {
+  if (!h) return null;
+  if (h.freq === "curto" || h.freq === "longo") return h.freq;
+  const txt = `${h.n || ""} ${h.d || ""}`;
+  if (/descanso\s+curto/i.test(txt)) return "curto";
+  if (/descanso\s+longo/i.test(txt)) return "longo";
+  return null;
+}
+// Cataloga todas as habilidades do personagem que são "1x por descanso" (curto ou longo),
+// respeitando os bloqueios de nível (Veterana NV5, Lendária NV10).
+function abilidadesDeDescanso(f) {
+  const out = [];
+  const raca = RACAS.find((r) => r.nome === f.raca), classe = CLASSES[f.classe];
+  const filo = f.filosofia ? FILOSOFIAS[f.filosofia] : null;
+  if (classe) classe.hab.forEach((h, i) => { const fr = freqDescanso(h); if (fr) out.push({ id: `cl${i}`, nome: h.n, origem: f.classe, freq: fr }); });
+  if (classe && f.nivel >= 5) { const fr = freqDescanso(classe.vet); if (fr) out.push({ id: "vet", nome: classe.vet.n, origem: `${f.classe} · Veterana`, freq: fr }); }
+  if (filo) { const fr = freqDescanso(filo); if (fr) out.push({ id: "filo", nome: f.filosofia, origem: "Filosofia", freq: fr }); }
+  if (raca) (raca.habilidades || []).forEach((h, i) => { const fr = freqDescanso(h); if (fr) out.push({ id: `ra${i}`, nome: h.n, origem: raca.nome, freq: fr }); });
+  if (raca?.lendaria && f.nivel >= 10) { const fr = freqDescanso(raca.lendaria) || "longo"; out.push({ id: "lend", nome: raca.lendaria.n, origem: `${raca.nome} · Lendária`, freq: fr }); }
+  return out;
+}
+// Aplica um descanso à ficha (muta f) e devolve um resumo do que foi recuperado.
+// Curto: reinicia habilidades "curto"; regen racial (Mercusys +1d4). PV normal via Kits.
+// Longo: PV cheio, RAM cheia, reinicia TODAS as habilidades (curto + longo).
+function aplicarDescanso(f, tipo) {
+  const cat = abilidadesDeDescanso(f);
+  f.usos = f.usos || {};
+  const notas = [];
+  let pvRec = 0, ramRec = 0, habsReset = 0;
+  if (tipo === "longo") {
+    pvRec = Math.max(0, (f.pvMax || 0) - (f.pvAtual || 0));
+    f.pvAtual = f.pvMax || 0;
+    ramRec = f.ramGasta || 0; f.ramGasta = 0;
+    cat.forEach((a) => { if (f.usos[a.id]) { delete f.usos[a.id]; habsReset++; } });
+    notas.push(pvRec ? `+${pvRec} PV (cheio)` : "PV já cheio", ramRec ? `RAM recarregada (+${ramRec})` : "RAM já cheia", `${cat.length} habilidade(s) reiniciada(s)`);
+  } else {
+    cat.filter((a) => a.freq === "curto").forEach((a) => { if (f.usos[a.id]) { delete f.usos[a.id]; habsReset++; } });
+    const nCurto = cat.filter((a) => a.freq === "curto").length;
+    notas.push(`${nCurto} habilidade(s) de descanso curto reiniciada(s)`);
+    if (f.raca === "Mercusys") { const cura = d(4); pvRec = Math.min(cura, Math.max(0, (f.pvMax || 0) - (f.pvAtual || 0))); f.pvAtual = Math.min(f.pvMax || 0, (f.pvAtual || 0) + cura); notas.push(`regeneração Mercusys +${cura} PV`); }
+    else notas.push("PV: use Kits Médicos");
+  }
+  return { tipo, pvRec, ramRec, habsReset, cat, notas };
+}
+
+
 function aplicarTema(f) {
   const t = f?.tema || TEMAS["Vácuo"];
   document.documentElement.style.setProperty("--tech", t.tech);
@@ -381,6 +430,17 @@ async function telaFicha(id) {
         <p class="regra">Limite Cibernético: ${f.implantes.length}/${k.limite} · Patrimônio ref. NV${f.nivel}: ${RIQUEZA[f.nivel]} CG · Deck: ${f.deck.length}/${k.deckMax}${k.attr && ["For","Des","Con","Int","Sab","Car"].some((a) => k.attr[a] > 6) ? " · ⚠ atributo acima do teto +6" : ""}</p>
       </section>
 
+      <section class="sec"><header><span class="tag">☾</span><h2>Descansos & Habilidades por Descanso</h2>
+        <span class="extra">${(() => { const c = abilidadesDeDescanso(f); const usadas = c.filter((a) => f.usos?.[a.id]).length; return `${usadas}/${c.length} usada${usadas === 1 ? "" : "s"}`; })()}</span></header>
+        <div class="filtros">
+          <button id="desc-curto" class="mini">☾ Descanso Curto</button>
+          <button id="desc-longo" class="mini eq">🌙 Descanso Longo</button>
+        </div>
+        <p class="regra">Curto (1h): reinicia habilidades "1×/descanso curto"${f.raca === "Mercusys" ? " · Mercusys regenera +1d4 PV" : " · cura via Kits Médicos"}. Longo (8h): PV cheio, RAM recarregada, reinicia todas as habilidades. Na mesa, o Mestre pode convocar um descanso pra todos de uma vez.</p>
+        ${(() => { const cat = abilidadesDeDescanso(f); if (!cat.length) return `<p class="regra"><i>Nenhuma habilidade limitada por descanso — escolha raça, classe e filosofia para catalogar.</i></p>`;
+          return `<div class="usos-lista">${cat.map((a) => { const usada = !!f.usos?.[a.id]; return `<label class="chk uso-item ${usada ? "usado" : ""}"><input type="checkbox" class="ck-uso" data-uso="${a.id}" ${usada ? "checked" : ""}/> <b>${esc(a.nome)}</b> <small>${esc(a.origem)} · 1×/desc. ${a.freq === "curto" ? "curto ☾" : "longo 🌙"}</small> <span class="uso-tag">${usada ? "USADA" : "disponível"}</span></label>`; }).join("")}</div>`; })()}
+      </section>
+
       <section class="sec"><header><span class="tag">▲</span><h2>Progressão & Level Up</h2>
         <span class="extra">nível ${f.nivel} · ${f.nivel === 1 ? "Recruta" : f.nivel <= 8 ? "Veterano" : "Lenda"}</span></header>
         <div class="linha-3">
@@ -441,6 +501,9 @@ async function telaFicha(id) {
     $("#salvar").onclick = async () => { $("#st").textContent = "Transmitindo…"; await salvar(); $("#st").textContent = "Salvo ✓"; };
     $("#imprimir").onclick = () => { const nome = $("#nome")?.value || p.nome; imprimirFichaHTML(gerarFichaHTML(nome, f, calc(f))); };
     $("#baixar").onclick = () => { const nome = $("#nome")?.value || p.nome; baixarFichaHTML(gerarFichaHTML(nome, f, calc(f)), nome); };
+    $("#desc-curto")?.addEventListener("click", async () => { const r = aplicarDescanso(f, "curto"); registrar(`☾ Descanso Curto: ${r.notas.join(" · ")}.`); await salvar(); render(); $("#st").textContent = "Descanso curto ✓ (salvo)"; });
+    $("#desc-longo")?.addEventListener("click", async () => { const r = aplicarDescanso(f, "longo"); registrar(`🌙 Descanso Longo: ${r.notas.join(" · ")}.`); await salvar(); render(); $("#st").textContent = "Descanso longo ✓ (salvo)"; });
+    app.querySelectorAll(".ck-uso").forEach((c) => c.onchange = () => { f.usos = f.usos || {}; if (c.checked) f.usos[c.dataset.uso] = true; else delete f.usos[c.dataset.uso]; render(); });
     $("#nome").oninput = (e) => { p.nome = e.target.value; f.nomeVisivel = e.target.value; };
     $("#foto-in")?.addEventListener("change", (e) => {
       const file = e.target.files?.[0]; if (!file) return;
@@ -633,6 +696,7 @@ async function telaMesa(id) {
         <section class="sec mesa-chat">
           <header><span class="tag">≣</span><h2>Mesa · transmissão ao vivo</h2></header>
           <div id="chat" class="chat"></div>
+          ${souMestre ? `<div class="filtros" style="margin:6px 0"><span class="regra" style="margin:0 4px 0 0">Mestre:</span><button id="mestre-curto" class="mini">☾ Descanso Curto (todos)</button><button id="mestre-longo" class="mini eq">🌙 Descanso Longo (todos)</button></div>` : ""}
           <div class="linha-add"><input id="msg" placeholder="Transmitir mensagem… (/r 2d6+1 rola dados)"/><button id="enviar-msg" class="btn-primario">▶</button></div>
         </section>
       </div>`, "campanhas");
@@ -640,7 +704,7 @@ async function telaMesa(id) {
     // ---- chat render ----
     const chatEl = $("#chat");
     const idsVistos = new Set();
-    const addMsg = (m) => {
+    const addMsg = (m, aoVivo = false) => {
       if (idsVistos.has(m.id)) return; idsVistos.add(m.id);
       const quem = esc(m.perfis?.apelido || "?");
       const persN = m.personagem_id ? esc(pers?.find((x) => x.id === m.personagem_id)?.nome || "") : "";
@@ -658,6 +722,7 @@ async function telaMesa(id) {
           <span class="m-det">${esc(p.origem || "")}</span>
           ${p.aplicado ? `<span class="m-extra">aplicado ✓</span>` : meu ? `<button class="mini ${m.tipo === "dano" ? "dano" : "eq"}" data-aplicar="${m.id}">APLICAR ${m.tipo === "dano" ? "−" : "+"}${p.valor} PV</button>` : `<span class="m-extra">aguardando o dono aplicar…</span>`}</div>`; }
       else if (m.tipo === "nave") corpo = `<div class="m-txt sistema">🚀 ${esc(m.conteudo)}</div>`;
+      else if (m.tipo === "descanso") { const p = m.payload || {}; corpo = `<div class="m-txt sistema">${p.tipo === "longo" ? "🌙" : "☾"} ${esc(m.conteudo)}</div>`; }
       const el = document.createElement("div");
       const persMsg = m.personagem_id ? pers?.find((x) => x.id === m.personagem_id) : null;
       const av = persMsg?.dados?.foto || m.perfis?.avatar_url || null;
@@ -672,8 +737,18 @@ async function telaMesa(id) {
         await sb.from("mensagens").update({ payload: { ...p, aplicado: true } }).eq("id", m.id);
         await enviar("sistema", `${alvo.nome} agora está com ${dados.pvAtual} PV.`);
       });
+      // Descanso convocado pelo Mestre: cada cliente aplica no SEU personagem vinculado.
+      // Só ao vivo (aoVivo) para não reaplicar ao recarregar o histórico.
+      if (aoVivo && m.tipo === "descanso" && meuPers) {
+        (async () => {
+          const dados = { ...novaFichaDados(), ...meuPers.dados };
+          const r = aplicarDescanso(dados, m.payload?.tipo === "longo" ? "longo" : "curto");
+          const { error } = await sb.from("personagens").update({ dados }).eq("id", meuPers.id);
+          if (!error) { meuPers.dados = dados; await enviar("sistema", `🛌 ${meuPers.nome}: ${r.notas.join(" · ")}.`); }
+        })();
+      }
     };
-    (msgs || []).forEach(addMsg);
+    (msgs || []).forEach((m) => addMsg(m));
 
     // ---- realtime ----
     // Passa o token do usuário pro socket realtime; sem isso o canal entra como
@@ -681,7 +756,7 @@ async function telaMesa(id) {
     try { const { data: { session } } = await sb.auth.getSession(); if (session?.access_token) sb.realtime.setAuth(session.access_token); } catch (_) {}
     canalMesa = sb.channel(`mesa-${id}`)
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "mensagens", filter: `campanha_id=eq.${id}` },
-        async (pl) => { const { data: m } = await sb.from("mensagens").select("*,perfis:autor_id(apelido,avatar_url)").eq("id", pl.new.id).single(); if (m) addMsg(m); })
+        async (pl) => { const { data: m } = await sb.from("mensagens").select("*,perfis:autor_id(apelido,avatar_url)").eq("id", pl.new.id).single(); if (m) addMsg(m, true); })
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "campanhas", filter: `id=eq.${id}` },
         (pl) => { camp.nave = pl.new.nave; render(); })
       .subscribe();
@@ -693,6 +768,8 @@ async function telaMesa(id) {
         return enviar("rolagem", null, { titulo: `Rolagem ${rr[1]}`, detalhe: `[${dados.join(", ")}] ${p.mod ? sign(p.mod) : ""}`, total }); } }
       enviar("texto", t); };
     $("#msg").onkeydown = (e) => { if (e.key === "Enter") $("#enviar-msg").click(); };
+    $("#mestre-curto")?.addEventListener("click", () => { if (confirm("Convocar Descanso Curto para toda a mesa? Cada jogador conectado recupera as habilidades de descanso curto no próprio personagem.")) enviar("descanso", "O Mestre convocou um Descanso Curto (1h). Habilidades de descanso curto reiniciadas; cura via Kits Médicos.", { tipo: "curto" }); });
+    $("#mestre-longo")?.addEventListener("click", () => { if (confirm("Convocar Descanso Longo para toda a mesa? Cada jogador conectado tem PV restaurados, RAM recarregada e todas as habilidades reiniciadas.")) enviar("descanso", "O Mestre convocou um Descanso Longo (8h). PV restaurados, RAM recarregada e todas as habilidades reiniciadas.", { tipo: "longo" }); });
     $("#sel-pers").onchange = async (e) => {
       const pid = e.target.value; if (!pid) return;
       await sb.from("personagens").update({ campanha_id: id }).eq("id", pid);
