@@ -419,7 +419,7 @@ async function telaFicha(id) {
             ${[...new Set([...pool, ...(f.rolagem[a] !== null ? [f.rolagem[a]] : [])])].sort((x, y) => y - x).map((v) => `<option value="${v}" ${f.rolagem[a] === v ? "selected" : ""}>${v} → ${sign(CONVERTE_2D8(v))}</option>`).join("")}</select>
             ${f.rolagem[a] !== null ? `<span class="regra" style="margin:0">rolou ${f.rolagem[a]} → <b class="chrome">${sign(CONVERTE_2D8(f.rolagem[a]))}</b></span>` : ""}` : ""}
           <span class="regra" style="margin:6px 0 0;display:block;font-size:9px">pontos de nível (+1/nível a partir do NV2)</span>
-          <input class="pt-attr" data-a="${a}" type="number" min="0" value="${f.pontosAttr[a] || 0}" title="Distribua aqui os pontos de atributo ganhos ao subir de nível (+1 por nível, a partir do nível 2)."/></div>`).join("")}</div>
+          <input class="pt-attr" data-a="${a}" type="number" min="0" max="${(f.pontosAttr[a] || 0) + Math.max(0, sobra)}" value="${f.pontosAttr[a] || 0}" ${sobra <= 0 && !(f.pontosAttr[a] > 0) ? "disabled" : ""} title="Distribua aqui os pontos de atributo ganhos ao subir de nível (+1 por nível, a partir do nível 2). Sem pontos livres, o campo trava."/></div>`).join("")}</div>
         <div class="linha-4" style="margin-top:12px">
           <label>PV atual<input id="pvAtual" type="number" value="${f.pvAtual}"/></label>
           <label>PV máx<input id="pvMax" type="number" value="${f.pvMax}"/></label>
@@ -469,7 +469,7 @@ async function telaFicha(id) {
         <span class="extra">${sobraPer} pt${sobraPer === 1 ? "" : "s"} livre${sobraPer === 1 ? "" : "s"} · teto ${f.nivel >= 5 ? "+7" : "+5"}</span></header>
         <div class="grid-per">${PERICIAS.map(([pn, at]) => `
           <div class="per ${k.per[pn] > 0 ? "ativa" : ""}"><span class="per-n">${pn} <i>(${at})</i></span>
-          <span class="per-ctl"><input class="pt-per" data-p="${pn}" type="number" min="0" value="${f.periciasExtra[pn] || 0}"/><b class="tech-c">${sign(k.per[pn])}</b></span></div>`).join("")}</div>
+          <span class="per-ctl"><input class="pt-per" data-p="${pn}" type="number" min="0" max="${Math.max(0, Math.min((f.periciasExtra[pn] || 0) + Math.max(0, sobraPer), (f.nivel >= 5 ? 7 : 5) - ((k.per[pn] || 0) - (f.periciasExtra[pn] || 0))))}" value="${f.periciasExtra[pn] || 0}" ${sobraPer <= 0 && !(f.periciasExtra[pn] > 0) ? "disabled" : ""} title="Pontos de perícia ganhos ao subir de nível (1/nível). Teto por perícia: +${f.nivel >= 5 ? 7 : 5}."/><b class="tech-c">${sign(k.per[pn])}</b></span></div>`).join("")}</div>
       </section>
 
       <section class="sec"><header><span class="tag">⧉</span><h2>Implantes & Deck & Inventário</h2></header>
@@ -530,8 +530,27 @@ async function telaFicha(id) {
       if (s.value !== "") registrar(`Δ ${a} recebeu ${sign(+s.value)} da rolagem.`);
       render();
     });
-    app.querySelectorAll(".pt-attr").forEach((i) => i.oninput = () => { f.pontosAttr[i.dataset.a] = +i.value; });
-    app.querySelectorAll(".pt-per").forEach((i) => i.oninput = () => { f.periciasExtra[i.dataset.p] = +i.value; });
+    app.querySelectorAll(".pt-attr").forEach((i) => i.onchange = () => {
+      const a = i.dataset.a;
+      const outros = Object.entries(f.pontosAttr || {}).reduce((s, [key, v]) => s + (key === a ? 0 : (v || 0)), 0);
+      const maxEste = Math.max(0, k.pontosDireito - outros); // não pode exceder o orçamento total
+      let v = Math.max(0, Math.floor(+i.value || 0));
+      if (v > maxEste) { v = maxEste; $("#st").textContent = `Sem pontos de atributo livres (${k.pontosDireito} no total)`; }
+      f.pontosAttr[a] = v; render();
+    });
+    app.querySelectorAll(".pt-per").forEach((i) => i.onchange = () => {
+      const pn = i.dataset.p;
+      const teto = f.nivel >= 5 ? 7 : 5;
+      const extraAtual = f.periciasExtra[pn] || 0;
+      const classGrant = (k.per[pn] || 0) - extraAtual;                 // parte de classe/migração (não conta no orçamento)
+      const outros = Object.entries(f.periciasExtra || {}).reduce((s, [key, v]) => s + (key === pn ? 0 : (v || 0)), 0);
+      const maxOrc = Math.max(0, k.perDireito - outros);               // teto pelo orçamento de nível
+      const maxSkill = Math.max(0, teto - classGrant);                 // teto por perícia (+5 / +7 total)
+      let v = Math.max(0, Math.floor(+i.value || 0));
+      if (v > maxOrc) { v = maxOrc; $("#st").textContent = `Sem pontos de perícia livres (${k.perDireito} no total)`; }
+      if (v > maxSkill) { v = maxSkill; $("#st").textContent = `Teto de perícia: +${teto} (classe já concede +${classGrant})`; }
+      f.periciasExtra[pn] = v; render();
+    });
     $("#pv-inicial")?.addEventListener("click", () => {
       const k2 = calc(f); const r = RACAS.find((x) => x.nome === f.raca); const c = CLASSES[f.classe];
       const { ds, menor, soma3, subtotal } = rolaVidaInicial(r);
