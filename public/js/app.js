@@ -406,7 +406,7 @@ async function telaFicha(id) {
           <div class="id-campos">
         <div class="linha-3">
           <label>Nome<input id="nome" value="${esc(p.nome)}"/></label>
-          <label>Raça<select id="raca"><option value="">—</option>${RACAS.map((r) => `<option ${f.raca === r.nome ? "selected" : ""}>${r.nome}</option>`).join("")}</select></label>
+          <label>Raça<span class="raca-linha"><select id="raca"><option value="">—</option>${RACAS.map((r) => `<option ${f.raca === r.nome ? "selected" : ""}>${r.nome}</option>`).join("")}</select><button id="abrir-sistema" type="button" class="mini" title="Escolher a raça explorando o sistema solar em 3D">🌌</button></span></label>
           <label>Classe<select id="classe"><option value="">—</option>${Object.keys(CLASSES).map((n) => `<option ${f.classe === n ? "selected" : ""}>${n}</option>`).join("")}</select></label>
         </div>
         <div class="linha-3">
@@ -537,6 +537,11 @@ async function telaFicha(id) {
     });
     $("#foto-rm")?.addEventListener("click", () => { f.foto = null; render(); });
     ["raca", "classe", "filosofia"].forEach((c) => $("#" + c).onchange = (e) => { f[c] = e.target.value; render(); });
+    $("#abrir-sistema")?.addEventListener("click", async () => {
+      try { const { abrirSeletorPlanetas } = await import("./sistema-solar.js");
+        abrirSeletorPlanetas(RACAS, (nome) => { f.raca = nome; render(); $("#st").textContent = `Raça: ${nome} ✓`; });
+      } catch (err) { alert("Não consegui abrir o sistema solar: " + err.message); }
+    });
     ["creditos", "pvAtual", "pvMax"].forEach((c) => { const el = $("#" + c); if (el) el.oninput = (e) => { f[c] = +e.target.value; }; });
     $("#modo-pontos").onclick = () => { f.modoAttr = "pontos"; render(); };
     $("#modo-rolagem").onclick = () => { f.modoAttr = "rolagem"; render(); };
