@@ -37,6 +37,30 @@ const migrarPericias = (pe) => {
   return out;
 };
 const parseDice = (s) => { const m = /^(\d*)d(\d+)([+-]\d+)?$/i.exec(String(s).trim()); return m ? { n: +(m[1] || 1), f: +m[2], mod: +(m[3] || 0) } : null; };
+// Rola uma expressão com vários termos: "1d20+2d10-1", "d20", "2d6 + 3". Devolve {total, detalhe} ou null.
+const rolarExpr = (expr) => {
+  const clean = String(expr || "").replace(/\s+/g, "");
+  if (!clean) return null;
+  const termos = clean.match(/[+-]?[^+-]+/g);
+  if (!termos) return null;
+  let total = 0; const partes = [];
+  for (const raw of termos) {
+    const sinal = raw[0] === "-" ? -1 : 1;
+    const termo = raw.replace(/^[+-]/, "");
+    const md = /^(\d*)d(\d+)$/i.exec(termo);
+    if (md) {
+      const n = +(md[1] || 1), faces = +md[2];
+      if (n < 1 || n > 200 || faces < 1 || faces > 1000) return null;
+      const dados = rollNd(n, faces);
+      total += dados.reduce((a, b) => a + b, 0) * sinal;
+      partes.push(`${sinal < 0 ? "−" : partes.length ? "+" : ""}${n}d${faces} [${dados.join(", ")}]`);
+    } else if (/^\d+$/.test(termo)) {
+      total += +termo * sinal;
+      partes.push(`${sinal < 0 ? "−" : "+"}${termo}`);
+    } else return null;
+  }
+  return { total, detalhe: partes.join(" ") };
+};
 const comprimirFoto = (file, cb) => {
   const fr = new FileReader();
   fr.onload = () => { const img = new Image();
@@ -690,7 +714,7 @@ async function telaMesa(id) {
                 return `<button class="mini atq" data-atq="${i}" title="${esc(tip)}">⚔ ${esc(a.nome)} (${cat?.dano})${pr.area ? " ◎" : ""}${pr.agil ? " ⚡" : ""}</button>`; }).join("")}
               <select id="sel-scr">${(f.deck.length ? SCRIPTS.filter((s) => f.deck.includes(s.n)) : SCRIPTS.filter((s) => s.c === 0)).map((s) => `<option>${esc(s.n)}</option>`).join("")}</select>
               <button id="conjurar" class="mini">⚡ CONJURAR</button>
-              <input id="dado-livre" placeholder="2d6+1" style="width:80px"/><button id="rolar-livre" class="mini">🎲</button>
+              <input id="dado-livre" placeholder="1d20+2d10" style="width:80px"/><button id="rolar-livre" class="mini">🎲</button>
             </div>
             <div class="acoes-mesa"><b class="chrome">Direcionar dano:</b>
               <select id="sel-alvo">${(pers || []).map((x) => `<option value="${x.id}">${esc(x.nome)}</option>`).join("")}</select>
@@ -725,13 +749,28 @@ async function telaMesa(id) {
         <section class="sec mesa-chat">
           <header><span class="tag">≣</span><h2>Mesa · transmissão ao vivo</h2></header>
           <div id="chat" class="chat"></div>
-          <div class="linha-add"><input id="msg" placeholder="Transmitir mensagem… (/r 2d6+1 rola dados)"/><button id="enviar-msg" class="btn-primario">▶</button></div>
+          <div id="resp-preview" class="resp-preview" style="display:none"><span class="rp-txt"></span><button id="resp-cancel" class="rp-x" title="Cancelar resposta">✕</button></div>
+          <div class="linha-add"><input id="msg" placeholder="Mensagem ou rolagem: /1d20 · /r2d6+1 · /1d20+2d10"/><button id="enviar-msg" class="btn-primario">▶</button></div>
         </section>
       </div>`, "campanhas");
 
     // ---- chat render ----
     const chatEl = $("#chat");
     const idsVistos = new Set();
+    let ultimoAutor = null;      // para espaçar quando muda quem fala
+    let respondendoA = null;     // mensagem sendo referenciada
+    const resumoMsg = (m) => {
+      if (m.tipo === "rolagem") return `🎲 ${m.payload?.titulo || "rolagem"}${m.payload?.total !== undefined ? ` = ${m.payload.total}` : ""}`;
+      if (m.tipo === "dano" || m.tipo === "cura") return `${m.tipo === "dano" ? "💥" : "✚"} ${m.payload?.valor} em ${m.payload?.alvo_nome || ""}`;
+      return (m.conteudo || "").slice(0, 70);
+    };
+    const iniciarResp = (m) => {
+      respondendoA = { id: m.id, quem: m.perfis?.apelido || "?", resumo: resumoMsg(m) };
+      const bar = $("#resp-preview");
+      if (bar) { bar.querySelector(".rp-txt").innerHTML = `↩ Respondendo a <b>${esc(respondendoA.quem)}</b>: <span class="rp-resumo">${esc(respondendoA.resumo)}</span>`; bar.style.display = "flex"; }
+      $("#msg")?.focus();
+    };
+    const cancelarResp = () => { respondendoA = null; const bar = $("#resp-preview"); if (bar) bar.style.display = "none"; };
     const addMsg = (m, aoVivo = false) => {
       if (idsVistos.has(m.id)) return; idsVistos.add(m.id);
       if (aoVivo && !historico.some((x) => x.id === m.id)) historico.push(m); // persiste entre re-renders
@@ -756,8 +795,19 @@ async function telaMesa(id) {
       const persMsg = m.personagem_id ? pers?.find((x) => x.id === m.personagem_id) : null;
       const av = persMsg?.dados?.foto || m.perfis?.avatar_url || null;
       const avatarHtml = av ? `<img class="m-avatar" src="${esc(av)}" alt=""/>` : `<div class="m-avatar vazia">◈</div>`;
-      el.className = "m"; el.innerHTML = `${avatarHtml}<div class="m-corpo"><div class="m-cab">${quem}${persN ? ` <i>como ${persN}</i>` : ""} <time>${new Date(m.criado_em).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</time></div>${corpo}</div>`;
+      const minha = m.autor_id === usuario.id;
+      const novaPessoa = m.autor_id !== ultimoAutor; ultimoAutor = m.autor_id;
+      const resp = m.payload?.resp;
+      const respHtml = resp ? `<div class="m-quote" data-goto="${esc(resp.id)}">↩ <b>${esc(resp.quem)}</b>: ${esc(resp.resumo)}</div>` : "";
+      el.className = "m" + (minha ? " minha" : "") + (novaPessoa ? " nova-pessoa" : "");
+      el.dataset.mid = m.id;
+      el.innerHTML = `${avatarHtml}<div class="m-corpo"><div class="m-cab">${quem}${persN ? ` <i>como ${persN}</i>` : ""} <time>${new Date(m.criado_em).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</time><button class="m-reply" data-reply title="Responder">↩</button></div>${respHtml}${corpo}</div>`;
       chatEl.appendChild(el); chatEl.scrollTop = chatEl.scrollHeight;
+      el.querySelector("[data-reply]")?.addEventListener("click", () => iniciarResp(m));
+      el.querySelector("[data-goto]")?.addEventListener("click", () => {
+        const alvo = chatEl.querySelector(`[data-mid="${resp.id}"]`);
+        if (alvo) { alvo.scrollIntoView({ behavior: "smooth", block: "center" }); alvo.classList.add("piscar"); setTimeout(() => alvo.classList.remove("piscar"), 1200); }
+      });
       el.querySelector("[data-aplicar]")?.addEventListener("click", async (ev) => {
         const p = m.payload; const alvo = pers.find((x) => x.id === p.alvo_id);
         const dados = { ...novaFichaDados(), ...alvo.dados };
@@ -793,11 +843,13 @@ async function telaMesa(id) {
 
     // ---- binds ----
     $("#enviar-msg").onclick = () => { const t = $("#msg").value.trim(); if (!t) return; $("#msg").value = "";
-      const rr = /^\/r(?:olar)?\s+(.+)/i.exec(t);
-      if (rr) { const p = parseDice(rr[1]); if (p) { const dados = rollNd(p.n, p.f); const total = dados.reduce((a, b) => a + b, 0) + p.mod;
-        return enviar("rolagem", null, { titulo: `Rolagem ${rr[1]}`, detalhe: `[${dados.join(", ")}] ${p.mod ? sign(p.mod) : ""}`, total }); } }
-      enviar("texto", t); };
-    $("#msg").onkeydown = (e) => { if (e.key === "Enter") $("#enviar-msg").click(); };
+      const resp = respondendoA; cancelarResp();
+      const rr = /^\/(?:r(?:olar)?)?\s*(.+)$/i.exec(t);
+      if (rr) { const r = rolarExpr(rr[1]); if (r) {
+        return enviar("rolagem", null, { titulo: `Rolagem ${rr[1]}`, detalhe: r.detalhe, total: r.total, ...(resp ? { resp } : {}) }); } }
+      enviar("texto", t, resp ? { resp } : null); };
+    $("#resp-cancel")?.addEventListener("click", cancelarResp);
+    $("#msg").onkeydown = (e) => { if (e.key === "Enter") $("#enviar-msg").click(); else if (e.key === "Escape") cancelarResp(); };
     $("#mestre-curto")?.addEventListener("click", () => { if (confirm("Convocar Descanso Curto para toda a mesa? Cada jogador conectado recupera as habilidades de descanso curto no próprio personagem.")) enviar("descanso", "O Mestre convocou um Descanso Curto (1h). Habilidades de descanso curto reiniciadas; cura via Kits Médicos.", { tipo: "curto" }); });
     $("#mestre-longo")?.addEventListener("click", () => { if (confirm("Convocar Descanso Longo para toda a mesa? Cada jogador conectado tem PV restaurados, RAM recarregada e todas as habilidades reiniciadas.")) enviar("descanso", "O Mestre convocou um Descanso Longo (8h). PV restaurados, RAM recarregada e todas as habilidades reiniciadas.", { tipo: "longo" }); });
     $("#sel-pers").onchange = async (e) => {
@@ -840,8 +892,8 @@ async function telaMesa(id) {
         const nat = d(20);
         enviar("rolagem", null, { titulo: `Script — ${s.n}`, detalhe: `d20 [${nat}] +${k.conj} · ${s.c} RAM · ${s.a}`, total: nat + k.conj, crit: nat === 20, fumble: nat === 1, extra: s.d.slice(0, 90) });
         render(); };
-      $("#rolar-livre").onclick = () => { const p2 = parseDice($("#dado-livre").value); if (!p2) return;
-        const dados = rollNd(p2.n, p2.f); enviar("rolagem", null, { titulo: `Rolagem ${$("#dado-livre").value}`, detalhe: `[${dados.join(", ")}]`, total: dados.reduce((a, b) => a + b, 0) + p2.mod }); };
+      $("#rolar-livre").onclick = () => { const v = $("#dado-livre").value.trim(); const r = rolarExpr(v.replace(/^\//, "")); if (!r) return;
+        enviar("rolagem", null, { titulo: `Rolagem ${v}`, detalhe: r.detalhe, total: r.total }); };
       $("#enviar-dano").onclick = () => { const v = +$("#dano-val").value; if (!v) return;
         const alvo = pers.find((x) => x.id === $("#sel-alvo").value);
         enviar("dano", null, { alvo_id: alvo.id, alvo_nome: alvo.nome, valor: v, origem: `de ${meuPers.nome}`, aplicado: false }); };

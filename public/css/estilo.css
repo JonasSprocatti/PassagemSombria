@@ -124,8 +124,22 @@ input:focus,select:focus,button:focus-visible{outline:2px solid var(--tech);outl
 .mesa{display:grid;grid-template-columns:340px 1fr;gap:14px;align-items:start}
 .mesa-lateral .sec{padding:14px}
 .mesa-chat{display:flex;flex-direction:column;min-height:70vh}
-.chat{flex:1;overflow-y:auto;max-height:62vh;display:flex;flex-direction:column;gap:8px;padding:4px 2px;margin-bottom:10px}
-.m{display:flex;gap:10px;align-items:flex-start}
+.chat{flex:1;overflow-y:auto;max-height:62vh;display:flex;flex-direction:column;gap:2px;padding:4px 2px;margin-bottom:10px}
+.m{display:flex;gap:10px;align-items:flex-start;max-width:82%}
+.m.nova-pessoa{margin-top:14px}
+.m.minha{flex-direction:row-reverse;align-self:flex-end}
+.m.minha .m-corpo{align-items:flex-end}
+.m.minha .m-cab{flex-direction:row-reverse}
+.m.minha .m-txt,.m.minha .m-roll{border-color:var(--sombra);background:rgba(167,139,250,.08)}
+.m.piscar .m-txt,.m.piscar .m-roll,.m.piscar .m-quote{animation:piscar 1.2s ease}
+@keyframes piscar{0%,100%{background:var(--panel2)}30%{background:rgba(89,227,200,.18)}}
+.m-reply{background:none;border:none;color:var(--dim);cursor:pointer;font-size:12px;padding:0 4px;opacity:0;transition:opacity .15s}
+.m:hover .m-reply{opacity:.7}.m-reply:hover{opacity:1;color:var(--tech)}
+.m-quote{border-left:2px solid var(--tech);padding:2px 8px;font-size:11px;color:var(--dim);cursor:pointer;background:rgba(89,227,200,.05);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.m-quote:hover{color:var(--ink)}.m-quote b{color:var(--tech)}
+.resp-preview{display:flex;align-items:center;gap:8px;border-left:2px solid var(--tech);background:var(--panel2);padding:6px 10px;margin-bottom:6px;font-size:12px;color:var(--dim)}
+.resp-preview .rp-resumo{color:var(--ink)}.resp-preview .rp-txt{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rp-x{background:none;border:none;color:var(--dim);cursor:pointer;font-size:14px}.rp-x:hover{color:var(--perigo)}
 .m-avatar{width:34px;height:34px;object-fit:cover;border:1px solid var(--line);flex-shrink:0;border-radius:4px}
 .m-avatar.vazia{display:flex;align-items:center;justify-content:center;color:var(--line);background:var(--panel2);font-size:14px}
 .m-corpo{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
