@@ -1,0 +1,214 @@
+// ============================================================================
+//  MAPA DO SISTEMA — mapa 2D top-down, compartilhado e sincronizado (VTT).
+//  Uso: import { abrirMapa } from "./mapa-sistema.js";
+//       const ctrl = abrirMapa({ mapa, souMestre, salvar(mapa), aoFechar });
+//       ctrl.atualizar(novoMapa);  // chamado pelo realtime
+// ============================================================================
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const uid = () => "p" + Math.random().toString(36).slice(2, 9);
+
+// ---- Layout fixo do sistema (top-down). Unidades de mapa; Sol em (0,0). ----
+const K = 18; // escala das órbitas
+const PLANETAS = [
+  { nome: "Mercúrio", raca: "Mercusys",    r: 9,  ang: 20,  tam: 6,  cor: "#c9a15a", luas: [] },
+  { nome: "Vênus",    raca: "Ven'y",       r: 13, ang: 75,  tam: 8,  cor: "#e0b060", luas: [] },
+  { nome: "Terra",    raca: "Terráqueo",   r: 17, ang: 130, tam: 8,  cor: "#4a90d9", luas: ["Lua"] },
+  { nome: "Marte",    raca: "Marciano",    r: 21, ang: 200, tam: 7,  cor: "#c1440e", luas: ["Phobos", "Deimos"] },
+  { nome: "Júpiter",  raca: "Conjupitero", r: 28, ang: 300, tam: 16, cor: "#d8a878", luas: ["Io", "Europa", "Ganimedes", "Calisto"] },
+  { nome: "Saturno",  raca: "Sata",        r: 35, ang: 40,  tam: 14, cor: "#e3d9a8", luas: ["Titã", "Encélado", "Reia"], aneis: true },
+  { nome: "Urano",    raca: "Urak",        r: 41, ang: 160, tam: 11, cor: "#a0e0e0", luas: ["Titânia", "Oberon"], aneis: true },
+  { nome: "Netuno",   raca: "Proturno",    r: 46, ang: 250, tam: 11, cor: "#3a6ecc", luas: ["Tritão"] },
+  { nome: "Plutão",   raca: "Infimor",     r: 51, ang: 340, tam: 5,  cor: "#b0a090", luas: ["Caronte"] },
+];
+const rad = (g) => (g * Math.PI) / 180;
+const px = (p) => Math.cos(rad(p.ang)) * p.r * K;
+const py = (p) => Math.sin(rad(p.ang)) * p.r * K;
+
+// ---- Catálogo de tipos de ponto de interesse ----
+export const POI_TIPOS = {
+  cidade:        { ic: "🏙", cor: "#f0d060", lbl: "Cidade" },
+  regiao:        { ic: "🗺", cor: "#8be05a", lbl: "Região", area: true },
+  estacao:       { ic: "🛰", cor: "#59e3c8", lbl: "Estação espacial" },
+  colonia:       { ic: "🏘", cor: "#7ad0f0", lbl: "Colônia" },
+  posto:         { ic: "🏭", cor: "#c0a060", lbl: "Posto avançado" },
+  nave_abandon:  { ic: "🚀", cor: "#b0b8d0", lbl: "Nave abandonada" },
+  destrocos:     { ic: "🛠", cor: "#9098b0", lbl: "Destroços / sucata" },
+  detritos:      { ic: "💥", cor: "#e08040", lbl: "Zona de detritos", area: true },
+  campo_ast:     { ic: "☄", cor: "#b0a080", lbl: "Campo de asteroides", area: true },
+  asteroide:     { ic: "🪨", cor: "#a09080", lbl: "Asteroide" },
+  nebulosa:      { ic: "☁", cor: "#a78bfa", lbl: "Nebulosa", area: true },
+  anomalia:      { ic: "🌀", cor: "#c060f0", lbl: "Anomalia" },
+  dobra:         { ic: "🕳", cor: "#8060ff", lbl: "Portal / dobra" },
+  batalha:       { ic: "⚔", cor: "#f07a7a", lbl: "Local de batalha" },
+  base_pirata:   { ic: "🏴", cor: "#e05050", lbl: "Base pirata" },
+  mina:          { ic: "⛏", cor: "#d0a040", lbl: "Mina / extração" },
+  farol:         { ic: "📡", cor: "#60e0e0", lbl: "Farol / sinal" },
+  perigo:        { ic: "⚠", cor: "#f0b030", lbl: "Perigo / hazard", area: true },
+  tesouro:       { ic: "💎", cor: "#50e0c0", lbl: "Tesouro / loot" },
+  objetivo:      { ic: "🎯", cor: "#ff6060", lbl: "Objetivo" },
+  contato:       { ic: "👤", cor: "#d0d8f0", lbl: "NPC / contato" },
+  generico:      { ic: "📍", cor: "#f0a860", lbl: "Marcador" },
+};
+
+export function abrirMapa({ mapa, souMestre, salvar, aoFechar }) {
+  let estado = mapa && typeof mapa === "object" ? JSON.parse(JSON.stringify(mapa)) : {};
+  if (!Array.isArray(estado.pontos)) estado.pontos = [];
+  // viewBox de câmera (local por usuário)
+  let cam = { x: -1100, y: -1100, w: 2200, h: 2200 };
+  let modo = null; // "add" | "party" | null
+  let tipoNovo = "generico";
+
+  const ov = document.createElement("div");
+  ov.className = "mp-overlay";
+  ov.innerHTML = `
+    <div class="mp-topo">
+      <b>🗺 Mapa do Sistema</b>
+      ${souMestre ? `<span class="mp-mestre-tools">
+        <select id="mp-tipo">${Object.entries(POI_TIPOS).map(([k, v]) => `<option value="${k}">${v.ic} ${esc(v.lbl)}</option>`).join("")}</select>
+        <button id="mp-add" class="mini">➕ Adicionar ponto</button>
+        <button id="mp-party" class="mini">📍 Mover a party</button>
+      </span>` : `<span class="mp-dim">Visão do jogador — o Mestre controla os pontos</span>`}
+      <span class="mp-hint" id="mp-hint">Arraste para mover · role para zoom</span>
+      <button id="mp-fechar" class="mp-x">✕</button>
+    </div>
+    <div class="mp-canvas"><svg id="mp-svg" xmlns="http://www.w3.org/2000/svg"></svg></div>
+    <div id="mp-pop" class="mp-pop" style="display:none"></div>`;
+  document.body.appendChild(ov);
+  document.body.style.overflow = "hidden";
+  const svg = ov.querySelector("#mp-svg");
+  const pop = ov.querySelector("#mp-pop");
+  const hint = ov.querySelector("#mp-hint");
+
+  const aplicarView = () => svg.setAttribute("viewBox", `${cam.x} ${cam.y} ${cam.w} ${cam.h}`);
+
+  // ---- desenho ----
+  const el = (tag, attrs, inner) => { const e = document.createElementNS("http://www.w3.org/2000/svg", tag);
+    for (const k in attrs) e.setAttribute(k, attrs[k]); if (inner != null) e.textContent = inner; return e; };
+
+  const desenhar = () => {
+    svg.innerHTML = "";
+    const g = el("g", {});
+    // órbitas
+    for (const p of PLANETAS) g.appendChild(el("circle", { cx: 0, cy: 0, r: p.r * K, fill: "none", stroke: "#233", "stroke-width": 2 }));
+    // cinturão de asteroides (Marte↔Júpiter)
+    for (let i = 0; i < 120; i++) { const a = Math.random() * 360, rr = (24 + Math.random() * 3) * K;
+      g.appendChild(el("circle", { cx: Math.cos(rad(a)) * rr, cy: Math.sin(rad(a)) * rr, r: 1.6, fill: "#6a6a55", opacity: 0.7 })); }
+    // sol
+    g.appendChild(el("circle", { cx: 0, cy: 0, r: 22, fill: "#ffcc44" }));
+    g.appendChild(el("circle", { cx: 0, cy: 0, r: 30, fill: "#ffaa33", opacity: 0.2 }));
+    g.appendChild(el("text", { x: 0, y: 44, fill: "#ffcc44", "font-size": 15, "text-anchor": "middle" }, "Sol"));
+    // planetas + luas
+    for (const p of PLANETAS) {
+      const x = px(p), y = py(p);
+      if (p.aneis) { const ring = el("ellipse", { cx: x, cy: y, rx: p.tam * 2, ry: p.tam * 0.8, fill: "none", stroke: p.cor, "stroke-width": 2, opacity: 0.6 }); g.appendChild(ring); }
+      g.appendChild(el("circle", { cx: x, cy: y, r: p.tam, fill: p.cor }));
+      g.appendChild(el("text", { x: x, y: y - p.tam - 6, fill: p.cor, "font-size": 14, "text-anchor": "middle", "font-weight": "600" }, `${p.nome}`));
+      g.appendChild(el("text", { x: x, y: y - p.tam - 20, fill: "#8189a3", "font-size": 10, "text-anchor": "middle" }, p.raca));
+      p.luas.forEach((lua, i) => { const la = (i / Math.max(1, p.luas.length)) * 360 + 30, lr = p.tam + 14 + i * 9;
+        const lx = x + Math.cos(rad(la)) * lr, ly = y + Math.sin(rad(la)) * lr;
+        g.appendChild(el("circle", { cx: x, cy: y, r: lr, fill: "none", stroke: "#2a2a3a", "stroke-width": 1 }));
+        g.appendChild(el("circle", { cx: lx, cy: ly, r: 3, fill: "#c8c8d8" }));
+        g.appendChild(el("text", { x: lx, y: ly - 6, fill: "#9098b0", "font-size": 9, "text-anchor": "middle" }, lua)); });
+    }
+    // pontos de interesse
+    for (const pt of estado.pontos) {
+      const t = POI_TIPOS[pt.tipo] || POI_TIPOS.generico;
+      if (t.area) { g.appendChild(el("circle", { cx: pt.x, cy: pt.y, r: pt.raio || 60, fill: t.cor, "fill-opacity": 0.12, stroke: t.cor, "stroke-width": 2, "stroke-dasharray": "6 5", "data-poi": pt.id, style: "cursor:pointer" })); }
+      const mk = el("g", { "data-poi": pt.id, style: "cursor:pointer" });
+      mk.appendChild(el("circle", { cx: pt.x, cy: pt.y, r: 11, fill: "#0c0f19", stroke: t.cor, "stroke-width": 2 }));
+      mk.appendChild(el("text", { x: pt.x, y: pt.y + 5, "font-size": 13, "text-anchor": "middle" }, t.ic));
+      mk.appendChild(el("text", { x: pt.x, y: pt.y - 15, fill: t.cor, "font-size": 12, "text-anchor": "middle", "font-weight": "600" }, pt.nome || t.lbl));
+      g.appendChild(mk);
+    }
+    // localização da party
+    if (estado.party) { const b = estado.party;
+      g.appendChild(el("circle", { cx: b.x, cy: b.y, r: 16, fill: "none", stroke: "#59e3c8", "stroke-width": 2, opacity: 0.5, class: "mp-pulso" }));
+      g.appendChild(el("text", { x: b.x, y: b.y + 6, "font-size": 18, "text-anchor": "middle" }, "🚀"));
+      g.appendChild(el("text", { x: b.x, y: b.y - 22, fill: "#59e3c8", "font-size": 12, "text-anchor": "middle", "font-weight": "700" }, b.nome || "A TRIPULAÇÃO")); }
+    svg.appendChild(g);
+    aplicarView();
+  };
+
+  // ---- coordenadas tela → mapa ----
+  const paraMapa = (clientX, clientY) => { const r = svg.getBoundingClientRect();
+    return { x: cam.x + ((clientX - r.left) / r.width) * cam.w, y: cam.y + ((clientY - r.top) / r.height) * cam.h }; };
+
+  // ---- zoom ----
+  ov.querySelector(".mp-canvas").addEventListener("wheel", (e) => { e.preventDefault();
+    const m = paraMapa(e.clientX, e.clientY); const f = e.deltaY < 0 ? 0.85 : 1.18;
+    const nw = Math.min(8000, Math.max(120, cam.w * f)), nh = nw * (cam.h / cam.w);
+    cam.x = m.x - (m.x - cam.x) * (nw / cam.w); cam.y = m.y - (m.y - cam.y) * (nh / cam.h);
+    cam.w = nw; cam.h = nh; aplicarView(); }, { passive: false });
+
+  // ---- pan / clique ----
+  let arrastando = null, movendoPoi = null;
+  svg.addEventListener("pointerdown", (e) => {
+    const alvo = e.target.closest("[data-poi]");
+    if (alvo && souMestre && modo === null) { movendoPoi = { id: alvo.dataset.poi, moved: false }; svg.setPointerCapture(e.pointerId); return; }
+    if (alvo && modo === null) { abrirPop(alvo.dataset.poi); return; }
+    if (modo === "add") { adicionarPonto(paraMapa(e.clientX, e.clientY)); return; }
+    if (modo === "party") { estado.party = { ...(estado.party || {}), ...paraMapa(e.clientX, e.clientY) }; setModo(null); persistir(); desenhar(); return; }
+    arrastando = { x: e.clientX, y: e.clientY, cx: cam.x, cy: cam.y }; svg.setPointerCapture(e.pointerId);
+  });
+  svg.addEventListener("pointermove", (e) => {
+    if (movendoPoi) { const pt = estado.pontos.find((p) => p.id === movendoPoi.id); if (pt) { const m = paraMapa(e.clientX, e.clientY); pt.x = Math.round(m.x); pt.y = Math.round(m.y); movendoPoi.moved = true; desenhar(); } return; }
+    if (arrastando) { const r = svg.getBoundingClientRect();
+      cam.x = arrastando.cx - ((e.clientX - arrastando.x) / r.width) * cam.w;
+      cam.y = arrastando.cy - ((e.clientY - arrastando.y) / r.height) * cam.h; aplicarView(); }
+  });
+  svg.addEventListener("pointerup", () => { if (movendoPoi) { if (movendoPoi.moved) persistir(); movendoPoi = null; } arrastando = null; });
+
+  const setModo = (m) => { modo = m; hint.textContent = m === "add" ? "Clique no mapa para posicionar o ponto" : m === "party" ? "Clique no mapa para mover a tripulação" : "Arraste para mover · role para zoom";
+    ov.querySelector("#mp-add")?.classList.toggle("on", m === "add"); ov.querySelector("#mp-party")?.classList.toggle("on", m === "party"); };
+
+  const adicionarPonto = (m) => {
+    const t = POI_TIPOS[tipoNovo];
+    const nome = prompt(`Nome do ponto (${t.lbl}):`, ""); if (nome === null) { setModo(null); return; }
+    const desc = prompt("Descrição (opcional):", "") || "";
+    const pt = { id: uid(), tipo: tipoNovo, nome: nome || t.lbl, desc, x: Math.round(m.x), y: Math.round(m.y) };
+    if (t.area) pt.raio = 70;
+    estado.pontos.push(pt); setModo(null); persistir(); desenhar();
+  };
+
+  const abrirPop = (id) => {
+    const pt = estado.pontos.find((p) => p.id === id); if (!pt) return;
+    const t = POI_TIPOS[pt.tipo] || POI_TIPOS.generico;
+    pop.style.display = "block";
+    pop.innerHTML = `<div class="mp-pop-cab"><span>${t.ic} ${esc(pt.nome)}</span><button class="mp-pop-x">✕</button></div>
+      <span class="mp-pop-tipo" style="color:${t.cor}">${esc(t.lbl)}</span>
+      <p>${pt.desc ? esc(pt.desc) : "<i>Sem descrição.</i>"}</p>
+      ${souMestre ? `<div class="mp-pop-acoes">${t.area ? `<label>raio <input type="range" id="mp-raio" min="20" max="300" value="${pt.raio || 70}"></label>` : ""}
+        <button class="mini" id="mp-editar">✎ Editar</button><button class="mini rm" id="mp-del">🗑 Excluir</button></div>` : ""}`;
+    pop.querySelector(".mp-pop-x").onclick = () => (pop.style.display = "none");
+    if (souMestre) {
+      pop.querySelector("#mp-editar").onclick = () => { const n = prompt("Nome:", pt.nome); if (n !== null) pt.nome = n;
+        const d = prompt("Descrição:", pt.desc || ""); if (d !== null) pt.desc = d; persistir(); desenhar(); abrirPop(id); };
+      pop.querySelector("#mp-del").onclick = () => { if (confirm(`Excluir "${pt.nome}"?`)) { estado.pontos = estado.pontos.filter((p) => p.id !== id); pop.style.display = "none"; persistir(); desenhar(); } };
+      const raio = pop.querySelector("#mp-raio"); if (raio) raio.oninput = () => { pt.raio = +raio.value; desenhar(); };
+      if (raio) raio.onchange = () => persistir();
+    }
+  };
+
+  let salvarTimer = null;
+  const persistir = () => { clearTimeout(salvarTimer); salvarTimer = setTimeout(() => salvar(estado), 250); };
+
+  // ---- controles do topo ----
+  if (souMestre) {
+    ov.querySelector("#mp-tipo").onchange = (e) => (tipoNovo = e.target.value);
+    ov.querySelector("#mp-add").onclick = () => setModo(modo === "add" ? null : "add");
+    ov.querySelector("#mp-party").onclick = () => setModo(modo === "party" ? null : "party");
+  }
+  const fechar = () => { document.body.style.overflow = ""; ov.remove(); aoFechar?.(); };
+  ov.querySelector("#mp-fechar").onclick = fechar;
+  ov.addEventListener("keydown", (e) => { if (e.key === "Escape") { if (modo) setModo(null); else fechar(); } });
+
+  desenhar();
+
+  // controlador para o realtime atualizar o mapa em tempo real
+  return {
+    atualizar: (novo) => { if (!novo) return; const partyMovendo = modo === "party";
+      estado = JSON.parse(JSON.stringify(novo)); if (!Array.isArray(estado.pontos)) estado.pontos = [];
+      if (!partyMovendo) desenhar(); },
+    fechar,
+  };
+}

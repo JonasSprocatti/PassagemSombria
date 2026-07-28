@@ -681,6 +681,8 @@ async function telaMesa(id) {
   const souMestre = camp.mestre_id === usuario.id;
   let pintarMsg = null;          // aponta pro addMsg do render atual (renderização otimista)
   const historico = msgs || [];  // lista mutável de mensagens (sobrevive a re-renders)
+  let mapaCtrl = null;           // controlador do mapa aberto (para sync via realtime)
+  const salvarMapa = async (mapa) => { camp.mapa = mapa; const { error } = await sb.from("campanhas").update({ mapa }).eq("id", id); if (error) alert("Não consegui salvar o mapa: " + error.message); };
 
   const enviar = async (tipo, conteudo, payload = null) => {
     const { data, error } = await sb.from("mensagens").insert({ campanha_id: id, autor_id: usuario.id, personagem_id: meuPers?.id || null, tipo, conteudo, payload }).select("*,perfis:autor_id(apelido,avatar_url)").single();
@@ -703,7 +705,7 @@ async function telaMesa(id) {
     const meuPosto = membros?.find((m) => m.perfil_id === usuario.id)?.posto;
     shell("mesa", `
       <nav class="topo"><a class="btn-ghost" href="#/campanhas">← CAMPANHAS</a>
-        <div class="topo-status">${esc(camp.nome)} · código <b class="chrome">${camp.codigo}</b></div><span></span></nav>
+        <div class="topo-status">${esc(camp.nome)} · código <b class="chrome">${camp.codigo}</b></div><button id="abrir-mapa" class="btn-ghost" title="Mapa do sistema (compartilhado)">🗺 MAPA</button></nav>
       <div class="mesa">
         <div class="mesa-lateral">
           <section class="sec"><header><span class="tag">◈</span><h2>Meu personagem</h2></header>
@@ -843,7 +845,7 @@ async function telaMesa(id) {
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "mensagens", filter: `campanha_id=eq.${id}` },
         async (pl) => { const { data: m } = await sb.from("mensagens").select("*,perfis:autor_id(apelido,avatar_url)").eq("id", pl.new.id).single(); if (m) addMsg(m, true); })
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "campanhas", filter: `id=eq.${id}` },
-        (pl) => { camp.nave = pl.new.nave; render(); })
+        (pl) => { camp.nave = pl.new.nave; camp.mapa = pl.new.mapa; mapaCtrl?.atualizar(pl.new.mapa); render(); })
       .subscribe();
 
     // ---- binds ----
@@ -857,6 +859,11 @@ async function telaMesa(id) {
     $("#msg").onkeydown = (e) => { if (e.key === "Enter") $("#enviar-msg").click(); else if (e.key === "Escape") cancelarResp(); };
     $("#mestre-curto")?.addEventListener("click", () => { if (confirm("Convocar Descanso Curto para toda a mesa? Cada jogador conectado recupera as habilidades de descanso curto no próprio personagem.")) enviar("descanso", "O Mestre convocou um Descanso Curto (1h). Habilidades de descanso curto reiniciadas; cura via Kits Médicos.", { tipo: "curto" }); });
     $("#mestre-longo")?.addEventListener("click", () => { if (confirm("Convocar Descanso Longo para toda a mesa? Cada jogador conectado tem PV restaurados, RAM recarregada e todas as habilidades reiniciadas.")) enviar("descanso", "O Mestre convocou um Descanso Longo (8h). PV restaurados, RAM recarregada e todas as habilidades reiniciadas.", { tipo: "longo" }); });
+    $("#abrir-mapa")?.addEventListener("click", async () => {
+      try { const { abrirMapa } = await import("./mapa-sistema.js");
+        mapaCtrl = abrirMapa({ mapa: camp.mapa, souMestre, salvar: salvarMapa, aoFechar: () => { mapaCtrl = null; } });
+      } catch (err) { alert("Não consegui abrir o mapa: " + err.message); }
+    });
     $("#sel-pers").onchange = async (e) => {
       const pid = e.target.value; if (!pid) return;
       await sb.from("personagens").update({ campanha_id: id }).eq("id", pid);
