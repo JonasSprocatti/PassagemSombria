@@ -80,6 +80,12 @@ export function abrirMapa({ mapa, souMestre, salvar, aoFechar }) {
   const hint = ov.querySelector("#mp-hint");
 
   const aplicarView = () => svg.setAttribute("viewBox", `${cam.x} ${cam.y} ${cam.w} ${cam.h}`);
+  // Ajusta o viewBox ao formato do elemento (evita margens/letterbox), mantendo o centro.
+  const ajustarAspecto = () => { const r = svg.getBoundingClientRect(); if (!r.width || !r.height) return;
+    const cx = cam.x + cam.w / 2, cy = cam.y + cam.h / 2; cam.h = cam.w * (r.height / r.width);
+    cam.x = cx - cam.w / 2; cam.y = cy - cam.h / 2; aplicarView(); };
+  const onResize = () => { ajustarAspecto(); };
+  window.addEventListener("resize", onResize);
 
   // ---- desenho ----
   const el = (tag, attrs, inner) => { const e = document.createElementNS("http://www.w3.org/2000/svg", tag);
@@ -129,9 +135,13 @@ export function abrirMapa({ mapa, souMestre, salvar, aoFechar }) {
     aplicarView();
   };
 
-  // ---- coordenadas tela → mapa ----
-  const paraMapa = (clientX, clientY) => { const r = svg.getBoundingClientRect();
-    return { x: cam.x + ((clientX - r.left) / r.width) * cam.w, y: cam.y + ((clientY - r.top) / r.height) * cam.h }; };
+  // ---- coordenadas tela → mapa (usa a matriz do SVG: robusto a viewBox/aspect) ----
+  const paraMapa = (clientX, clientY) => {
+    const ctm = svg.getScreenCTM(); if (!ctm) return { x: 0, y: 0 };
+    const pt = svg.createSVGPoint(); pt.x = clientX; pt.y = clientY;
+    const p = pt.matrixTransform(ctm.inverse());
+    return { x: p.x, y: p.y };
+  };
 
   // ---- zoom ----
   ov.querySelector(".mp-canvas").addEventListener("wheel", (e) => { e.preventDefault();
@@ -148,13 +158,14 @@ export function abrirMapa({ mapa, souMestre, salvar, aoFechar }) {
     if (alvo && modo === null) { abrirPop(alvo.dataset.poi); return; }
     if (modo === "add") { adicionarPonto(paraMapa(e.clientX, e.clientY)); return; }
     if (modo === "party") { estado.party = { ...(estado.party || {}), ...paraMapa(e.clientX, e.clientY) }; setModo(null); persistir(); desenhar(); return; }
-    arrastando = { x: e.clientX, y: e.clientY, cx: cam.x, cy: cam.y }; svg.setPointerCapture(e.pointerId);
+    const ctm = svg.getScreenCTM();
+    arrastando = { x: e.clientX, y: e.clientY, cx: cam.x, cy: cam.y, sx: (ctm && ctm.a) || 1, sy: (ctm && ctm.d) || 1 }; svg.setPointerCapture(e.pointerId);
   });
   svg.addEventListener("pointermove", (e) => {
     if (movendoPoi) { const pt = estado.pontos.find((p) => p.id === movendoPoi.id); if (pt) { const m = paraMapa(e.clientX, e.clientY); pt.x = Math.round(m.x); pt.y = Math.round(m.y); movendoPoi.moved = true; desenhar(); } return; }
-    if (arrastando) { const r = svg.getBoundingClientRect();
-      cam.x = arrastando.cx - ((e.clientX - arrastando.x) / r.width) * cam.w;
-      cam.y = arrastando.cy - ((e.clientY - arrastando.y) / r.height) * cam.h; aplicarView(); }
+    if (arrastando) {
+      cam.x = arrastando.cx - (e.clientX - arrastando.x) / arrastando.sx;
+      cam.y = arrastando.cy - (e.clientY - arrastando.y) / arrastando.sy; aplicarView(); }
   });
   svg.addEventListener("pointerup", () => { if (movendoPoi) { if (movendoPoi.moved) persistir(); movendoPoi = null; } arrastando = null; });
 
@@ -198,11 +209,12 @@ export function abrirMapa({ mapa, souMestre, salvar, aoFechar }) {
     ov.querySelector("#mp-add").onclick = () => setModo(modo === "add" ? null : "add");
     ov.querySelector("#mp-party").onclick = () => setModo(modo === "party" ? null : "party");
   }
-  const fechar = () => { document.body.style.overflow = ""; ov.remove(); aoFechar?.(); };
+  const fechar = () => { document.body.style.overflow = ""; window.removeEventListener("resize", onResize); ov.remove(); aoFechar?.(); };
   ov.querySelector("#mp-fechar").onclick = fechar;
   ov.addEventListener("keydown", (e) => { if (e.key === "Escape") { if (modo) setModo(null); else fechar(); } });
 
   desenhar();
+  ajustarAspecto();
 
   // controlador para o realtime atualizar o mapa em tempo real
   return {
