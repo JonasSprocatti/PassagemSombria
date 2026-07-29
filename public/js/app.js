@@ -957,7 +957,7 @@ async function telaMesa(id) {
     $("#mestre-cg")?.addEventListener("click", () => { const n = parseInt(prompt("Conceder quantos Créditos (CG) para toda a tripulação conectada?", "1000"), 10); if (!n || n <= 0) return; enviar("recompensa", `O Mestre distribuiu ${n} CG de saque à tripulação.`, { creditos: n }); });
     $("#abrir-diario")?.addEventListener("click", async () => {
       const { data: todas } = await sb.from("mensagens").select("*,perfis:autor_id(apelido,avatar_url)").eq("campanha_id", id).order("criado_em", { ascending: true }).limit(2000);
-      const ov = document.createElement("div"); ov.className = "ss-overlay"; ov.style.zIndex = "10000";
+      const ov = document.createElement("div"); ov.className = "ss-overlay ov-modal"; ov.style.zIndex = "10000";
       const linha = (m) => { const p = m.persm = m.personagem_id ? (pers || []).find((x) => x.id === m.personagem_id) : null;
         const quem = esc(p?.nome || m.perfis?.apelido || "?");
         const hora = new Date(m.criado_em).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
@@ -991,7 +991,7 @@ async function telaMesa(id) {
     const cbFind = (idc) => camp.combate.ordem.find((x) => x.id === idc);
     $("#cb-iniciar")?.addEventListener("click", async () => { camp.combate = { ...combateVazio(), ativo: true }; await salvarCombate(); render(); });
     $("#cb-criar")?.addEventListener("click", () => {
-      const ov = document.createElement("div"); ov.className = "ss-overlay"; ov.style.zIndex = "10000";
+      const ov = document.createElement("div"); ov.className = "ss-overlay ov-modal"; ov.style.zIndex = "10000";
       const listaHtml = () => camp.bestiario.map((b, i) => `<div class="inv"><span><b>${esc(b.n)}</b> · ${b.ameaca} · HP ${b.hp} CD ${b.cd}</span><button class="mini rm" data-del="${i}">✕</button></div>`).join("") || `<p class="regra">Nenhuma criatura criada ainda.</p>`;
       ov.innerHTML = `<div class="ss-painel" style="width:460px;max-width:94vw;margin:auto;border:1px solid var(--line);border-radius:10px">
         <div class="ss-vazio"><h2>🐉 Criaturas do Mestre</h2><p>Crie inimigos próprios; eles aparecem no "Add" do combate.</p>
