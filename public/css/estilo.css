@@ -243,3 +243,38 @@ input:focus,select:focus,button:focus-visible{outline:2px solid var(--tech);outl
 .mp-pop p{font-size:13px;line-height:1.5;margin:8px 0}
 .mp-pop-acoes{display:flex;gap:6px;align-items:center;flex-wrap:wrap;border-top:1px solid var(--line);padding-top:8px}
 .mp-pop-acoes label{font-size:11px;color:var(--dim);display:flex;align-items:center;gap:4px}
+
+/* ---------------- BESTIÁRIO ---------------- */
+.best-tag{display:inline-block;font-size:9px;text-transform:uppercase;letter-spacing:.06em;border:1px solid;padding:1px 7px;border-radius:3px;font-family:'IBM Plex Mono',monospace;vertical-align:middle}
+.best-card summary{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+
+/* ---------------- RASTREADOR DE INICIATIVA ---------------- */
+.combate-sec{border:1px solid var(--chrome)}
+.cb-lista{display:flex;flex-direction:column;gap:3px;margin-bottom:8px}
+.cb-linha{display:flex;align-items:center;gap:7px;padding:4px 6px;border-radius:5px;background:var(--panel2);font-size:12px}
+.cb-linha.cb-atual{background:rgba(240,168,96,.16);border:1px solid var(--chrome)}
+.cb-linha.cb-morto{opacity:.4;filter:grayscale(1)}
+.cb-ini{font-family:'IBM Plex Mono',monospace;font-weight:700;color:var(--chrome);min-width:20px;text-align:center}
+.cb-nome{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cb-hp{position:relative;width:88px;height:16px;background:#1a1e2e;border-radius:3px;overflow:hidden;flex-shrink:0}
+.cb-hp-barra{position:absolute;left:0;top:0;height:100%;opacity:.55}
+.cb-hp b{position:relative;font-size:10px;line-height:16px;display:block;text-align:center;font-family:'IBM Plex Mono',monospace}
+.cb-acoes{display:flex;gap:2px;align-items:center}
+.cb-acoes button{background:var(--panel);border:1px solid var(--line);color:var(--ink);cursor:pointer;font-size:10px;padding:1px 5px;border-radius:3px}
+.cb-acoes .cb-rm:hover{color:var(--perigo);border-color:var(--perigo)}
+.cb-add,.cb-ctrl{display:flex;gap:5px;margin-top:6px}
+.cb-add select{flex:1;min-width:0}
+
+/* ---------------- TOGGLES DE ROLAGEM (vantagem/desvantagem/privado) ---------------- */
+.rol-toggles{display:flex;gap:5px;align-items:center;flex-wrap:wrap;margin-bottom:6px}
+.rol-toggles .mini.on{border-color:var(--tech);color:var(--tech);background:rgba(89,227,200,.14)}
+#tg-desv.on{border-color:var(--chrome);color:var(--chrome);background:rgba(240,168,96,.14)}
+#tg-priv.on{border-color:var(--sombra);color:var(--sombra);background:rgba(167,139,250,.14)}
+
+/* condições e ações extras do rastreador */
+.cb-conds{display:inline-flex;gap:3px;margin-left:5px;flex-wrap:wrap}
+.cb-cond{font-size:9px;background:rgba(240,122,122,.18);color:var(--perigo);border:1px solid var(--perigo);border-radius:3px;padding:0 4px;font-family:'IBM Plex Mono',monospace}
+.cb-atk{background:var(--panel)!important;border:1px solid var(--chrome)!important;color:var(--chrome)!important}
+.cb-atk:hover{background:rgba(240,168,96,.18)!important}
+.m-aplicar{display:block;margin-top:6px;background:rgba(240,122,122,.14);border:1px solid var(--perigo);color:var(--perigo);cursor:pointer;font-size:11px;padding:3px 8px;border-radius:4px}
+.m-aplicar:hover{background:rgba(240,122,122,.28)}

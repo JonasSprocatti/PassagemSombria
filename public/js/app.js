@@ -5,6 +5,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./config.js";
 import { RACAS, CLASSES, FILOSOFIAS, IMPLANTES, SCRIPTS, ARMAS, ARMADURAS, PERICIAS, NAVES, ESTACOES, REGRAS_NAVE, RIQUEZA, TEMAS, CONVERTE_2D8, RENOME_PERICIAS, KEYWORDS, propsArma } from "./dados-jogo.js";
+import { BESTIARIO, NIVEIS_AMEACA } from "./dados-bestiario.js";
 
 export const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const app = document.getElementById("app");
@@ -266,6 +267,18 @@ function aplicarDescanso(f, tipo) {
   return { tipo, pvRec, ramRec, habsReset, cat, notas };
 }
 
+
+// ---------------- COMBATE: rastreador de iniciativa ----------------
+const CONDICOES = ["Sangrando", "Atordoado", "Cego", "Envenenado", "Caído", "Congelado", "Marcado", "Lento", "Amedrontado", "Enfraquecido", "Em chamas", "Silenciado"];
+const combateVazio = () => ({ ativo: false, rodada: 1, turno: 0, ordem: [] });
+const ordenarCombate = (cb) => { cb.ordem.sort((a, b) => (b.ini - a.ini) || a.nome.localeCompare(b.nome)); return cb; };
+// Avança para o próximo combatente vivo; vira a rodada ao dar a volta.
+const proximoTurno = (cb) => {
+  if (!cb.ordem.length) return cb;
+  let i = cb.turno, voltas = 0;
+  do { i++; if (i >= cb.ordem.length) { i = 0; cb.rodada++; voltas++; } } while (cb.ordem[i] && cb.ordem[i].hp <= 0 && voltas < 2);
+  cb.turno = i; return cb;
+};
 
 function aplicarTema(f) {
   const t = f?.tema || TEMAS["Vácuo"];
@@ -682,7 +695,11 @@ async function telaMesa(id) {
   let pintarMsg = null;          // aponta pro addMsg do render atual (renderização otimista)
   const historico = msgs || [];  // lista mutável de mensagens (sobrevive a re-renders)
   let mapaCtrl = null;           // controlador do mapa aberto (para sync via realtime)
+  let vantagem = 0;              // 0 normal · 1 vantagem · -1 desvantagem
+  let privada = false;           // rolagem/mensagem privada (só Mestre + autor veem)
   const salvarMapa = async (mapa) => { camp.mapa = mapa; const { error } = await sb.from("campanhas").update({ mapa }).eq("id", id); if (error) alert("Não consegui salvar o mapa: " + error.message); };
+  if (!camp.combate || typeof camp.combate !== "object" || !("ordem" in camp.combate)) camp.combate = combateVazio();
+  const salvarCombate = async () => { const { error } = await sb.from("campanhas").update({ combate: camp.combate }).eq("id", id); if (error) alert("Não consegui salvar o combate: " + error.message); };
 
   const enviar = async (tipo, conteudo, payload = null) => {
     const { data, error } = await sb.from("mensagens").insert({ campanha_id: id, autor_id: usuario.id, personagem_id: meuPers?.id || null, tipo, conteudo, payload }).select("*,perfis:autor_id(apelido,avatar_url)").single();
@@ -692,8 +709,11 @@ async function telaMesa(id) {
   };
 
   const rolarEEnviar = (titulo, mod, extras = {}) => {
-    const nat = d(20), total = nat + mod;
-    return enviar("rolagem", null, { titulo, detalhe: `d20 [${nat}] ${sign(mod)}`, total, crit: nat === 20, fumble: nat === 1, ...extras });
+    let nat, detVant = "";
+    if (vantagem !== 0) { const a = d(20), b = d(20); nat = vantagem > 0 ? Math.max(a, b) : Math.min(a, b); detVant = ` [${vantagem > 0 ? "vant" : "desv"} ${a}/${b}]`; }
+    else nat = d(20);
+    const total = nat + mod;
+    return enviar("rolagem", null, { titulo: (privada ? "🔒 " : "") + titulo, detalhe: `d20 [${nat}]${detVant} ${sign(mod)}`, total, crit: nat === 20, fumble: nat === 1, ...(privada ? { privada: true } : {}), ...extras });
   };
 
   const render = async () => {
@@ -708,6 +728,21 @@ async function telaMesa(id) {
         <div class="topo-status">${esc(camp.nome)} · código <b class="chrome">${camp.codigo}</b></div><button id="abrir-mapa" class="btn-ghost" title="Mapa do sistema (compartilhado)">🗺 MAPA</button></nav>
       <div class="mesa">
         <div class="mesa-lateral">
+          ${(camp.combate.ativo || souMestre) ? `<section class="sec combate-sec">
+            <header><span class="tag">⚔</span><h2>Combate</h2>${camp.combate.ativo ? `<span class="regra" style="margin-left:auto">Rodada ${camp.combate.rodada}</span>` : ""}</header>
+            ${!camp.combate.ativo ? (souMestre ? `<button id="cb-iniciar" class="mini eq">⚔ Iniciar Combate</button><p class="regra">Adicione jogadores e inimigos do bestiário; a ordem é montada pela iniciativa.</p>` : "") : `
+            <div class="cb-lista">${camp.combate.ordem.map((c, i) => `
+              <div class="cb-linha ${i === camp.combate.turno ? "cb-atual" : ""} ${c.hp <= 0 ? "cb-morto" : ""}">
+                <span class="cb-ini" title="Iniciativa">${c.ini}</span>
+                <span class="cb-nome">${i === camp.combate.turno ? "▶ " : ""}${esc(c.nome)}${c.tipo === "inimigo" ? ` <i class="dim">${esc(c.ameaca || "")}</i>` : ""}${(c.cond && c.cond.length) ? `<span class="cb-conds">${c.cond.map((cd) => `<span class="cb-cond" title="${esc(cd.n)} · ${cd.turnos} turno(s)">${esc(cd.n)} ${cd.turnos}</span>`).join("")}</span>` : ""}</span>
+                <span class="cb-hp"><span class="cb-hp-barra" style="width:${Math.max(0, Math.min(100, c.hp_max ? c.hp / c.hp_max * 100 : 0))}%;background:${c.tipo === "inimigo" ? "var(--perigo)" : "var(--tech)"}"></span><b>${c.hp}/${c.hp_max}</b></span>
+                ${souMestre ? `<span class="cb-acoes">${c.tipo === "inimigo" && c.ataques ? c.ataques.map((atk, ai) => `<button class="cb-atk" data-cb="${c.id}" data-atk="${ai}" title="Rolar: ${esc(atk.n)}">⚔${c.ataques.length > 1 ? ai + 1 : ""}</button>`).join("") : ""}<button class="cb-dmg" data-cb="${c.id}" data-d="-5">−5</button><button class="cb-dmg" data-cb="${c.id}" data-d="5">+5</button><input class="cb-hpset" data-cb="${c.id}" type="number" value="${c.hp}" style="width:46px" title="definir HP"><button class="cb-hpset-lbl cb-cond-add" data-cb="${c.id}" title="Adicionar condição">🏷</button><button class="cb-rm" data-cb="${c.id}" title="remover">✕</button></span>` : ""}
+              </div>`).join("")}</div>
+            ${souMestre ? `<div class="cb-add">
+              <select id="cb-quem"><optgroup label="Jogadores">${(pers || []).map((p) => `<option value="j:${p.id}">${esc(p.nome) || "sem nome"}</option>`).join("")}</optgroup><optgroup label="Inimigos (bestiário)">${BESTIARIO.map((b, bi) => `<option value="e:${bi}">${esc(b.n)} · ${b.ameaca}</option>`).join("")}</optgroup></select>
+              <button id="cb-add-btn" class="mini">🎲 Add</button></div>
+            <div class="cb-ctrl"><button id="cb-prox" class="mini eq">▶ Próximo turno</button><button id="cb-fim" class="mini rm">⏹ Encerrar</button></div>` : ""}`}
+          </section>` : ""}
           <section class="sec"><header><span class="tag">◈</span><h2>Meu personagem</h2></header>
             <select id="sel-pers">${meuPers ? "" : `<option value="">— vincular personagem —</option>`}
               ${(meus || []).map((m) => `<option value="${m.id}" ${meuPers?.id === m.id ? "selected" : ""}>${esc(m.nome) || "sem nome"}</option>`).join("")}</select>
@@ -757,6 +792,10 @@ async function telaMesa(id) {
           <header><span class="tag">≣</span><h2>Mesa · transmissão ao vivo</h2></header>
           <div id="chat" class="chat"></div>
           <div id="resp-preview" class="resp-preview" style="display:none"><span class="rp-txt"></span><button id="resp-cancel" class="rp-x" title="Cancelar resposta">✕</button></div>
+          <div class="rol-toggles"><span class="regra" style="margin:0">Rolagem:</span>
+            <button id="tg-vant" class="mini" title="Vantagem: rola 2d20, pega o maior">▲ Vantagem</button>
+            <button id="tg-desv" class="mini" title="Desvantagem: rola 2d20, pega o menor">▼ Desvantagem</button>
+            <button id="tg-priv" class="mini" title="Privado: só o Mestre e você veem o resultado">🔒 Privado</button></div>
           <div class="linha-add"><input id="msg" placeholder="Mensagem ou rolagem: /1d20 · /r2d6+1 · /1d20+2d10"/><button id="enviar-msg" class="btn-primario">▶</button></div>
         </section>
       </div>`, "campanhas");
@@ -780,6 +819,7 @@ async function telaMesa(id) {
     const cancelarResp = () => { respondendoA = null; const bar = $("#resp-preview"); if (bar) bar.style.display = "none"; };
     const addMsg = (m, aoVivo = false) => {
       if (idsVistos.has(m.id)) return; idsVistos.add(m.id);
+      if (m.payload?.privada && m.autor_id !== usuario.id && !souMestre) return; // rolagem privada: só autor + Mestre
       if (aoVivo && !historico.some((x) => x.id === m.id)) historico.push(m); // persiste entre re-renders
       const quem = esc(m.perfis?.apelido || "?");
       const persN = m.personagem_id ? esc(pers?.find((x) => x.id === m.personagem_id)?.nome || "") : "";
@@ -788,9 +828,10 @@ async function telaMesa(id) {
       else if (m.tipo === "rolagem") { const p = m.payload || {};
         corpo = `<div class="m-roll ${p.crit ? "crit" : ""} ${p.fumble ? "fumble" : ""}">
           <b>${esc(p.titulo)}</b><span class="m-det">${esc(p.detalhe)}</span>
-          ${p.total !== undefined ? `<span class="m-total">${p.total}</span>` : ""}
+          ${p.total !== undefined && p.total !== null ? `<span class="m-total">${p.total}</span>` : ""}
           ${p.crit ? `<span class="log-flag crit">CRÍTICO!</span>` : ""}${p.fumble ? `<span class="log-flag fumble">FALHA CRÍTICA</span>` : ""}
-          ${p.extra ? `<span class="m-extra">${esc(p.extra)}</span>` : ""}</div>`; }
+          ${p.extra ? `<span class="m-extra">${esc(p.extra)}</span>` : ""}
+          ${p.dano_total != null && souMestre && camp.combate.ativo ? `<button class="m-aplicar" data-dano="${p.dano_total}">🩸 aplicar ${p.dano_total} de dano</button>` : ""}</div>`; }
       else if (m.tipo === "dano" || m.tipo === "cura") { const p = m.payload || {};
         const meu = pers?.find((x) => x.id === p.alvo_id)?.dono_id === usuario.id;
         corpo = `<div class="m-roll ${m.tipo === "dano" ? "fumble" : "crit"}"><b>${m.tipo === "dano" ? "💥" : "✚"} ${p.valor} em ${esc(p.alvo_nome)}</b>
@@ -811,6 +852,17 @@ async function telaMesa(id) {
       el.innerHTML = `${avatarHtml}<div class="m-corpo"><div class="m-cab">${quem}${persN ? ` <i>como ${persN}</i>` : ""} <time>${new Date(m.criado_em).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</time><button class="m-reply" data-reply title="Responder">↩</button></div>${respHtml}${corpo}</div>`;
       chatEl.appendChild(el); chatEl.scrollTop = chatEl.scrollHeight;
       el.querySelector("[data-reply]")?.addEventListener("click", () => iniciarResp(m));
+      el.querySelector(".m-aplicar")?.addEventListener("click", async () => {
+        if (!camp.combate.ativo || !camp.combate.ordem.length) return alert("Nenhum combate ativo com combatentes.");
+        const dano = +el.querySelector(".m-aplicar").dataset.dano;
+        const lista = camp.combate.ordem.map((c, i) => `${i + 1}. ${c.nome} (${c.hp}/${c.hp_max})`).join("\n");
+        const escolha = prompt(`Aplicar ${dano} de dano em quem?\n\n${lista}\n\nDigite o número:`);
+        if (!escolha) return; const idx = parseInt(escolha, 10) - 1; const alvo = camp.combate.ordem[idx];
+        if (!alvo) return alert("Alvo inválido.");
+        alvo.hp = Math.max(0, alvo.hp - dano);
+        enviar("sistema", `💥 ${alvo.nome} sofreu ${dano} de dano (${alvo.hp}/${alvo.hp_max}).`);
+        await salvarCombate(); render();
+      });
       el.querySelector("[data-goto]")?.addEventListener("click", () => {
         const alvo = chatEl.querySelector(`[data-mid="${resp.id}"]`);
         if (alvo) { alvo.scrollIntoView({ behavior: "smooth", block: "center" }); alvo.classList.add("piscar"); setTimeout(() => alvo.classList.remove("piscar"), 1200); }
@@ -845,7 +897,7 @@ async function telaMesa(id) {
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "mensagens", filter: `campanha_id=eq.${id}` },
         async (pl) => { const { data: m } = await sb.from("mensagens").select("*,perfis:autor_id(apelido,avatar_url)").eq("id", pl.new.id).single(); if (m) addMsg(m, true); })
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "campanhas", filter: `id=eq.${id}` },
-        (pl) => { camp.nave = pl.new.nave; camp.mapa = pl.new.mapa; mapaCtrl?.atualizar(pl.new.mapa); render(); })
+        (pl) => { camp.nave = pl.new.nave; camp.mapa = pl.new.mapa; camp.combate = pl.new.combate; mapaCtrl?.atualizar(pl.new.mapa); render(); })
       .subscribe();
 
     // ---- binds ----
@@ -853,9 +905,14 @@ async function telaMesa(id) {
       const resp = respondendoA; cancelarResp();
       const rr = /^\/(?:r(?:olar)?)?\s*(.+)$/i.exec(t);
       if (rr) { const r = rolarExpr(rr[1]); if (r) {
-        return enviar("rolagem", null, { titulo: `Rolagem ${rr[1]}`, detalhe: r.detalhe, total: r.total, ...(resp ? { resp } : {}) }); } }
+        return enviar("rolagem", null, { titulo: (privada ? "🔒 " : "") + `Rolagem ${rr[1]}`, detalhe: r.detalhe, total: r.total, ...(privada ? { privada: true } : {}), ...(resp ? { resp } : {}) }); } }
       enviar("texto", t, resp ? { resp } : null); };
     $("#resp-cancel")?.addEventListener("click", cancelarResp);
+    const syncTg = () => { $("#tg-vant")?.classList.toggle("on", vantagem > 0); $("#tg-desv")?.classList.toggle("on", vantagem < 0); $("#tg-priv")?.classList.toggle("on", privada); };
+    $("#tg-vant")?.addEventListener("click", () => { vantagem = vantagem > 0 ? 0 : 1; syncTg(); });
+    $("#tg-desv")?.addEventListener("click", () => { vantagem = vantagem < 0 ? 0 : -1; syncTg(); });
+    $("#tg-priv")?.addEventListener("click", () => { privada = !privada; syncTg(); });
+    syncTg();
     $("#msg").onkeydown = (e) => { if (e.key === "Enter") $("#enviar-msg").click(); else if (e.key === "Escape") cancelarResp(); };
     $("#mestre-curto")?.addEventListener("click", () => { if (confirm("Convocar Descanso Curto para toda a mesa? Cada jogador conectado recupera as habilidades de descanso curto no próprio personagem.")) enviar("descanso", "O Mestre convocou um Descanso Curto (1h). Habilidades de descanso curto reiniciadas; cura via Kits Médicos.", { tipo: "curto" }); });
     $("#mestre-longo")?.addEventListener("click", () => { if (confirm("Convocar Descanso Longo para toda a mesa? Cada jogador conectado tem PV restaurados, RAM recarregada e todas as habilidades reiniciadas.")) enviar("descanso", "O Mestre convocou um Descanso Longo (8h). PV restaurados, RAM recarregada e todas as habilidades reiniciadas.", { tipo: "longo" }); });
@@ -864,6 +921,56 @@ async function telaMesa(id) {
         mapaCtrl = abrirMapa({ mapa: camp.mapa, souMestre, salvar: salvarMapa, aoFechar: () => { mapaCtrl = null; } });
       } catch (err) { alert("Não consegui abrir o mapa: " + err.message); }
     });
+    // ---- rastreador de iniciativa ----
+    const cbId = () => "c" + Math.random().toString(36).slice(2, 8);
+    const cbFind = (idc) => camp.combate.ordem.find((x) => x.id === idc);
+    $("#cb-iniciar")?.addEventListener("click", async () => { camp.combate = { ...combateVazio(), ativo: true }; await salvarCombate(); render(); });
+    $("#cb-fim")?.addEventListener("click", async () => { if (confirm("Encerrar o combate e limpar a ordem?")) { camp.combate = combateVazio(); await salvarCombate(); render(); } });
+    app.querySelectorAll(".cb-cond-add").forEach((b) => b.onclick = async () => {
+      const c = cbFind(b.dataset.cb); if (!c) return;
+      const lista = CONDICOES.map((n, i) => `${i + 1}. ${n}`).join("   ");
+      const esc1 = prompt(`Condição para ${c.nome}:\n\n${lista}\n\nDigite o número (ou o nome livre):`); if (!esc1) return;
+      const nIdx = parseInt(esc1, 10); const nome = (nIdx >= 1 && nIdx <= CONDICOES.length) ? CONDICOES[nIdx - 1] : esc1.trim();
+      const turnos = parseInt(prompt(`Duração de "${nome}" em turnos:`, "2"), 10); if (!turnos || turnos < 1) return;
+      if (!c.cond) c.cond = []; c.cond.push({ n: nome, turnos });
+      enviar("sistema", `🏷 ${c.nome} está ${nome} (${turnos} turno${turnos > 1 ? "s" : ""}).`);
+      await salvarCombate(); render();
+    });
+    $("#cb-prox")?.addEventListener("click", async () => { proximoTurno(camp.combate); const atual = camp.combate.ordem[camp.combate.turno];
+      if (atual) { // condições do combatente que começa o turno decrementam; expiradas somem
+        if (atual.cond && atual.cond.length) { const expiradas = [];
+          atual.cond = atual.cond.filter((cd) => { cd.turnos -= 1; if (cd.turnos <= 0) { expiradas.push(cd.n); return false; } return true; });
+          if (expiradas.length) enviar("sistema", `✔ ${atual.nome}: acabou ${expiradas.join(", ")}.`);
+        }
+        enviar("sistema", `⚔ Rodada ${camp.combate.rodada} · vez de ${atual.nome}${atual.cond && atual.cond.length ? ` (${atual.cond.map((x) => x.n).join(", ")})` : ""}.`);
+      }
+      await salvarCombate(); render(); });
+    $("#cb-add-btn")?.addEventListener("click", async () => {
+      const v = $("#cb-quem").value; if (!v) return;
+      if (v.startsWith("j:")) { const p = (pers || []).find((x) => x.id === v.slice(2)); if (!p) return;
+        const kk = calc({ ...novaFichaDados(), ...p.dados }); const nome = p.nome || "Tripulante";
+        camp.combate.ordem.push({ id: cbId(), nome, ini: d(20) + kk.iniciativa, hp: p.dados.pvAtual ?? kk.attr.Con, hp_max: p.dados.pvMax || 1, cd: kk.cd, tipo: "jogador", personagem_id: p.id });
+      } else { const b = BESTIARIO[+v.slice(2)]; if (!b) return;
+        const iguais = camp.combate.ordem.filter((x) => x.nome.replace(/ #\d+$/, "") === b.n).length;
+        camp.combate.ordem.push({ id: cbId(), nome: iguais ? `${b.n} #${iguais + 1}` : b.n, ini: d(20), hp: b.hp, hp_max: b.hp, cd: b.cd, tipo: "inimigo", ameaca: b.ameaca, ataques: b.ataques });
+      }
+      ordenarCombate(camp.combate); await salvarCombate(); render();
+    });
+    app.querySelectorAll(".cb-atk").forEach((b) => b.onclick = async () => {
+      const c = cbFind(b.dataset.cb); if (!c || !c.ataques) return; const atk = c.ataques[+b.dataset.atk]; if (!atk) return;
+      let nat = null, detVant = "", acerto = null;
+      if (atk.bonus != null) { if (vantagem !== 0) { const r1 = d(20), r2 = d(20); nat = vantagem > 0 ? Math.max(r1, r2) : Math.min(r1, r2); detVant = ` [${vantagem > 0 ? "vant" : "desv"} ${r1}/${r2}]`; } else nat = d(20); acerto = nat + atk.bonus; }
+      const pd = parseDice(atk.dano); let danoTxt = "", danoTotal = null;
+      if (pd) { const mult = nat === 20 ? 2 : 1; const ds = rollNd(pd.n * mult, pd.f); danoTotal = ds.reduce((x, y) => x + y, 0) + pd.mod; danoTxt = ` · dano ${atk.dano}${mult > 1 ? "×2" : ""} [${ds.join(", ")}]${pd.mod ? sign(pd.mod) : ""} = ${danoTotal}`; }
+      enviar("rolagem", null, { titulo: `👹 ${c.nome} — ${atk.n}`,
+        detalhe: `${nat != null ? `d20 [${nat}]${detVant} ${sign(atk.bonus)} = acerto ${acerto}` : "efeito automático"}${danoTxt}`,
+        total: acerto, crit: nat === 20, fumble: nat === 1,
+        extra: `${atk.extra ? atk.extra : ""}`, ...(danoTotal != null ? { dano_total: danoTotal } : {}) });
+    });
+    app.querySelectorAll(".cb-dmg").forEach((b) => b.onclick = async () => { const c = cbFind(b.dataset.cb); if (!c) return; c.hp = Math.max(0, Math.min(c.hp_max, c.hp + (+b.dataset.d))); await salvarCombate(); render(); });
+    app.querySelectorAll(".cb-hpset").forEach((i) => i.onchange = async () => { const c = cbFind(i.dataset.cb); if (!c) return; c.hp = Math.max(0, Math.min(c.hp_max, +i.value || 0)); await salvarCombate(); render(); });
+    app.querySelectorAll(".cb-rm").forEach((b) => b.onclick = async () => { const idx = camp.combate.ordem.findIndex((x) => x.id === b.dataset.cb); if (idx < 0) return;
+      camp.combate.ordem.splice(idx, 1); if (camp.combate.turno >= camp.combate.ordem.length) camp.combate.turno = 0; await salvarCombate(); render(); });
     $("#sel-pers").onchange = async (e) => {
       const pid = e.target.value; if (!pid) return;
       await sb.from("personagens").update({ campanha_id: id }).eq("id", pid);
@@ -883,7 +990,8 @@ async function telaMesa(id) {
           + (cat.tipo === "fogo" && f.implantes.includes("Olho Biônico de Precisão") ? 2 : 0)
           + (furtivo && pr.oculta ? 2 : 0)          // Oculta: +2 no furtivo
           + (furtivo && assassino ? 2 : 0);          // Assassino: +2 no furtivo
-        const nat = d(20);
+        let nat, detVant = "";
+        if (vantagem !== 0) { const r1 = d(20), r2 = d(20); nat = vantagem > 0 ? Math.max(r1, r2) : Math.min(r1, r2); detVant = ` [${vantagem > 0 ? "vant" : "desv"} ${r1}/${r2}]`; } else nat = d(20);
         const pd = parseDice(cat.dano);
         // dobra o dano por Crítico (20) e/ou Ataque Furtivo do Assassino (cada um adiciona um conjunto de dados)
         const sets = 1 + (nat === 20 ? 1 : 0) + (furtivo && assassino ? 1 : 0);
@@ -892,9 +1000,9 @@ async function telaMesa(id) {
         const danoMod = k.attr[atkAttr] + (cat.tipo === "branca" && f.implantes.includes("Braço Mecânico Hidráulico") ? 2 : 0);
         const marcadores = [nat === 20 ? "CRÍTICO ×2" : "", furtivo && assassino ? "FURTIVO ×2" : furtivo ? "furtivo +2 acerto" : "", pr.agil ? `Ágil (${atkAttr})` : "", pr.brutal ? "Brutal (vantagem)" : ""].filter(Boolean).join(" · ");
         const infoArma = [pr.area ? `◎ Área: ${pr.areaTxt}` : "", pr.alcance ? `⟿ Alcance: ${pr.alcanceTxt}` : "", cat.kw ? `🏷 ${cat.kw}: ${pr.efeito}` : ""].filter(Boolean).join("  ·  ");
-        enviar("rolagem", null, { titulo: `Ataque — ${a.nome}${furtivo ? " 🥷" : ""}`,
-          detalhe: `d20 [${nat}] ${sign(mod)} · dano ${cat.dano}${sets > 1 ? `×${sets}` : ""} [${dados.join(", ")}] ${sign(danoMod)}${marcadores ? " · " + marcadores : ""}`,
-          total: nat + mod, crit: nat === 20, fumble: nat === 1,
+        enviar("rolagem", null, { titulo: (privada ? "🔒 " : "") + `Ataque — ${a.nome}${furtivo ? " 🥷" : ""}`,
+          detalhe: `d20 [${nat}]${detVant} ${sign(mod)} · dano ${cat.dano}${sets > 1 ? `×${sets}` : ""} [${dados.join(", ")}] ${sign(danoMod)}${marcadores ? " · " + marcadores : ""}`,
+          total: nat + mod, crit: nat === 20, fumble: nat === 1, ...(privada ? { privada: true } : {}), dano_total: dados.reduce((x, y) => x + y, 0) + danoMod,
           extra: `Dano: ${dados.reduce((x, y) => x + y, 0) + danoMod}${infoArma ? "  —  " + infoArma : ""}` }); });
       $("#conjurar").onclick = async () => {
         const s = SCRIPTS.find((x) => x.n === $("#sel-scr").value);
@@ -905,7 +1013,7 @@ async function telaMesa(id) {
         enviar("rolagem", null, { titulo: `Script — ${s.n}`, detalhe: `d20 [${nat}] +${k.conj} · ${s.c} RAM · ${s.a}`, total: nat + k.conj, crit: nat === 20, fumble: nat === 1, extra: s.d.slice(0, 90) });
         render(); };
       $("#rolar-livre").onclick = () => { const v = $("#dado-livre").value.trim(); const r = rolarExpr(v.replace(/^\//, "")); if (!r) return;
-        enviar("rolagem", null, { titulo: `Rolagem ${v}`, detalhe: r.detalhe, total: r.total }); };
+        enviar("rolagem", null, { titulo: (privada ? "🔒 " : "") + `Rolagem ${v}`, detalhe: r.detalhe, total: r.total, ...(privada ? { privada: true } : {}) }); };
       $("#enviar-dano").onclick = () => { const v = +$("#dano-val").value; if (!v) return;
         const alvo = pers.find((x) => x.id === $("#sel-alvo").value);
         enviar("dano", null, { alvo_id: alvo.id, alvo_nome: alvo.nome, valor: v, origem: `de ${meuPers.nome}`, aplicado: false }); };
@@ -952,8 +1060,13 @@ async function telaMesa(id) {
 
 // ---------------- BIBLIOTECA (todas as informações detalhadas) ----------------
 function telaBiblioteca(aba = "racas") {
-  const abas = [["racas", "Raças"], ["classes", "Classes"], ["armas", "Arsenal"], ["armaduras", "Armaduras"], ["implantes", "Implantes"], ["scripts", "Scripts"], ["filosofias", "Filosofias"], ["naves", "Naves"]];
+  const abas = [["racas", "Raças"], ["classes", "Classes"], ["armas", "Arsenal"], ["armaduras", "Armaduras"], ["implantes", "Implantes"], ["scripts", "Scripts"], ["filosofias", "Filosofias"], ["naves", "Naves"], ["bestiario", "Bestiário"]];
   let corpo = "";
+  const cardCriatura = (c) => { const nv = NIVEIS_AMEACA[c.ameaca] || { cor: "#8189a3" };
+    return `<details class="det grande best-card" style="border-left:3px solid ${nv.cor}"><summary><b>${esc(c.n)}</b> <span class="best-tag" style="color:${nv.cor};border-color:${nv.cor}">${esc(c.ameaca)}</span>${c.raca ? ` <i class="dim">${esc(c.raca)}</i>` : ""}</summary>
+      <p class="regra">❤ HP ${c.hp} · 🛡 CD ${c.cd} · 🏃 ${c.desloc}m${c.nota ? ` · <i>${esc(c.nota)}</i>` : ""}</p>
+      ${c.ataques.map((a) => `<p><b class="chrome">⚔ ${esc(a.n)}:</b> ${a.bonus != null ? `${sign(a.bonus)} acerto · ` : ""}${a.dano && a.dano !== "0" && a.dano !== "auto" ? `dano ${a.dano}` : ""}${a.extra ? ` <span class="dim">(${esc(a.extra)})</span>` : ""}</p>`).join("")}
+      ${c.habs.map((h) => `<p><b class="tech-c">✦ ${esc(h.n)}:</b> ${esc(h.d)}</p>`).join("")}</details>`; };
   if (aba === "racas") corpo = RACAS.map((r) => `<details class="det grande"><summary><b>${esc(r.nome)}</b> (${r.planeta}) — ${esc(r.titulo)}</summary>
     <p>${esc(r.lore)}</p>
     <p class="regra">Vida 4d6 (tira o menor) ${sign(r.vidaMod)} · ${["For","Des","Con","Int","Sab","Car"].map((a) => `${a} ${sign(r.attrs[a])}`).join(" · ")}</p>
@@ -973,6 +1086,11 @@ function telaBiblioteca(aba = "racas") {
     NAVES.map((n) => `<details class="det grande"><summary><b>${esc(n.n)}</b> · Casco ${n.casco} · Escudos ${n.escudos} · Manobra ${sign(n.manobra)} · Dano ${n.dano}</summary>
     <p>${esc(n.desc)}</p><p class="regra">Tripulação: ${esc(n.trip)}</p></details>`).join("") +
     `<h3 class="sub">Estações de Batalha</h3>` + Object.values(ESTACOES).map((e) => `<div class="det"><b>${esc(e.n)}</b>${e.acoes.map((a) => `<p><b class="tech-c">${esc(a.n)}${a.rola ? ` (${a.rola.join("+")})` : ""}:</b> ${esc(a.d)}</p>`).join("")}</div>`).join("");
+  if (aba === "bestiario") { const cats = ["Crias do Vazio", "Inimigos das Raças", "Heranças das Estrelas"];
+    const legenda = `<p class="regra">Ordene as fichas por ameaça: ${Object.entries(NIVEIS_AMEACA).map(([n, v]) => `<span class="best-tag" style="color:${v.cor};border-color:${v.cor}">${n}</span>`).join(" ")}</p>`;
+    corpo = legenda + cats.map((cat) => { const lista = BESTIARIO.filter((c) => c.categoria === cat).sort((a, b) => (NIVEIS_AMEACA[a.ameaca]?.ordem || 0) - (NIVEIS_AMEACA[b.ameaca]?.ordem || 0));
+      const desc = { "Crias do Vazio": "Os invasores de fora da realidade — escalonados de lacaios a chefes.", "Inimigos das Raças": "Adversários de cada povo do sistema, em três níveis de dificuldade.", "Heranças das Estrelas": "Fauna exoplanetária e quimeras do mercado negro do Caminho da Espiral." }[cat];
+      return `<h3 class="sub">${esc(cat)} <span class="dim">(${lista.length})</span></h3><p class="regra">${esc(desc)}</p>${lista.map(cardCriatura).join("")}`; }).join(""); }
   shell("biblioteca", `
     <header class="masthead"><h1>BIBLIOTECA<span> DO SISTEMA</span></h1>
       <div class="mast-sub">Tudo do livro Passagem Sombria v1.3, pesquisável e completo</div></header>
