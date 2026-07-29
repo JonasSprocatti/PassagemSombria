@@ -70,10 +70,12 @@ export function abrirMapa({ mapa, combate, souMestre, salvar, aoFechar }) {
         <button id="mp-add" class="mini">➕ Adicionar ponto</button>
         <button id="mp-party" class="mini">📍 Mover a party</button>
       </span>` : `<span class="mp-dim">Visão do jogador — o Mestre controla os pontos</span>`}
-      <span class="mp-hint" id="mp-hint">Arraste para mover · role para zoom</span>
+      <span class="mp-hint" id="mp-hint">Arraste para mover · role ou pinça para zoom</span>
       <button id="mp-fechar" class="mp-x">✕</button>
     </div>
-    <div class="mp-canvas"><svg id="mp-svg" xmlns="http://www.w3.org/2000/svg"></svg></div>
+    <div class="mp-canvas"><svg id="mp-svg" xmlns="http://www.w3.org/2000/svg"></svg>
+      <div class="mp-zoom"><button id="mp-zin" title="Aproximar">+</button><button id="mp-zout" title="Afastar">−</button></div>
+    </div>
     <div id="mp-pop" class="mp-pop" style="display:none"></div>`;
   document.body.appendChild(ov);
   document.body.style.overflow = "hidden";
@@ -160,15 +162,27 @@ export function abrirMapa({ mapa, combate, souMestre, salvar, aoFechar }) {
   };
 
   // ---- zoom ----
-  ov.querySelector(".mp-canvas").addEventListener("wheel", (e) => { e.preventDefault();
-    const m = paraMapa(e.clientX, e.clientY); const f = e.deltaY < 0 ? 0.85 : 1.18;
+  const aplicarZoom = (f, cx, cy) => { const r = svg.getBoundingClientRect();
+    const m = paraMapa(cx ?? r.left + r.width / 2, cy ?? r.top + r.height / 2);
     const nw = Math.min(8000, Math.max(120, cam.w * f)), nh = nw * (cam.h / cam.w);
     cam.x = m.x - (m.x - cam.x) * (nw / cam.w); cam.y = m.y - (m.y - cam.y) * (nh / cam.h);
-    cam.w = nw; cam.h = nh; aplicarView(); }, { passive: false });
+    cam.w = nw; cam.h = nh; aplicarView(); };
+  ov.querySelector(".mp-canvas").addEventListener("wheel", (e) => { e.preventDefault(); aplicarZoom(e.deltaY < 0 ? 0.85 : 1.18, e.clientX, e.clientY); }, { passive: false });
+  ov.querySelector("#mp-zin").onclick = () => aplicarZoom(0.7);
+  ov.querySelector("#mp-zout").onclick = () => aplicarZoom(1.42);
 
-  // ---- pan / clique ----
+  // ---- pan / clique / pinça (zoom por 2 dedos) ----
   let arrastando = null, movendoPoi = null, movendoToken = null;
+  const ponteiros = new Map(); // pointerId -> {x,y}
+  let pinca = null;            // { lastDist } quando há 2 dedos
+  const distancia = () => { const p = [...ponteiros.values()]; return Math.hypot(p[0].x - p[1].x, p[0].y - p[1].y); };
+  const meio = () => { const p = [...ponteiros.values()]; return { x: (p[0].x + p[1].x) / 2, y: (p[0].y + p[1].y) / 2 }; };
+
   svg.addEventListener("pointerdown", (e) => {
+    ponteiros.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (ponteiros.size === 2) { // inicia pinça: cancela qualquer arraste
+      arrastando = movendoPoi = movendoToken = null; pinca = { lastDist: distancia() }; return;
+    }
     const tok = e.target.closest("[data-token]");
     if (tok && souMestre && modo === null) { movendoToken = { id: tok.dataset.token, moved: false }; svg.setPointerCapture(e.pointerId); return; }
     const alvo = e.target.closest("[data-poi]");
@@ -180,13 +194,24 @@ export function abrirMapa({ mapa, combate, souMestre, salvar, aoFechar }) {
     arrastando = { x: e.clientX, y: e.clientY, cx: cam.x, cy: cam.y, sx: (ctm && ctm.a) || 1, sy: (ctm && ctm.d) || 1 }; svg.setPointerCapture(e.pointerId);
   });
   svg.addEventListener("pointermove", (e) => {
+    if (ponteiros.has(e.pointerId)) ponteiros.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pinca && ponteiros.size === 2) { // zoom incremental ancorado no ponto entre os dedos
+      const dist = distancia(); if (!dist) return; const f = pinca.lastDist / dist; pinca.lastDist = dist;
+      const md = meio(); const m = paraMapa(md.x, md.y);
+      const nw = Math.min(8000, Math.max(120, cam.w * f)), nh = nw * (cam.h / cam.w);
+      cam.x = m.x - (m.x - cam.x) * (nw / cam.w); cam.y = m.y - (m.y - cam.y) * (nh / cam.h);
+      cam.w = nw; cam.h = nh; aplicarView(); return;
+    }
     if (movendoToken) { const t = estado.tokens[movendoToken.id]; if (t) { const m = paraMapa(e.clientX, e.clientY); t.x = Math.round(m.x); t.y = Math.round(m.y); movendoToken.moved = true; desenhar(); } return; }
     if (movendoPoi) { const pt = estado.pontos.find((p) => p.id === movendoPoi.id); if (pt) { const m = paraMapa(e.clientX, e.clientY); pt.x = Math.round(m.x); pt.y = Math.round(m.y); movendoPoi.moved = true; desenhar(); } return; }
     if (arrastando) {
       cam.x = arrastando.cx - (e.clientX - arrastando.x) / arrastando.sx;
       cam.y = arrastando.cy - (e.clientY - arrastando.y) / arrastando.sy; aplicarView(); }
   });
-  svg.addEventListener("pointerup", () => { if (movendoToken) { if (movendoToken.moved) persistir(); movendoToken = null; } if (movendoPoi) { if (movendoPoi.moved) persistir(); movendoPoi = null; } arrastando = null; });
+  const soltar = (e) => { ponteiros.delete(e.pointerId); if (ponteiros.size < 2) pinca = null;
+    if (movendoToken) { if (movendoToken.moved) persistir(); movendoToken = null; } if (movendoPoi) { if (movendoPoi.moved) persistir(); movendoPoi = null; } arrastando = null; };
+  svg.addEventListener("pointerup", soltar);
+  svg.addEventListener("pointercancel", soltar);
 
   const setModo = (m) => { modo = m; hint.textContent = m === "add" ? "Clique no mapa para posicionar o ponto" : m === "party" ? "Clique no mapa para mover a tripulação" : "Arraste para mover · role para zoom";
     ov.querySelector("#mp-add")?.classList.toggle("on", m === "add"); ov.querySelector("#mp-party")?.classList.toggle("on", m === "party"); };
