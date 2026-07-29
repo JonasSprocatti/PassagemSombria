@@ -50,9 +50,11 @@ export const POI_TIPOS = {
   generico:      { ic: "📍", cor: "#f0a860", lbl: "Marcador" },
 };
 
-export function abrirMapa({ mapa, souMestre, salvar, aoFechar }) {
+export function abrirMapa({ mapa, combate, souMestre, salvar, aoFechar }) {
   let estado = mapa && typeof mapa === "object" ? JSON.parse(JSON.stringify(mapa)) : {};
   if (!Array.isArray(estado.pontos)) estado.pontos = [];
+  if (!estado.tokens || typeof estado.tokens !== "object") estado.tokens = {};
+  let cbt = combate && Array.isArray(combate.ordem) ? combate : { ativo: false, ordem: [] };
   // viewBox de câmera (local por usuário)
   let cam = { x: -1100, y: -1100, w: 2200, h: 2200 };
   let modo = null; // "add" | "party" | null
@@ -131,6 +133,20 @@ export function abrirMapa({ mapa, souMestre, salvar, aoFechar }) {
       g.appendChild(el("circle", { cx: b.x, cy: b.y, r: 16, fill: "none", stroke: "#59e3c8", "stroke-width": 2, opacity: 0.5, class: "mp-pulso" }));
       g.appendChild(el("text", { x: b.x, y: b.y + 6, "font-size": 18, "text-anchor": "middle" }, "🚀"));
       g.appendChild(el("text", { x: b.x, y: b.y - 22, fill: "#59e3c8", "font-size": 12, "text-anchor": "middle", "font-weight": "700" }, b.nome || "A TRIPULAÇÃO")); }
+    // tokens dos combatentes (do rastreador de iniciativa)
+    if (cbt.ativo && cbt.ordem.length) {
+      const base = estado.party || { x: 0, y: 0 };
+      cbt.ordem.forEach((c, i) => {
+        if (!estado.tokens[c.id]) estado.tokens[c.id] = { x: base.x + ((i % 5) - 2) * 40, y: base.y + 40 + Math.floor(i / 5) * 40 };
+        const tk = estado.tokens[c.id]; const cor = c.tipo === "inimigo" ? "#f07a7a" : "#59e3c8"; const morto = c.hp <= 0;
+        const gk = el("g", { "data-token": c.id, style: "cursor:pointer", opacity: morto ? 0.4 : 1 });
+        gk.appendChild(el("circle", { cx: tk.x, cy: tk.y, r: 13, fill: "#0c0f19", stroke: cor, "stroke-width": 2.5 }));
+        gk.appendChild(el("text", { x: tk.x, y: tk.y + 4, "font-size": 11, "text-anchor": "middle", fill: cor, "font-weight": "700" }, (c.nome || "?").slice(0, 3)));
+        gk.appendChild(el("text", { x: tk.x, y: tk.y - 17, fill: cor, "font-size": 10, "text-anchor": "middle" }, `${esc(c.nome)}`));
+        gk.appendChild(el("text", { x: tk.x, y: tk.y + 25, fill: "#8189a3", "font-size": 9, "text-anchor": "middle" }, `${c.hp}/${c.hp_max}${morto ? " ☠" : ""}`));
+        g.appendChild(gk);
+      });
+    }
     svg.appendChild(g);
     aplicarView();
   };
@@ -151,8 +167,10 @@ export function abrirMapa({ mapa, souMestre, salvar, aoFechar }) {
     cam.w = nw; cam.h = nh; aplicarView(); }, { passive: false });
 
   // ---- pan / clique ----
-  let arrastando = null, movendoPoi = null;
+  let arrastando = null, movendoPoi = null, movendoToken = null;
   svg.addEventListener("pointerdown", (e) => {
+    const tok = e.target.closest("[data-token]");
+    if (tok && souMestre && modo === null) { movendoToken = { id: tok.dataset.token, moved: false }; svg.setPointerCapture(e.pointerId); return; }
     const alvo = e.target.closest("[data-poi]");
     if (alvo && souMestre && modo === null) { movendoPoi = { id: alvo.dataset.poi, moved: false }; svg.setPointerCapture(e.pointerId); return; }
     if (alvo && modo === null) { abrirPop(alvo.dataset.poi); return; }
@@ -162,12 +180,13 @@ export function abrirMapa({ mapa, souMestre, salvar, aoFechar }) {
     arrastando = { x: e.clientX, y: e.clientY, cx: cam.x, cy: cam.y, sx: (ctm && ctm.a) || 1, sy: (ctm && ctm.d) || 1 }; svg.setPointerCapture(e.pointerId);
   });
   svg.addEventListener("pointermove", (e) => {
+    if (movendoToken) { const t = estado.tokens[movendoToken.id]; if (t) { const m = paraMapa(e.clientX, e.clientY); t.x = Math.round(m.x); t.y = Math.round(m.y); movendoToken.moved = true; desenhar(); } return; }
     if (movendoPoi) { const pt = estado.pontos.find((p) => p.id === movendoPoi.id); if (pt) { const m = paraMapa(e.clientX, e.clientY); pt.x = Math.round(m.x); pt.y = Math.round(m.y); movendoPoi.moved = true; desenhar(); } return; }
     if (arrastando) {
       cam.x = arrastando.cx - (e.clientX - arrastando.x) / arrastando.sx;
       cam.y = arrastando.cy - (e.clientY - arrastando.y) / arrastando.sy; aplicarView(); }
   });
-  svg.addEventListener("pointerup", () => { if (movendoPoi) { if (movendoPoi.moved) persistir(); movendoPoi = null; } arrastando = null; });
+  svg.addEventListener("pointerup", () => { if (movendoToken) { if (movendoToken.moved) persistir(); movendoToken = null; } if (movendoPoi) { if (movendoPoi.moved) persistir(); movendoPoi = null; } arrastando = null; });
 
   const setModo = (m) => { modo = m; hint.textContent = m === "add" ? "Clique no mapa para posicionar o ponto" : m === "party" ? "Clique no mapa para mover a tripulação" : "Arraste para mover · role para zoom";
     ov.querySelector("#mp-add")?.classList.toggle("on", m === "add"); ov.querySelector("#mp-party")?.classList.toggle("on", m === "party"); };
@@ -218,9 +237,10 @@ export function abrirMapa({ mapa, souMestre, salvar, aoFechar }) {
 
   // controlador para o realtime atualizar o mapa em tempo real
   return {
-    atualizar: (novo) => { if (!novo) return; const partyMovendo = modo === "party";
-      estado = JSON.parse(JSON.stringify(novo)); if (!Array.isArray(estado.pontos)) estado.pontos = [];
-      if (!partyMovendo) desenhar(); },
+    atualizar: (novo, novoCombate) => { const arrastandoAlgo = movendoToken || movendoPoi;
+      if (novo) { estado = JSON.parse(JSON.stringify(novo)); if (!Array.isArray(estado.pontos)) estado.pontos = []; if (!estado.tokens || typeof estado.tokens !== "object") estado.tokens = {}; }
+      if (novoCombate && Array.isArray(novoCombate.ordem)) cbt = novoCombate;
+      if (!arrastandoAlgo && modo !== "party") desenhar(); },
     fechar,
   };
 }

@@ -525,6 +525,12 @@ async function telaFicha(id) {
         </div>
       </section>
 
+      <section class="sec"><header><span class="tag">🛒</span><h2>Mercado</h2><span class="extra" id="loja-cg">${f.creditos ?? 0} CG</span></header>
+        <p class="regra">Compre equipamento gastando Créditos Galácticos. A tabela de riqueza sugere ~${RIQUEZA[Math.min(10, f.nivel || 1)] || 300} CG para o nível ${f.nivel}.</p>
+        <div class="filtros"><select id="loja-cat"><option value="arma">⚔ Armas</option><option value="armadura">🛡 Armaduras</option><option value="implante">🔧 Implantes</option></select></div>
+        <div id="loja-lista" class="loja-lista"></div>
+      </section>
+
       <section class="sec"><header><span class="tag">◧</span><h2>Tema</h2></header>
         <div class="temas">${Object.entries(TEMAS).map(([n, t]) => `<button class="tema-btn" data-tema="${n}">
           <span class="tema-sw"><i style="background:${t.tech}"></i><i style="background:${t.chrome}"></i><i style="background:${t.sombra}"></i></span>${n}</button>`).join("")}</div>
@@ -635,6 +641,31 @@ async function telaFicha(id) {
       $("#add-sel").innerHTML = cat.map((a) => `<option>${esc(a.n)}</option>`).join(""); };
     fillSel(); $("#add-tipo").onchange = fillSel;
     $("#add-btn").onclick = () => { f.inventario.push({ tipo: $("#add-tipo").value, nome: $("#add-sel").value, equip: false, qtd: 1 }); render(); };
+    // ---- Mercado (loja com créditos) ----
+    const renderLoja = (cat) => {
+      const alvo = $("#loja-lista"); if (!alvo) return;
+      const cg = f.creditos ?? 0;
+      let itens;
+      if (cat === "arma") itens = ARMAS.filter((a) => a.preco).map((a) => ({ nome: a.n, preco: a.preco, sub: `${a.dano} · ${a.kw || a.tipo}` }));
+      else if (cat === "armadura") itens = ARMADURAS.filter((a) => a.preco).map((a) => ({ nome: a.n, preco: a.preco, sub: `${a.t} · +${a.cd} CD${a.e ? " · " + a.e : ""}` }));
+      else itens = Object.values(IMPLANTES).filter((i) => i.p).map((i) => ({ nome: i.n, preco: i.p, sub: `${i.g} · ${i.e}`, jaTem: f.implantes.includes(i.n) }));
+      itens.sort((a, b) => a.preco - b.preco);
+      alvo.innerHTML = itens.map((it, ix) => `<div class="loja-item ${cg < it.preco ? "caro" : ""}">
+        <span class="loja-nome"><b>${esc(it.nome)}</b><small>${esc(it.sub)}</small></span>
+        <span class="loja-preco">${it.preco} CG</span>
+        <button class="mini loja-comprar" data-ix="${ix}" ${cg < it.preco || it.jaTem ? "disabled" : ""}>${it.jaTem ? "✓ já tem" : "comprar"}</button></div>`).join("");
+      alvo.querySelectorAll(".loja-comprar").forEach((b) => b.onclick = () => {
+        const it = itens[+b.dataset.ix]; if (!it) return;
+        if ((f.creditos ?? 0) < it.preco) return;
+        f.creditos = (f.creditos ?? 0) - it.preco;
+        if (cat === "implante") { if (!f.implantes.includes(it.nome)) f.implantes.push(it.nome); }
+        else f.inventario.push({ tipo: cat, nome: it.nome, equip: false, qtd: 1 });
+        registrar(`🛒 Comprou ${it.nome} por ${it.preco} CG (restam ${f.creditos} CG).`);
+        render();
+      });
+    };
+    $("#loja-cat") && ($("#loja-cat").onchange = (e) => renderLoja(e.target.value));
+    renderLoja($("#loja-cat")?.value || "arma");
     app.querySelectorAll("[data-eq]").forEach((b) => b.onclick = () => { const it = f.inventario[+b.dataset.eq];
       if (it.tipo === "armadura") f.inventario.forEach((x) => { if (x.tipo === "armadura") x.equip = false; });
       it.equip = !it.equip; render(); });
@@ -700,6 +731,8 @@ async function telaMesa(id) {
   const salvarMapa = async (mapa) => { camp.mapa = mapa; const { error } = await sb.from("campanhas").update({ mapa }).eq("id", id); if (error) alert("Não consegui salvar o mapa: " + error.message); };
   if (!camp.combate || typeof camp.combate !== "object" || !("ordem" in camp.combate)) camp.combate = combateVazio();
   const salvarCombate = async () => { const { error } = await sb.from("campanhas").update({ combate: camp.combate }).eq("id", id); if (error) alert("Não consegui salvar o combate: " + error.message); };
+  if (!Array.isArray(camp.bestiario)) camp.bestiario = [];
+  const salvarBestiario = async () => { const { error } = await sb.from("campanhas").update({ bestiario: camp.bestiario }).eq("id", id); if (error) alert("Não consegui salvar o bestiário: " + error.message); };
 
   const enviar = async (tipo, conteudo, payload = null) => {
     const { data, error } = await sb.from("mensagens").insert({ campanha_id: id, autor_id: usuario.id, personagem_id: meuPers?.id || null, tipo, conteudo, payload }).select("*,perfis:autor_id(apelido,avatar_url)").single();
@@ -725,7 +758,7 @@ async function telaMesa(id) {
     const meuPosto = membros?.find((m) => m.perfil_id === usuario.id)?.posto;
     shell("mesa", `
       <nav class="topo"><a class="btn-ghost" href="#/campanhas">← CAMPANHAS</a>
-        <div class="topo-status">${esc(camp.nome)} · código <b class="chrome">${camp.codigo}</b></div><button id="abrir-mapa" class="btn-ghost" title="Mapa do sistema (compartilhado)">🗺 MAPA</button></nav>
+        <div class="topo-status">${esc(camp.nome)} · código <b class="chrome">${camp.codigo}</b></div><span style="display:flex;gap:6px"><button id="abrir-diario" class="btn-ghost" title="Diário da campanha">📔 DIÁRIO</button><button id="abrir-mapa" class="btn-ghost" title="Mapa do sistema (compartilhado)">🗺 MAPA</button></span></nav>
       <div class="mesa">
         <div class="mesa-lateral">
           ${(camp.combate.ativo || souMestre) ? `<section class="sec combate-sec">
@@ -739,8 +772,8 @@ async function telaMesa(id) {
                 ${souMestre ? `<span class="cb-acoes">${c.tipo === "inimigo" && c.ataques ? c.ataques.map((atk, ai) => `<button class="cb-atk" data-cb="${c.id}" data-atk="${ai}" title="Rolar: ${esc(atk.n)}">⚔${c.ataques.length > 1 ? ai + 1 : ""}</button>`).join("") : ""}<button class="cb-dmg" data-cb="${c.id}" data-d="-5">−5</button><button class="cb-dmg" data-cb="${c.id}" data-d="5">+5</button><input class="cb-hpset" data-cb="${c.id}" type="number" value="${c.hp}" style="width:46px" title="definir HP"><button class="cb-hpset-lbl cb-cond-add" data-cb="${c.id}" title="Adicionar condição">🏷</button><button class="cb-rm" data-cb="${c.id}" title="remover">✕</button></span>` : ""}
               </div>`).join("")}</div>
             ${souMestre ? `<div class="cb-add">
-              <select id="cb-quem"><optgroup label="Jogadores">${(pers || []).map((p) => `<option value="j:${p.id}">${esc(p.nome) || "sem nome"}</option>`).join("")}</optgroup><optgroup label="Inimigos (bestiário)">${BESTIARIO.map((b, bi) => `<option value="e:${bi}">${esc(b.n)} · ${b.ameaca}</option>`).join("")}</optgroup></select>
-              <button id="cb-add-btn" class="mini">🎲 Add</button></div>
+              <select id="cb-quem"><optgroup label="Jogadores">${(pers || []).map((p) => `<option value="j:${p.id}">${esc(p.nome) || "sem nome"}</option>`).join("")}</optgroup>${camp.bestiario.length ? `<optgroup label="Minhas criaturas">${camp.bestiario.map((b, ci) => `<option value="c:${ci}">${esc(b.n)} · ${b.ameaca}</option>`).join("")}</optgroup>` : ""}<optgroup label="Inimigos (bestiário)">${BESTIARIO.map((b, bi) => `<option value="e:${bi}">${esc(b.n)} · ${b.ameaca}</option>`).join("")}</optgroup></select>
+              <button id="cb-add-btn" class="mini">🎲 Add</button><button id="cb-criar" class="mini" title="Criar/editar criaturas do Mestre">🐉</button></div>
             <div class="cb-ctrl"><button id="cb-prox" class="mini eq">▶ Próximo turno</button><button id="cb-fim" class="mini rm">⏹ Encerrar</button></div>` : ""}`}
           </section>` : ""}
           <section class="sec"><header><span class="tag">◈</span><h2>Meu personagem</h2></header>
@@ -786,6 +819,7 @@ async function telaMesa(id) {
           ${souMestre ? `<section class="sec"><header><span class="tag">☾</span><h2>Controles do Mestre</h2></header>
             <p class="regra">Convoque um descanso para toda a mesa. Cada jogador conectado com personagem vinculado recupera automaticamente na própria ficha.</p>
             <div class="filtros" style="margin-top:8px"><button id="mestre-curto" class="mini">☾ Descanso Curto (todos)</button><button id="mestre-longo" class="mini eq">🌙 Descanso Longo (todos)</button></div>
+            <div class="filtros" style="margin-top:6px"><button id="mestre-xp" class="mini">🎖 Conceder XP</button><button id="mestre-cg" class="mini">🎁 Conceder Créditos</button></div>
           </section>` : ""}
         </div>
         <section class="sec mesa-chat">
@@ -839,6 +873,7 @@ async function telaMesa(id) {
           ${p.aplicado ? `<span class="m-extra">aplicado ✓</span>` : meu ? `<button class="mini ${m.tipo === "dano" ? "dano" : "eq"}" data-aplicar="${m.id}">APLICAR ${m.tipo === "dano" ? "−" : "+"}${p.valor} PV</button>` : `<span class="m-extra">aguardando o dono aplicar…</span>`}</div>`; }
       else if (m.tipo === "nave") corpo = `<div class="m-txt sistema">🚀 ${esc(m.conteudo)}</div>`;
       else if (m.tipo === "descanso") { const p = m.payload || {}; corpo = `<div class="m-txt sistema">${p.tipo === "longo" ? "🌙" : "☾"} ${esc(m.conteudo)}</div>`; }
+      else if (m.tipo === "recompensa") { corpo = `<div class="m-txt sistema">🎁 ${esc(m.conteudo)}</div>`; }
       const el = document.createElement("div");
       const persMsg = m.personagem_id ? pers?.find((x) => x.id === m.personagem_id) : null;
       const av = persMsg?.dados?.foto || m.perfis?.avatar_url || null;
@@ -877,12 +912,14 @@ async function telaMesa(id) {
       });
       // Descanso convocado pelo Mestre: cada cliente aplica no SEU personagem vinculado.
       // Só ao vivo (aoVivo) para não reaplicar ao recarregar o histórico.
-      if (aoVivo && m.tipo === "descanso" && meuPers) {
+      if (aoVivo && m.tipo === "recompensa" && meuPers) {
         (async () => {
-          const dados = { ...novaFichaDados(), ...meuPers.dados };
-          const r = aplicarDescanso(dados, m.payload?.tipo === "longo" ? "longo" : "curto");
+          const dados = { ...novaFichaDados(), ...meuPers.dados }; const p = m.payload || {}; const notas = [];
+          if (p.xp) { dados.xp = (dados.xp || 0) + p.xp; notas.push(`+${p.xp} XP (${dados.xp}/${dados.xpMeta})`); }
+          if (p.creditos) { dados.creditos = (dados.creditos || 0) + p.creditos; notas.push(`+${p.creditos} CG (${dados.creditos})`); }
+          dados.log = [{ q: new Date().toISOString(), t: `🎁 Recompensa do Mestre: ${notas.join(" · ")}` }, ...(dados.log || [])].slice(0, 60);
           const { error } = await sb.from("personagens").update({ dados }).eq("id", meuPers.id);
-          if (!error) { meuPers.dados = dados; await enviar("sistema", `🛌 ${meuPers.nome}: ${r.notas.join(" · ")}.`); }
+          if (!error) { meuPers.dados = dados; await enviar("sistema", `🎖 ${meuPers.nome}: ${notas.join(" · ")}${dados.metodoNivel === "xp" && dados.xp >= dados.xpMeta ? " — PRONTO PARA SUBIR!" : ""}`); }
         })();
       }
     };
@@ -897,7 +934,7 @@ async function telaMesa(id) {
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "mensagens", filter: `campanha_id=eq.${id}` },
         async (pl) => { const { data: m } = await sb.from("mensagens").select("*,perfis:autor_id(apelido,avatar_url)").eq("id", pl.new.id).single(); if (m) addMsg(m, true); })
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "campanhas", filter: `id=eq.${id}` },
-        (pl) => { camp.nave = pl.new.nave; camp.mapa = pl.new.mapa; camp.combate = pl.new.combate; mapaCtrl?.atualizar(pl.new.mapa); render(); })
+        (pl) => { camp.nave = pl.new.nave; camp.mapa = pl.new.mapa; camp.combate = pl.new.combate; mapaCtrl?.atualizar(pl.new.mapa, pl.new.combate); render(); })
       .subscribe();
 
     // ---- binds ----
@@ -916,15 +953,81 @@ async function telaMesa(id) {
     $("#msg").onkeydown = (e) => { if (e.key === "Enter") $("#enviar-msg").click(); else if (e.key === "Escape") cancelarResp(); };
     $("#mestre-curto")?.addEventListener("click", () => { if (confirm("Convocar Descanso Curto para toda a mesa? Cada jogador conectado recupera as habilidades de descanso curto no próprio personagem.")) enviar("descanso", "O Mestre convocou um Descanso Curto (1h). Habilidades de descanso curto reiniciadas; cura via Kits Médicos.", { tipo: "curto" }); });
     $("#mestre-longo")?.addEventListener("click", () => { if (confirm("Convocar Descanso Longo para toda a mesa? Cada jogador conectado tem PV restaurados, RAM recarregada e todas as habilidades reiniciadas.")) enviar("descanso", "O Mestre convocou um Descanso Longo (8h). PV restaurados, RAM recarregada e todas as habilidades reiniciadas.", { tipo: "longo" }); });
+    $("#mestre-xp")?.addEventListener("click", () => { const n = parseInt(prompt("Conceder quanto XP para toda a tripulação conectada?", "500"), 10); if (!n || n <= 0) return; enviar("recompensa", `O Mestre concedeu ${n} XP à tripulação.`, { xp: n }); });
+    $("#mestre-cg")?.addEventListener("click", () => { const n = parseInt(prompt("Conceder quantos Créditos (CG) para toda a tripulação conectada?", "1000"), 10); if (!n || n <= 0) return; enviar("recompensa", `O Mestre distribuiu ${n} CG de saque à tripulação.`, { creditos: n }); });
+    $("#abrir-diario")?.addEventListener("click", async () => {
+      const { data: todas } = await sb.from("mensagens").select("*,perfis:autor_id(apelido,avatar_url)").eq("campanha_id", id).order("criado_em", { ascending: true }).limit(2000);
+      const ov = document.createElement("div"); ov.className = "ss-overlay"; ov.style.zIndex = "10000";
+      const linha = (m) => { const p = m.persm = m.personagem_id ? (pers || []).find((x) => x.id === m.personagem_id) : null;
+        const quem = esc(p?.nome || m.perfis?.apelido || "?");
+        const hora = new Date(m.criado_em).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+        if (m.tipo === "sistema" && /^📖/.test(m.conteudo || "")) return `<div class="di-marco">${esc(m.conteudo)}</div>`;
+        if (m.tipo === "texto") return `<div class="di-linha"><span class="di-hora">${hora}</span><b>${quem}:</b> ${esc(m.conteudo)}</div>`;
+        if (m.tipo === "rolagem") { const pl = m.payload || {}; return `<div class="di-linha di-rol"><span class="di-hora">${hora}</span>🎲 <b>${quem}</b> ${esc(pl.titulo || "")}${pl.total != null ? ` = <b>${pl.total}</b>` : ""}</div>`; }
+        if (m.tipo === "dano" || m.tipo === "cura") { const pl = m.payload || {}; return `<div class="di-linha"><span class="di-hora">${hora}</span>${m.tipo === "dano" ? "💥" : "✚"} ${pl.valor} em ${esc(pl.alvo_nome || "")}</div>`; }
+        return `<div class="di-linha di-sis"><span class="di-hora">${hora}</span>${esc(m.conteudo || "")}</div>`;
+      };
+      let ultimoDia = "";
+      const corpo = (todas || []).map((m) => { const dia = new Date(m.criado_em).toLocaleDateString("pt-BR", { day: "2-digit", month: "long", year: "numeric" });
+        const cab = dia !== ultimoDia ? `<h3 class="di-dia">${dia}</h3>` : ""; ultimoDia = dia; return cab + linha(m); }).join("") || `<p class="regra">Ainda não há registros nesta campanha.</p>`;
+      ov.innerHTML = `<div class="ss-painel" style="width:640px;max-width:96vw;margin:auto;border:1px solid var(--line);border-radius:10px;max-height:92vh">
+        <div class="mp-topo"><b>📔 Diário — ${esc(camp.nome)}</b>${souMestre ? `<button id="di-marco" class="mini">📖 Marcar momento</button>` : ""}<button id="di-fechar" class="mp-x" style="margin-left:auto">✕</button></div>
+        <div class="di-corpo">${corpo}</div></div>`;
+      document.body.appendChild(ov); document.body.style.overflow = "hidden";
+      const fechar = () => { document.body.style.overflow = ""; ov.remove(); };
+      ov.querySelector("#di-fechar").onclick = fechar;
+      ov.addEventListener("keydown", (e) => { if (e.key === "Escape") fechar(); });
+      const dc = ov.querySelector(".di-corpo"); dc.scrollTop = dc.scrollHeight;
+      ov.querySelector("#di-marco")?.addEventListener("click", async () => { const t = prompt("Título do momento (vira um marco no diário):"); if (!t) return;
+        await enviar("sistema", `📖 ${t}`); fechar(); });
+    });
     $("#abrir-mapa")?.addEventListener("click", async () => {
       try { const { abrirMapa } = await import("./mapa-sistema.js");
-        mapaCtrl = abrirMapa({ mapa: camp.mapa, souMestre, salvar: salvarMapa, aoFechar: () => { mapaCtrl = null; } });
+        mapaCtrl = abrirMapa({ mapa: camp.mapa, combate: camp.combate, souMestre, salvar: salvarMapa, aoFechar: () => { mapaCtrl = null; } });
       } catch (err) { alert("Não consegui abrir o mapa: " + err.message); }
     });
     // ---- rastreador de iniciativa ----
     const cbId = () => "c" + Math.random().toString(36).slice(2, 8);
     const cbFind = (idc) => camp.combate.ordem.find((x) => x.id === idc);
     $("#cb-iniciar")?.addEventListener("click", async () => { camp.combate = { ...combateVazio(), ativo: true }; await salvarCombate(); render(); });
+    $("#cb-criar")?.addEventListener("click", () => {
+      const ov = document.createElement("div"); ov.className = "ss-overlay"; ov.style.zIndex = "10000";
+      const listaHtml = () => camp.bestiario.map((b, i) => `<div class="inv"><span><b>${esc(b.n)}</b> · ${b.ameaca} · HP ${b.hp} CD ${b.cd}</span><button class="mini rm" data-del="${i}">✕</button></div>`).join("") || `<p class="regra">Nenhuma criatura criada ainda.</p>`;
+      ov.innerHTML = `<div class="ss-painel" style="width:460px;max-width:94vw;margin:auto;border:1px solid var(--line);border-radius:10px">
+        <div class="ss-vazio"><h2>🐉 Criaturas do Mestre</h2><p>Crie inimigos próprios; eles aparecem no "Add" do combate.</p>
+        <div class="cria-form">
+          <input id="cr-n" placeholder="Nome da criatura"/>
+          <div class="linha-3"><select id="cr-am">${Object.keys(NIVEIS_AMEACA).map((a) => `<option>${a}</option>`).join("")}</select><input id="cr-hp" type="number" placeholder="HP" value="30"/><input id="cr-cd" type="number" placeholder="CD" value="13"/></div>
+          <div class="linha-3"><input id="cr-desl" type="number" placeholder="Desloc (m)" value="9"/><input id="cr-atk-n" placeholder="Ataque (nome)"/><input id="cr-atk-b" type="number" placeholder="+acerto" value="4"/></div>
+          <div class="linha-3"><input id="cr-atk-d" placeholder="Dano (ex: 1d8+2)" value="1d6"/><input id="cr-atk-e" placeholder="Efeito extra (opcional)"/><span></span></div>
+          <input id="cr-hab-n" placeholder="Habilidade (nome, opcional)"/>
+          <textarea id="cr-hab-d" placeholder="Descrição da habilidade (opcional)" rows="2"></textarea>
+          <button id="cr-salvar" class="btn-primario">➕ Adicionar criatura</button>
+        </div>
+        <h4 style="margin-top:16px">Minhas criaturas</h4><div id="cr-lista">${listaHtml()}</div>
+        </div>
+        <div class="ss-acoes"><button class="ss-voltar" id="cr-fechar">Fechar</button></div></div>`;
+      document.body.appendChild(ov); document.body.style.overflow = "hidden";
+      const fechar = () => { document.body.style.overflow = ""; ov.remove(); render(); };
+      ov.querySelector("#cr-fechar").onclick = fechar;
+      ov.addEventListener("keydown", (e) => { if (e.key === "Escape") fechar(); });
+      const relista = () => { ov.querySelector("#cr-lista").innerHTML = listaHtml();
+        ov.querySelectorAll("#cr-lista [data-del]").forEach((b) => b.onclick = async () => { camp.bestiario.splice(+b.dataset.del, 1); await salvarBestiario(); relista(); }); };
+      relista();
+      ov.querySelector("#cr-salvar").onclick = async () => {
+        const nome = ov.querySelector("#cr-n").value.trim(); if (!nome) return alert("Dê um nome à criatura.");
+        const cri = { n: nome, categoria: "Personalizado", ameaca: ov.querySelector("#cr-am").value,
+          hp: +ov.querySelector("#cr-hp").value || 1, cd: +ov.querySelector("#cr-cd").value || 10, desloc: +ov.querySelector("#cr-desl").value || 9,
+          ataques: [], habs: [] };
+        const an = ov.querySelector("#cr-atk-n").value.trim();
+        if (an) cri.ataques.push({ n: an, bonus: +ov.querySelector("#cr-atk-b").value || 0, dano: ov.querySelector("#cr-atk-d").value.trim() || "1d4", extra: ov.querySelector("#cr-atk-e").value.trim() });
+        const hn = ov.querySelector("#cr-hab-n").value.trim();
+        if (hn) cri.habs.push({ n: hn, d: ov.querySelector("#cr-hab-d").value.trim() });
+        camp.bestiario.push(cri); await salvarBestiario();
+        ov.querySelector("#cr-n").value = ""; ov.querySelector("#cr-atk-n").value = ""; ov.querySelector("#cr-hab-n").value = ""; ov.querySelector("#cr-hab-d").value = "";
+        relista();
+      };
+    });
     $("#cb-fim")?.addEventListener("click", async () => { if (confirm("Encerrar o combate e limpar a ordem?")) { camp.combate = combateVazio(); await salvarCombate(); render(); } });
     app.querySelectorAll(".cb-cond-add").forEach((b) => b.onclick = async () => {
       const c = cbFind(b.dataset.cb); if (!c) return;
@@ -950,7 +1053,7 @@ async function telaMesa(id) {
       if (v.startsWith("j:")) { const p = (pers || []).find((x) => x.id === v.slice(2)); if (!p) return;
         const kk = calc({ ...novaFichaDados(), ...p.dados }); const nome = p.nome || "Tripulante";
         camp.combate.ordem.push({ id: cbId(), nome, ini: d(20) + kk.iniciativa, hp: p.dados.pvAtual ?? kk.attr.Con, hp_max: p.dados.pvMax || 1, cd: kk.cd, tipo: "jogador", personagem_id: p.id });
-      } else { const b = BESTIARIO[+v.slice(2)]; if (!b) return;
+      } else { const b = v.startsWith("c:") ? camp.bestiario[+v.slice(2)] : BESTIARIO[+v.slice(2)]; if (!b) return;
         const iguais = camp.combate.ordem.filter((x) => x.nome.replace(/ #\d+$/, "") === b.n).length;
         camp.combate.ordem.push({ id: cbId(), nome: iguais ? `${b.n} #${iguais + 1}` : b.n, ini: d(20), hp: b.hp, hp_max: b.hp, cd: b.cd, tipo: "inimigo", ameaca: b.ameaca, ataques: b.ataques });
       }

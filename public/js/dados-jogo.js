@@ -309,7 +309,7 @@ export const RACAS = [
 
 export const ARMAS = [
  {
-  "n": "Faca de Plasma / Adaga Oculta",
+  "n": "Faca de Plasma / Adaga Oculta", "preco": 40,
   "dano": "1d4",
   "tipo": "branca",
   "per": "Armas Brancas",
@@ -318,7 +318,7 @@ export const ARMAS = [
   "desc": "Uma empunhadura metálica simples que, ao ser ativada, emite uma lâmina de plasma contida de 15 centímetros. Quase impossível de ser detectada por scanners de metal padrão de espaçoportos. A arma de escolha dos Espiões e Assassinos."
  },
  {
-  "n": "Garras de Combate",
+  "n": "Garras de Combate", "preco": 45,
   "dano": "1d4",
   "tipo": "branca",
   "per": "Armas Brancas",
@@ -327,7 +327,7 @@ export const ARMAS = [
   "desc": "Lâminas acopladas a luvas reforçadas ou diretamente aos antebraços. Muito comuns entre os caçadores Ven'y e mercenários de rua que precisam de escalar estruturas industriais rapidamente."
  },
  {
-  "n": "Maçarico a Laser Portátil",
+  "n": "Maçarico a Laser Portátil", "preco": 60,
   "dano": "1d4",
   "tipo": "branca",
   "per": "Armas Brancas",
@@ -336,7 +336,7 @@ export const ARMAS = [
   "desc": "Dispositivo de corte industrial usado por Catadores. O feixe é muito curto para combate real, exigindo estar colado ao inimigo."
  },
  {
-  "n": "Soco Inglês Energizado",
+  "n": "Soco Inglês Energizado", "preco": 35,
   "dano": "1d4",
   "tipo": "branca",
   "per": "Armas Brancas",
@@ -354,7 +354,7 @@ export const ARMAS = [
   "desc": "A arma padrão das forças de segurança coloniais da Terra e corporações. Projetada para neutralizar sem matar, descarrega uma voltagem altíssima no impacto, sobrecarregando o sistema nervoso."
  },
  {
-  "n": "Chicote Monomolecular",
+  "n": "Chicote Monomolecular", "preco": 250,
   "dano": "1d6",
   "tipo": "branca",
   "per": "Armas Brancas",
@@ -363,7 +363,7 @@ export const ARMAS = [
   "desc": "Um cabo flexível feito de nanofios com a espessura de um único átomo. Extremamente difícil de dominar (um erro pode decepar o braço do usuário), mas corta através de carne e blindagem leve como se fossem manteiga."
  },
  {
-  "n": "Manopla Gravitacional",
+  "n": "Manopla Gravitacional", "preco": 200,
   "dano": "1d6",
   "tipo": "branca",
   "per": "Armas Brancas",
@@ -372,7 +372,7 @@ export const ARMAS = [
   "desc": "Originalmente uma ferramenta de mineração desenvolvida pelos Conjupiteros para mover asteroides. Foi adaptada para o combate, gerando um pulso repulsor massivo no momento do soco."
  },
  {
-  "n": "Chave Inglesa Pesada",
+  "n": "Chave Inglesa Pesada", "preco": 20,
   "dano": "1d6",
   "tipo": "branca",
   "per": "Armas Brancas",
@@ -381,7 +381,7 @@ export const ARMAS = [
   "desc": "Uma ferramenta de aço maciço desenhada para apertar porcas de naves estelares. Lenta, mas dolorosa."
  },
  {
-  "n": "Arpéu Magnético de Abordagem",
+  "n": "Arpéu Magnético de Abordagem", "preco": 90,
   "dano": "1d6",
   "tipo": "branca",
   "per": "Armas Brancas",
@@ -390,7 +390,7 @@ export const ARMAS = [
   "desc": "Um gancho de metal espesso atrelado a um cabo retrátil de nanofibra, usado por Piratas para pular entre naves."
  },
  {
-  "n": "Bastão Telescópico de Carbono",
+  "n": "Bastão Telescópico de Carbono", "preco": 40,
   "dano": "1d6",
   "tipo": "branca",
   "per": "Armas Brancas",
@@ -399,7 +399,7 @@ export const ARMAS = [
   "desc": "Um dispositivo compacto de polímero reforçado e fibra de carbono, com cerca de 15 centímetros quando retraído. Ao ser ativado, expande-se rapidamente em uma haste rígida de aproximadamente 1,5 metros, usada por agentes de patrulha, exploradores e equipes de co"
  },
  {
-  "n": "Katar Peçonhenta Ven'y",
+  "n": "Katar Peçonhenta Ven'y", "preco": 120,
   "dano": "1d6",
   "tipo": "branca",
   "per": "Armas Brancas",
@@ -408,7 +408,7 @@ export const ARMAS = [
   "desc": "Uma lâmina de soco tradicional de Vênus, em formato de H, com micro-tubos de veneno ao longo do fio."
  },
  {
-  "n": "Escudo-Lâmina Retrátil",
+  "n": "Escudo-Lâmina Retrátil", "preco": 100,
   "dano": "1d6",
   "tipo": "branca",
   "per": "Armas Brancas",
@@ -417,7 +417,7 @@ export const ARMAS = [
   "desc": "Um escudo de antebraço que possui um botão de pânico, projetando uma lâmina serrilhada da ponta."
  },
  {
-  "n": "Espada Térmica / Lâmina Phobos",
+  "n": "Espada Térmica / Lâmina Phobos", "preco": 150,
   "dano": "1d8",
   "tipo": "branca",
   "per": "Armas Brancas",
@@ -426,7 +426,7 @@ export const ARMAS = [
   "desc": "Uma espada larga de metal reforçado com um núcleo superaquecido. A borda da lâmina brilha em um tom alaranjado e cauteriza a ferida no instante em que corta. A arma mais tradicional e honrada entre os guerreiros do conclave marciano."
  },
  {
-  "n": "Lança de Caça Ven'y",
+  "n": "Lança de Caça Ven'y", "preco": 80,
   "dano": "1d8",
   "tipo": "branca",
   "per": "Armas Brancas",
@@ -435,7 +435,7 @@ export const ARMAS = [
   "desc": "Feita de ossos de feras de Vênus ou ligas metálicas leves, esta lança é aerodinâmica e possui pontas farpadas desenhadas para prender a presa."
  },
  {
-  "n": "Lâmina Longa Marciana",
+  "n": "Lâmina Longa Marciana", "preco": 110,
   "dano": "1d8",
   "tipo": "branca",
   "per": "Armas Brancas",
@@ -444,7 +444,7 @@ export const ARMAS = [
   "desc": "Uma espada reta e sem guarda, de metal escuro, usada pelos recrutas do conclave de Phobos."
  },
  {
-  "n": "Nunchaku de Cabo Monofibra",
+  "n": "Nunchaku de Cabo Monofibra", "preco": 95,
   "dano": "1d8",
   "tipo": "branca",
   "per": "Armas Brancas",
@@ -453,7 +453,7 @@ export const ARMAS = [
   "desc": "Dois bastões metálicos unidos por um fio de energia. O movimento circular torna a defesa contra eles imprevisível."
  },
  {
-  "n": "Machado de Sucata Catador",
+  "n": "Machado de Sucata Catador", "preco": 30,
   "dano": "1d8",
   "tipo": "branca",
   "per": "Armas Brancas",
@@ -462,7 +462,7 @@ export const ARMAS = [
   "desc": "Feito de um bloco de motor afiado amarrado a um cano de aço temperado. Bruto, feio e mortal."
  },
  {
-  "n": "Foice Curva de Deimos",
+  "n": "Foice Curva de Deimos", "preco": 130,
   "dano": "1d8",
   "tipo": "branca",
   "per": "Armas Brancas",
@@ -471,7 +471,7 @@ export const ARMAS = [
   "desc": "Projetada não para cortar, mas para enganchar nos membros do adversário e arrancar peças de armadura ou carne."
  },
  {
-  "n": "Foice de Diamante Conjupitera",
+  "n": "Foice de Diamante Conjupitera", "preco": 800,
   "dano": "1d10",
   "tipo": "branca",
   "per": "Armas Brancas",
@@ -480,7 +480,7 @@ export const ARMAS = [
   "desc": "Uma arma de haste elegante, cuja lâmina curva é forjada a partir dos diamantes puros extraídos do núcleo de Júpiter sob pressão astronômica. É o material mais afiado do sistema solar."
  },
  {
-  "n": "Alabarda de Guarda Proturno",
+  "n": "Alabarda de Guarda Proturno", "preco": 350,
   "dano": "1d10",
   "tipo": "branca",
   "per": "Armas Brancas",
@@ -489,7 +489,7 @@ export const ARMAS = [
   "desc": "Uma haste longa de liga azul com uma ponta cristalina brilhante. Usada pelos guardas de elite de Netuno para manter a plebe à distância."
  },
  {
-  "n": "Lança de Choque de Cavalaria",
+  "n": "Lança de Choque de Cavalaria", "preco": 220,
   "dano": "1d10",
   "tipo": "branca",
   "per": "Armas Brancas",
@@ -498,7 +498,7 @@ export const ARMAS = [
   "desc": "Uma arma pesada e imponente com um gerador na ponta, originalmente montada em veículos terrestres rápidos."
  },
  {
-  "n": "Martelo de Demolição",
+  "n": "Martelo de Demolição", "preco": 180,
   "dano": "2d6",
   "tipo": "branca",
   "per": "Armas Brancas",
@@ -507,7 +507,7 @@ export const ARMAS = [
   "desc": "Literalmente uma ferramenta de desmanche de naves espaciais acoplada a um cabo longo. É lento, pesado e desajeitado, mas quando acerta, amassa aço e esmaga ossos com a mesma facilidade."
  },
  {
-  "n": "Machado Cinético",
+  "n": "Machado Cinético", "preco": 400,
   "dano": "2d8",
   "tipo": "branca",
   "per": "Armas Brancas",
@@ -516,7 +516,7 @@ export const ARMAS = [
   "desc": "Uma arma monstruosa, com motores a jato na parte traseira da lâmina que aceleram o golpe antes do impacto. Muito usada pela infantaria pesada de Deimos. Exige uma força absurda para ser balançada sem perder o equilíbrio."
  },
  {
-  "n": "Martelo Sísmico de Júpiter",
+  "n": "Martelo Sísmico de Júpiter", "preco": 1500,
   "dano": "1d20",
   "tipo": "branca",
   "per": "Armas Brancas",
@@ -525,7 +525,7 @@ export const ARMAS = [
   "desc": "Tem um micro-gerador gravitacional na cabeça do martelo. Quando bate no chão, a gravidade local chora."
  },
  {
-  "n": "Espadão de Fusão Térmica",
+  "n": "Espadão de Fusão Térmica", "preco": 2000,
   "dano": "2d12",
   "tipo": "branca",
   "per": "Armas Brancas",
@@ -534,7 +534,7 @@ export const ARMAS = [
   "desc": "Uma arma absurda de 2 metros de comprimento que possui aletas de ventilação para o núcleo de energia não explodir na mão do usuário."
  },
  {
-  "n": "Pistola de Pulso EMP",
+  "n": "Pistola de Pulso EMP", "preco": 100,
   "dano": "1d4",
   "tipo": "fogo",
   "per": "Armas de Fogo",
@@ -543,7 +543,7 @@ export const ARMAS = [
   "desc": "Uma arma tática que não dispara projéteis, mas anéis visíveis de energia eletromagnética. Contra matéria orgânica, causa apenas queimaduras superficiais, mas contra circuitos elétricos, é devastadora."
  },
  {
-  "n": "Lança-Chamas / Emissor de Gás",
+  "n": "Lança-Chamas / Emissor de Gás", "preco": 250,
   "dano": "1d4",
   "tipo": "fogo",
   "per": "Armas de Fogo",
@@ -552,7 +552,7 @@ export const ARMAS = [
   "desc": "Dois tanques nas costas e um bico dispersor. Usado originalmente para limpar esporos alienígenas hostis, rapidamente encontrou lugar nas guerras de trincheiras."
  },
  {
-  "n": "Pistola Sinalizadora de Emergência",
+  "n": "Pistola Sinalizadora de Emergência", "preco": 25,
   "dano": "1d4",
   "tipo": "fogo",
   "per": "Armas de Fogo",
@@ -561,7 +561,7 @@ export const ARMAS = [
   "desc": "Uma ferramenta de resgate que atira um cartucho de fósforo brilhante."
  },
  {
-  "n": "Pistola de Dardos Tóxicos Ven'y",
+  "n": "Pistola de Dardos Tóxicos Ven'y", "preco": 150,
   "dano": "1d4",
   "tipo": "fogo",
   "per": "Armas de Fogo",
@@ -570,7 +570,7 @@ export const ARMAS = [
   "desc": "Sem pólvora. Usa ar comprimido de pequenos cilindros para disparar agulhas envenenadas de forma silenciosa."
  },
  {
-  "n": "Pistola Derringer Magnética",
+  "n": "Pistola Derringer Magnética", "preco": 120,
   "dano": "1d4",
   "tipo": "fogo",
   "per": "Armas de Fogo",
@@ -579,7 +579,7 @@ export const ARMAS = [
   "desc": "Menor que a palma da mão, carrega apenas dois tiros. A favorita de Prospectores apostadores em jogos de cartas clandestinos."
  },
  {
-  "n": "Pistola Laser Compacta",
+  "n": "Pistola Laser Compacta", "preco": 60,
   "dano": "1d6",
   "tipo": "fogo",
   "per": "Armas de Fogo",
@@ -588,7 +588,7 @@ export const ARMAS = [
   "desc": "A arma civil e de apoio mais comum da galáxia. Dispara feixes de luz concentrada que deixam um rastro de cheiro de ozônio no ar. Não tem recuo mecânico e usa baterias em vez de pentes de munição."
  },
  {
-  "n": "Besta de Repetição Leve",
+  "n": "Besta de Repetição Leve", "preco": 180,
   "dano": "1d6",
   "tipo": "fogo",
   "per": "Armas de Fogo",
@@ -597,7 +597,7 @@ export const ARMAS = [
   "desc": "Utiliza um pente de 10 virotes e um motor rápido de retesamento."
  },
  {
-  "n": "Lança-Granadas Tático",
+  "n": "Lança-Granadas Tático", "preco": 300,
   "dano": "1d6",
   "tipo": "fogo",
   "per": "Armas de Fogo",
@@ -606,7 +606,7 @@ export const ARMAS = [
   "desc": "Uma arma acoplada de cano largo que atira projéteis explosivos em arco sobre obstáculos."
  },
  {
-  "n": "Emissor de Micro-ondas",
+  "n": "Emissor de Micro-ondas", "preco": 450,
   "dano": "1d6",
   "tipo": "fogo",
   "per": "Armas de Fogo",
@@ -615,7 +615,7 @@ export const ARMAS = [
   "desc": "Um equipamento tático Proturno e corporativo. A arma não atira projéteis ou lasers visíveis, ela cria uma onda de calor que ferve a água no sangue do inimigo."
  },
  {
-  "n": "Submetralhadora de Flechetes",
+  "n": "Submetralhadora de Flechetes", "preco": 220,
   "dano": "2d4",
   "tipo": "fogo",
   "per": "Armas de Fogo",
@@ -624,7 +624,7 @@ export const ARMAS = [
   "desc": "Uma arma suja do submundo. Dispara \"nuvens\" de microagulhas afiadas que rasgam trajes espaciais e se alojam na carne, sendo um pesadelo para os médicos removerem."
  },
  {
-  "n": "Fuzil de Estilhaços (Shrapnel Gun)",
+  "n": "Fuzil de Estilhaços (Shrapnel Gun)", "preco": 140,
   "dano": "2d4",
   "tipo": "fogo",
   "per": "Armas de Fogo",
@@ -633,7 +633,7 @@ export const ARMAS = [
   "desc": "Uma arma cruel criada por Catadores, que atira um monte de sucata, pregos e vidro em alta velocidade."
  },
  {
-  "n": "Revólver de Íons Pesado",
+  "n": "Revólver de Íons Pesado", "preco": 160,
   "dano": "1d8",
   "tipo": "fogo",
   "per": "Armas de Fogo",
@@ -642,7 +642,7 @@ export const ARMAS = [
   "desc": "Um canhão de mão clássico, amado por Piratas, Prospectores e exploradores dos cinturões de asteroides. Faz um barulho ensurdecedor e tem um recuo de quebrar o pulso, mas a cápsula de íons abre buracos imensos."
  },
  {
-  "n": "Rifle de Assalto Híbrido",
+  "n": "Rifle de Assalto Híbrido", "preco": 200,
   "dano": "1d8",
   "tipo": "fogo",
   "per": "Armas de Fogo",
@@ -651,7 +651,7 @@ export const ARMAS = [
   "desc": "O fuzil padrão das forças armadas da Terra. Usa um sistema misto de pólvora moderna e aceleração magnética para disparar dezenas de projéteis em segundos. Confiável em qualquer atmosfera."
  },
  {
-  "n": "Carabina de Repetição Terráquea",
+  "n": "Carabina de Repetição Terráquea", "preco": 130,
   "dano": "1d8",
   "tipo": "fogo",
   "per": "Armas de Fogo",
@@ -660,7 +660,7 @@ export const ARMAS = [
   "desc": "Um design clássico que sobreviveu aos séculos. Tiro único, ação por alavanca. Não tem a modernidade dos lasers, mas nunca encrava no frio do espaço."
  },
  {
-  "n": "Besta Magnética Phobos",
+  "n": "Besta Magnética Phobos", "preco": 350,
   "dano": "1d10",
   "tipo": "fogo",
   "per": "Armas de Fogo",
@@ -669,7 +669,7 @@ export const ARMAS = [
   "desc": "Uma obra de arte letal. Os marcianos de Phobos recusam o barulho da pólvora, preferindo este rifle que usa trilhos magnéticos silenciados para disparar flechas densas de tungstênio em velocidades supersônicas."
  },
  {
-  "n": "Rifle Laser de Infantaria",
+  "n": "Rifle Laser de Infantaria", "preco": 280,
   "dano": "1d10",
   "tipo": "fogo",
   "per": "Armas de Fogo",
@@ -678,7 +678,7 @@ export const ARMAS = [
   "desc": "O irmão mais velho da Pistola Laser. Uma bateria pesada alimenta este fuzil longo usado por tropas em batalhas campais."
  },
  {
-  "n": "Rifle de Precisão Magnético",
+  "n": "Rifle de Precisão Magnético", "preco": 500,
   "dano": "1d12",
   "tipo": "fogo",
   "per": "Armas de Fogo",
@@ -687,7 +687,7 @@ export const ARMAS = [
   "desc": "Longo, frágil de perto e letal de longe. Possui computadores balísticos acoplados à mira que calculam a gravidade e o vento do planeta automaticamente."
  },
  {
-  "n": "Arco Composto Phobos",
+  "n": "Arco Composto Phobos", "preco": 300,
   "dano": "1d12",
   "tipo": "fogo",
   "per": "Armas de Fogo",
@@ -696,7 +696,7 @@ export const ARMAS = [
   "desc": "Roldanas eletromagnéticas que exigem uma Força sobre-humana para puxar a corda, mas disparam flechas com força de projétil anti-tanque."
  },
  {
-  "n": "Canhão Portátil de Plasma",
+  "n": "Canhão Portátil de Plasma", "preco": 650,
   "dano": "1d12",
   "tipo": "fogo",
   "per": "Armas de Fogo",
@@ -705,7 +705,7 @@ export const ARMAS = [
   "desc": "O plasma contido forma uma esfera brilhante superaquecida antes de ser cuspida. Demora a esfriar."
  },
  {
-  "n": "Escopeta Sônica",
+  "n": "Escopeta Sônica", "preco": 260,
   "dano": "2d6",
   "tipo": "fogo",
   "per": "Armas de Fogo",
@@ -723,7 +723,7 @@ export const ARMAS = [
   "desc": "Uma relíquia brutal de canos serrados. Tem apenas dois tiros antes de precisar recarregar manualmente."
  },
  {
-  "n": "Canhão Sônico Pesado",
+  "n": "Canhão Sônico Pesado", "preco": 800,
   "dano": "2d8",
   "tipo": "fogo",
   "per": "Armas de Fogo",
@@ -732,7 +732,7 @@ export const ARMAS = [
   "desc": "Uma versão montada em veículos da escopeta sônica, carregada no ombro como uma bazuca."
  },
  {
-  "n": "Metralhadora Rotativa Leve (Minigun)",
+  "n": "Metralhadora Rotativa Leve (Minigun)", "preco": 900,
   "dano": "3d6",
   "tipo": "fogo",
   "per": "Armas de Fogo",
@@ -741,7 +741,7 @@ export const ARMAS = [
   "desc": "Seis canos giratórios alimentados por uma mochila de munição. Só pode ser segurada adequadamente por Exoesqueletos ou pessoas com Força 14+."
  },
  {
-  "n": "Canhão de Antimatéria",
+  "n": "Canhão de Antimatéria", "preco": 3500,
   "dano": "1d20",
   "tipo": "fogo",
   "per": "Armas de Fogo",
@@ -750,7 +750,7 @@ export const ARMAS = [
   "desc": "Uma arma que deveria estar acoplada a uma nave, mas foi miniaturizada de forma imprudente. É um tubo de metal maciço que dispara uma esfera instável que aniquila a matéria no impacto."
  },
  {
-  "n": "Rifle Gauss Eletromagnético",
+  "n": "Rifle Gauss Eletromagnético", "preco": 4500,
   "dano": "2d20",
   "tipo": "fogo",
   "per": "Armas de Fogo",
@@ -939,16 +939,16 @@ export const SCRIPTS = [
 ];
 
 export const ARMADURAS = [
- {n:"Roupas Civis / Traje de Estação",t:"leve",cd:0,e:""},
- {n:"Traje Furtivo de Nanofibra",t:"leve",cd:1,e:"+2 em Furtividade"},
- {n:"Escudo de Energia Pessoal",t:"leve",cd:0,e:"Absorve os primeiros 10 de dano; recarrega em descanso"},
- {n:"Colete Tático Padrão",t:"media",cd:2,e:"Sacar itens é Ação Livre"},
- {n:"Traje de Bordo Atmosférico",t:"media",cd:2,e:"Imune ao vácuo e gases"},
- {n:"Exoesqueleto Leve de Combate",t:"media",cd:4,e:"−2 Furtividade/Acrobacia; +50kg de carga"},
- {n:"Armadura Reativa Urak",t:"pesada",cd:3,e:"Reflete 1d4 térmico no corpo a corpo"},
- {n:"Armadura de Engenharia Conjupitera",t:"pesada",cd:4,e:"−2 Furtividade; +2 Mecânica"},
- {n:"Armadura Pesada Marciana",t:"pesada",cd:6,e:"−4 Furtividade; exige For +2"},
- {n:"Mecha-Suit de Assalto",t:"pesada",cd:8,e:"Sem Esquiva; ignora queda"},
+ {n:"Roupas Civis / Traje de Estação",preco:20,t:"leve",cd:0,e:""},
+ {n:"Traje Furtivo de Nanofibra",preco:250,t:"leve",cd:1,e:"+2 em Furtividade"},
+ {n:"Escudo de Energia Pessoal",preco:800,t:"leve",cd:0,e:"Absorve os primeiros 10 de dano; recarrega em descanso"},
+ {n:"Colete Tático Padrão",preco:150,t:"media",cd:2,e:"Sacar itens é Ação Livre"},
+ {n:"Traje de Bordo Atmosférico",preco:180,t:"media",cd:2,e:"Imune ao vácuo e gases"},
+ {n:"Exoesqueleto Leve de Combate",preco:300,t:"media",cd:4,e:"−2 Furtividade/Acrobacia; +50kg de carga"},
+ {n:"Armadura Reativa Urak",preco:450,t:"pesada",cd:3,e:"Reflete 1d4 térmico no corpo a corpo"},
+ {n:"Armadura de Engenharia Conjupitera",preco:500,t:"pesada",cd:4,e:"−2 Furtividade; +2 Mecânica"},
+ {n:"Armadura Pesada Marciana",preco:650,t:"pesada",cd:6,e:"−4 Furtividade; exige For +2"},
+ {n:"Mecha-Suit de Assalto",preco:3500,t:"pesada",cd:8,e:"Sem Esquiva; ignora queda"},
 ];
 
 export const PERICIAS = [["Acrobacia","Des"],["Armas Brancas","For"],["Armas de Fogo","Des"],["Atletismo","For"],["Enganação","Car"],["Explosivos","Int"],["Furtividade","Des"],["História / Cultura","Int"],["Intimidação","Car"],["Intuição","Sab"],["Investigação","Int"],["Lábia / Persuasão","Car"],["Mecânica","Int"],["Medicina","Sab"],["Percepção","Sab"],["Performance / Arte","Car"],["Pilotagem","Des"],["Prestidigitação","Des"],["Sobrevivência","Sab"],["Tecnomancia","Int"]];
