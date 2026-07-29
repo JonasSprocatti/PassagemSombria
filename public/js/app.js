@@ -6,6 +6,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./config.js";
 import { RACAS, CLASSES, FILOSOFIAS, IMPLANTES, SCRIPTS, ARMAS, ARMADURAS, PERICIAS, NAVES, ESTACOES, REGRAS_NAVE, RIQUEZA, TEMAS, CONVERTE_2D8, RENOME_PERICIAS, KEYWORDS, propsArma } from "./dados-jogo.js";
 import { BESTIARIO, NIVEIS_AMEACA } from "./dados-bestiario.js";
+import { modalForm, confirmModal, somMensagem, somDado, notificar, pedirNotificacao, getSom, setSom } from "./ui.js";
 
 export const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const app = document.getElementById("app");
@@ -379,7 +380,7 @@ async function telaHangar() {
   app.querySelectorAll(".card").forEach((c) => c.onclick = (e) => { if (!e.target.dataset.del) location.hash = `#/ficha/${c.dataset.id}`; });
   app.querySelectorAll("[data-del]").forEach((b) => b.onclick = async (e) => {
     e.stopPropagation();
-    if (confirm("Apagar este tripulante?")) { await sb.from("personagens").delete().eq("id", b.dataset.del); telaHangar(); }
+    if (await confirmModal("Apagar este tripulante? Esta ação é permanente.", { okLabel: "Apagar", perigo: true })) { await sb.from("personagens").delete().eq("id", b.dataset.del); telaHangar(); }
   });
 }
 
@@ -703,7 +704,7 @@ async function telaCampanhas() {
     location.hash = `#/mesa/${data}`;
   };
   app.querySelectorAll("[data-del-camp]").forEach((b) => b.onclick = async () => {
-    if (!confirm(`Excluir a campanha "${b.dataset.nome}"?\n\nIsso apaga a mesa e todo o histórico de mensagens, e remove os jogadores da campanha. Os personagens deles NÃO são apagados — apenas desvinculados. Esta ação é permanente.`)) return;
+    if (!(await confirmModal(`Excluir a campanha "${b.dataset.nome}"? Isso apaga a mesa e todo o histórico de mensagens e remove os jogadores da campanha. Os personagens deles NÃO são apagados — apenas desvinculados. Esta ação é permanente.`, { okLabel: "Excluir campanha", perigo: true }))) return;
     if (!(await sessaoAtiva())) return;
     const { error } = await sb.from("campanhas").delete().eq("id", b.dataset.delCamp);
     if (error) return alert("Não consegui excluir: " + error.message);
@@ -829,7 +830,8 @@ async function telaMesa(id) {
           <div class="rol-toggles"><span class="regra" style="margin:0">Rolagem:</span>
             <button id="tg-vant" class="mini" title="Vantagem: rola 2d20, pega o maior">▲ Vantagem</button>
             <button id="tg-desv" class="mini" title="Desvantagem: rola 2d20, pega o menor">▼ Desvantagem</button>
-            <button id="tg-priv" class="mini" title="Privado: só o Mestre e você veem o resultado">🔒 Privado</button></div>
+            <button id="tg-priv" class="mini" title="Privado: só o Mestre e você veem o resultado">🔒 Privado</button>
+            <button id="tg-som" class="mini" title="Ligar/desligar som e notificações" style="margin-left:auto"></button></div>
           <div class="linha-add"><input id="msg" placeholder="Mensagem ou rolagem: /1d20 · /r2d6+1 · /1d20+2d10"/><button id="enviar-msg" class="btn-primario">▶</button></div>
         </section>
       </div>`, "campanhas");
@@ -855,6 +857,10 @@ async function telaMesa(id) {
       if (idsVistos.has(m.id)) return; idsVistos.add(m.id);
       if (m.payload?.privada && m.autor_id !== usuario.id && !souMestre) return; // rolagem privada: só autor + Mestre
       if (aoVivo && !historico.some((x) => x.id === m.id)) historico.push(m); // persiste entre re-renders
+      if (aoVivo && m.autor_id !== usuario.id && m.tipo !== "sistema") { // alerta de mensagem de outra pessoa
+        if (m.tipo === "rolagem") somDado(); else somMensagem();
+        notificar(`${m.perfis?.apelido || "Mesa"} · ${esc(camp.nome)}`, m.tipo === "rolagem" ? `🎲 ${m.payload?.titulo || "rolagem"}${m.payload?.total != null ? " = " + m.payload.total : ""}` : (m.conteudo || "").slice(0, 80));
+      }
       const quem = esc(m.perfis?.apelido || "?");
       const persN = m.personagem_id ? esc(pers?.find((x) => x.id === m.personagem_id)?.nome || "") : "";
       let corpo = "";
@@ -890,10 +896,8 @@ async function telaMesa(id) {
       el.querySelector(".m-aplicar")?.addEventListener("click", async () => {
         if (!camp.combate.ativo || !camp.combate.ordem.length) return alert("Nenhum combate ativo com combatentes.");
         const dano = +el.querySelector(".m-aplicar").dataset.dano;
-        const lista = camp.combate.ordem.map((c, i) => `${i + 1}. ${c.nome} (${c.hp}/${c.hp_max})`).join("\n");
-        const escolha = prompt(`Aplicar ${dano} de dano em quem?\n\n${lista}\n\nDigite o número:`);
-        if (!escolha) return; const idx = parseInt(escolha, 10) - 1; const alvo = camp.combate.ordem[idx];
-        if (!alvo) return alert("Alvo inválido.");
+        const r = await modalForm({ titulo: `🩸 Aplicar ${dano} de dano`, campos: [{ k: "alvo", label: "Alvo", tipo: "select", opcoes: camp.combate.ordem.map((c) => ({ v: c.id, l: `${c.nome} (${c.hp}/${c.hp_max})` })) }], okLabel: "Aplicar" });
+        if (!r) return; const alvo = camp.combate.ordem.find((c) => c.id === r.alvo); if (!alvo) return;
         alvo.hp = Math.max(0, alvo.hp - dano);
         enviar("sistema", `💥 ${alvo.nome} sofreu ${dano} de dano (${alvo.hp}/${alvo.hp_max}).`);
         await salvarCombate(); render();
@@ -949,12 +953,15 @@ async function telaMesa(id) {
     $("#tg-vant")?.addEventListener("click", () => { vantagem = vantagem > 0 ? 0 : 1; syncTg(); });
     $("#tg-desv")?.addEventListener("click", () => { vantagem = vantagem < 0 ? 0 : -1; syncTg(); });
     $("#tg-priv")?.addEventListener("click", () => { privada = !privada; syncTg(); });
+    const syncSom = () => { const b = $("#tg-som"); if (b) b.textContent = getSom() ? "🔔 Som" : "🔕 Mudo"; };
+    $("#tg-som")?.addEventListener("click", () => { setSom(!getSom()); if (getSom()) { pedirNotificacao(); somMensagem(); } syncSom(); });
+    syncSom();
     syncTg();
     $("#msg").onkeydown = (e) => { if (e.key === "Enter") $("#enviar-msg").click(); else if (e.key === "Escape") cancelarResp(); };
     $("#mestre-curto")?.addEventListener("click", () => { if (confirm("Convocar Descanso Curto para toda a mesa? Cada jogador conectado recupera as habilidades de descanso curto no próprio personagem.")) enviar("descanso", "O Mestre convocou um Descanso Curto (1h). Habilidades de descanso curto reiniciadas; cura via Kits Médicos.", { tipo: "curto" }); });
     $("#mestre-longo")?.addEventListener("click", () => { if (confirm("Convocar Descanso Longo para toda a mesa? Cada jogador conectado tem PV restaurados, RAM recarregada e todas as habilidades reiniciadas.")) enviar("descanso", "O Mestre convocou um Descanso Longo (8h). PV restaurados, RAM recarregada e todas as habilidades reiniciadas.", { tipo: "longo" }); });
-    $("#mestre-xp")?.addEventListener("click", () => { const n = parseInt(prompt("Conceder quanto XP para toda a tripulação conectada?", "500"), 10); if (!n || n <= 0) return; enviar("recompensa", `O Mestre concedeu ${n} XP à tripulação.`, { xp: n }); });
-    $("#mestre-cg")?.addEventListener("click", () => { const n = parseInt(prompt("Conceder quantos Créditos (CG) para toda a tripulação conectada?", "1000"), 10); if (!n || n <= 0) return; enviar("recompensa", `O Mestre distribuiu ${n} CG de saque à tripulação.`, { creditos: n }); });
+    $("#mestre-xp")?.addEventListener("click", async () => { const r = await modalForm({ titulo: "🎖 Conceder XP", descricao: "Todos os jogadores conectados com personagem vinculado recebem.", campos: [{ k: "xp", label: "Quantidade de XP", tipo: "numero", valor: 500, min: 1 }], okLabel: "Conceder" }); if (!r || !r.xp || r.xp <= 0) return; enviar("recompensa", `O Mestre concedeu ${r.xp} XP à tripulação.`, { xp: r.xp }); });
+    $("#mestre-cg")?.addEventListener("click", async () => { const r = await modalForm({ titulo: "🎁 Conceder Créditos", descricao: "Saque distribuído a toda a tripulação conectada.", campos: [{ k: "cg", label: "Créditos (CG)", tipo: "numero", valor: 1000, min: 1 }], okLabel: "Distribuir" }); if (!r || !r.cg || r.cg <= 0) return; enviar("recompensa", `O Mestre distribuiu ${r.cg} CG de saque à tripulação.`, { creditos: r.cg }); });
     $("#abrir-diario")?.addEventListener("click", async () => {
       const { data: todas } = await sb.from("mensagens").select("*,perfis:autor_id(apelido,avatar_url)").eq("campanha_id", id).order("criado_em", { ascending: true }).limit(2000);
       const ov = document.createElement("div"); ov.className = "ss-overlay ov-modal"; ov.style.zIndex = "10000";
@@ -978,8 +985,8 @@ async function telaMesa(id) {
       ov.querySelector("#di-fechar").onclick = fechar;
       ov.addEventListener("keydown", (e) => { if (e.key === "Escape") fechar(); });
       const dc = ov.querySelector(".di-corpo"); dc.scrollTop = dc.scrollHeight;
-      ov.querySelector("#di-marco")?.addEventListener("click", async () => { const t = prompt("Título do momento (vira um marco no diário):"); if (!t) return;
-        await enviar("sistema", `📖 ${t}`); fechar(); });
+      ov.querySelector("#di-marco")?.addEventListener("click", async () => { const r = await modalForm({ titulo: "📖 Marcar momento", descricao: "Vira um marco destacado na linha do tempo do diário.", campos: [{ k: "t", label: "Título do momento", tipo: "texto", placeholder: "Ex.: A queda da estação Titã" }], okLabel: "Marcar" }); if (!r || !r.t?.trim()) return;
+        await enviar("sistema", `📖 ${r.t.trim()}`); fechar(); });
     });
     $("#abrir-mapa")?.addEventListener("click", async () => {
       try { const { abrirMapa } = await import("./mapa-sistema.js");
@@ -1031,12 +1038,12 @@ async function telaMesa(id) {
     $("#cb-fim")?.addEventListener("click", async () => { if (confirm("Encerrar o combate e limpar a ordem?")) { camp.combate = combateVazio(); await salvarCombate(); render(); } });
     app.querySelectorAll(".cb-cond-add").forEach((b) => b.onclick = async () => {
       const c = cbFind(b.dataset.cb); if (!c) return;
-      const lista = CONDICOES.map((n, i) => `${i + 1}. ${n}`).join("   ");
-      const esc1 = prompt(`Condição para ${c.nome}:\n\n${lista}\n\nDigite o número (ou o nome livre):`); if (!esc1) return;
-      const nIdx = parseInt(esc1, 10); const nome = (nIdx >= 1 && nIdx <= CONDICOES.length) ? CONDICOES[nIdx - 1] : esc1.trim();
-      const turnos = parseInt(prompt(`Duração de "${nome}" em turnos:`, "2"), 10); if (!turnos || turnos < 1) return;
-      if (!c.cond) c.cond = []; c.cond.push({ n: nome, turnos });
-      enviar("sistema", `🏷 ${c.nome} está ${nome} (${turnos} turno${turnos > 1 ? "s" : ""}).`);
+      const r = await modalForm({ titulo: `🏷 Condição — ${c.nome}`, campos: [
+        { k: "nome", label: "Condição", tipo: "select", opcoes: CONDICOES },
+        { k: "turnos", label: "Duração (turnos)", tipo: "numero", valor: 2, min: 1 }], okLabel: "Aplicar" });
+      if (!r || !r.nome || !r.turnos || r.turnos < 1) return;
+      if (!c.cond) c.cond = []; c.cond.push({ n: r.nome, turnos: r.turnos });
+      enviar("sistema", `🏷 ${c.nome} está ${r.nome} (${r.turnos} turno${r.turnos > 1 ? "s" : ""}).`);
       await salvarCombate(); render();
     });
     $("#cb-prox")?.addEventListener("click", async () => { proximoTurno(camp.combate); const atual = camp.combate.ordem[camp.combate.turno];

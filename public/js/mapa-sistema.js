@@ -5,6 +5,7 @@
 //       ctrl.atualizar(novoMapa);  // chamado pelo realtime
 // ============================================================================
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+import { modalForm, confirmModal } from "./ui.js";
 const uid = () => "p" + Math.random().toString(36).slice(2, 9);
 
 // ---- Layout fixo do sistema (top-down). Unidades de mapa; Sol em (0,0). ----
@@ -216,13 +217,15 @@ export function abrirMapa({ mapa, combate, souMestre, salvar, aoFechar }) {
   const setModo = (m) => { modo = m; hint.textContent = m === "add" ? "Clique no mapa para posicionar o ponto" : m === "party" ? "Clique no mapa para mover a tripulação" : "Arraste para mover · role para zoom";
     ov.querySelector("#mp-add")?.classList.toggle("on", m === "add"); ov.querySelector("#mp-party")?.classList.toggle("on", m === "party"); };
 
-  const adicionarPonto = (m) => {
+  const adicionarPonto = async (m) => {
     const t = POI_TIPOS[tipoNovo];
-    const nome = prompt(`Nome do ponto (${t.lbl}):`, ""); if (nome === null) { setModo(null); return; }
-    const desc = prompt("Descrição (opcional):", "") || "";
-    const pt = { id: uid(), tipo: tipoNovo, nome: nome || t.lbl, desc, x: Math.round(m.x), y: Math.round(m.y) };
+    const r = await modalForm({ titulo: `${t.ic} Novo ponto — ${t.lbl}`, campos: [
+      { k: "nome", label: "Nome", tipo: "texto", placeholder: t.lbl },
+      { k: "desc", label: "Descrição (opcional)", tipo: "area", rows: 2 }], okLabel: "Adicionar" });
+    setModo(null); if (!r) return;
+    const pt = { id: uid(), tipo: tipoNovo, nome: (r.nome || "").trim() || t.lbl, desc: (r.desc || "").trim(), x: Math.round(m.x), y: Math.round(m.y) };
     if (t.area) pt.raio = 70;
-    estado.pontos.push(pt); setModo(null); persistir(); desenhar();
+    estado.pontos.push(pt); persistir(); desenhar();
   };
 
   const abrirPop = (id) => {
@@ -236,9 +239,11 @@ export function abrirMapa({ mapa, combate, souMestre, salvar, aoFechar }) {
         <button class="mini" id="mp-editar">✎ Editar</button><button class="mini rm" id="mp-del">🗑 Excluir</button></div>` : ""}`;
     pop.querySelector(".mp-pop-x").onclick = () => (pop.style.display = "none");
     if (souMestre) {
-      pop.querySelector("#mp-editar").onclick = () => { const n = prompt("Nome:", pt.nome); if (n !== null) pt.nome = n;
-        const d = prompt("Descrição:", pt.desc || ""); if (d !== null) pt.desc = d; persistir(); desenhar(); abrirPop(id); };
-      pop.querySelector("#mp-del").onclick = () => { if (confirm(`Excluir "${pt.nome}"?`)) { estado.pontos = estado.pontos.filter((p) => p.id !== id); pop.style.display = "none"; persistir(); desenhar(); } };
+      pop.querySelector("#mp-editar").onclick = async () => { const r = await modalForm({ titulo: `✎ Editar ponto`, campos: [
+        { k: "nome", label: "Nome", tipo: "texto", valor: pt.nome },
+        { k: "desc", label: "Descrição", tipo: "area", rows: 2, valor: pt.desc || "" }], okLabel: "Salvar" });
+        if (!r) return; pt.nome = (r.nome || "").trim() || pt.nome; pt.desc = (r.desc || "").trim(); persistir(); desenhar(); abrirPop(id); };
+      pop.querySelector("#mp-del").onclick = async () => { if (await confirmModal(`Excluir "${pt.nome}"?`, { okLabel: "Excluir", perigo: true })) { estado.pontos = estado.pontos.filter((p) => p.id !== id); pop.style.display = "none"; persistir(); desenhar(); } };
       const raio = pop.querySelector("#mp-raio"); if (raio) raio.oninput = () => { pt.raio = +raio.value; desenhar(); };
       if (raio) raio.onchange = () => persistir();
     }
