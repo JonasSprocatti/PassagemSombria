@@ -1012,16 +1012,16 @@ export const SCRIPTS = [
 ];
 
 export const ARMADURAS = [
- {n:"Roupas Civis / Traje de Estação",preco:20,t:"leve",cd:0,e:""},
- {n:"Traje Furtivo de Nanofibra",preco:250,t:"leve",cd:1,e:"+2 em Furtividade"},
- {n:"Escudo de Energia Pessoal",preco:800,t:"leve",cd:0,e:"Absorve os primeiros 10 de dano; recarrega em descanso"},
- {n:"Colete Tático Padrão",preco:150,t:"media",cd:2,e:"Sacar itens é Ação Livre"},
- {n:"Traje de Bordo Atmosférico",preco:180,t:"media",cd:2,e:"Imune ao vácuo e gases"},
- {n:"Exoesqueleto Leve de Combate",preco:300,t:"media",cd:4,e:"−2 Furtividade/Acrobacia; +50kg de carga"},
- {n:"Armadura Reativa Urak",preco:450,t:"pesada",cd:3,e:"Reflete 1d4 térmico no corpo a corpo"},
- {n:"Armadura de Engenharia Conjupitera",preco:500,t:"pesada",cd:4,e:"−2 Furtividade; +2 Mecânica"},
- {n:"Armadura Pesada Marciana",preco:650,t:"pesada",cd:6,e:"−4 Furtividade; exige For +2"},
- {n:"Mecha-Suit de Assalto",preco:3500,t:"pesada",cd:8,e:"Sem Esquiva; ignora queda"},
+ {n:"Roupas Civis / Traje de Estação",preco:20,t:"leve",cd:0,e:"",desc:"Casacos de couro sintético, sobretudos de mercenário ou os macacões confortáveis usados nas estações comerciais da Terra e de Ceres. Não oferecem proteção balística, mas também não atrapalham os movimentos. O conforto ideal para negociações em bares esfumaçados."},
+ {n:"Traje Furtivo de Nanofibra",preco:250,t:"leve",cd:1,e:"+2 em Furtividade",desc:"Um tecido negro e colante que absorve a luz e abafa as assinaturas térmicas do corpo. Usado pelos espiões corporativos e pelas guildas de assassinos. Ao toque, parece água fria; no escuro, torna o utilizador praticamente invisível."},
+ {n:"Escudo de Energia Pessoal",preco:800,t:"leve",cd:0,e:"Absorve os primeiros 10 de dano; recarrega em descanso",desc:"Um gerador do tamanho de um punho, preso ao cinto, que projeta uma bolha de \"luz dura\" à volta do utilizador. Não atrapalha o movimento e salva vidas, sendo o luxo preferido de Estudiosos e Cinéticos ricos que desprezam o peso do metal."},
+ {n:"Colete Tático Padrão",preco:150,t:"media",cd:2,e:"Sacar itens é Ação Livre",desc:"A espinha dorsal da infantaria leve e das forças de segurança. Feito de placas de cerâmica leve sobrepostas, aguenta alguns tiros de plasma antes de derreter. É o equipamento de confiança de Starlords e Pilotos que precisam das mãos livres rapidamente."},
+ {n:"Traje de Bordo Atmosférico",preco:180,t:"media",cd:2,e:"Imune ao vácuo e gases",desc:"Volumoso e de cor viva (geralmente laranja ou branco) para facilitar resgates no espaço profundo. Tem o seu próprio suprimento de oxigénio (dura 12 horas) e é indispensável para Exploradores ou Catadores que vasculham naves à deriva com o casco rompido."},
+ {n:"Exoesqueleto Leve de Combate",preco:300,t:"media",cd:4,e:"−2 Furtividade/Acrobacia; +50kg de carga",desc:"Uma estrutura de pistões hidráulicos que se alinha com as pernas e a coluna do utilizador. Inicialmente projetado para estivadores em portos espaciais de gravidade alta, foi rapidamente militarizado. O zumbido dos servomotores denuncia o utilizador a quilómetros de distância."},
+ {n:"Armadura Reativa Urak",preco:450,t:"pesada",cd:3,e:"Reflete 1d4 térmico no corpo a corpo",desc:"Criada pelos habitantes de Urano, esta armadura não tem apenas placas de metal, mas veios de gelo químico e dissipadores de calor. Quando um inimigo atinge a armadura com uma arma branca, os dissipadores reagem, libertando uma onda de frio cortante ou calor intenso que queima as mãos do atacante."},
+ {n:"Armadura de Engenharia Conjupitera",preco:500,t:"pesada",cd:4,e:"−2 Furtividade; +2 Mecânica",desc:"Um traje selado, atarracado e incrivelmente pesado, forjado nas fornalhas de Júpiter. Os braços têm maçaricos, chaves de calibração e fios de diagnóstico integrados nas manoplas. Um Mecânico a usar isto é um autêntico tanque de suporte."},
+ {n:"Armadura Pesada Marciana",preco:650,t:"pesada",cd:6,e:"−4 Furtividade; exige For +2",desc:"O orgulho do Sindicato de Deimos. Placas angulares de liga de titânio vermelho-ferrugem. Transformam um humanoide num colosso de metal impenetrável. Um esquadrão a marchar com estas armaduras faz o chão da nave tremer."},
+ {n:"Mecha-Suit de Assalto",preco:3500,t:"pesada",cd:8,e:"Sem Esquiva; ignora queda",desc:"Mais próximo de um veículo do que de uma armadura. O utilizador entra numa cabine blindada bípede. Usado pelas tropas de choque orbitais que saltam diretamente da atmosfera para o campo de batalha, esmagando o chão na aterragem e absorvendo fogo pesado. ## **🦾 IMPLANTES CIBERNÉTICOS** **O LIMITE CIBERNÉTICO: A REJEIÇÃO DA CARNE** *\"A carne é fraca, o metal é eterno. Mas o cérebro humano tem um limite para o quanto de eternidade consegue suportar.\"*"},
 ];
 
 export const PERICIAS = [["Acrobacia","Des"],["Armas Brancas","For"],["Armas de Fogo","Des"],["Atletismo","For"],["Enganação","Car"],["Explosivos","Int"],["Furtividade","Des"],["História / Cultura","Int"],["Intimidação","Car"],["Intuição","Sab"],["Investigação","Int"],["Lábia / Persuasão","Car"],["Mecânica","Int"],["Medicina","Sab"],["Percepção","Sab"],["Performance / Arte","Car"],["Pilotagem","Des"],["Prestidigitação","Des"],["Sobrevivência","Sab"],["Tecnomancia","Int"]];

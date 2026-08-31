@@ -10,10 +10,14 @@ export const NIVEIS_AMEACA = {
   "Forte":    { cor: "#59e3c8", ordem: 2 },
   "Elite":    { cor: "#f0a860", ordem: 3 },
   "Chefe":    { cor: "#f07a7a", ordem: 4 },
-  "Colossal": { cor: "#a78bfa", ordem: 5 },
+  "Colossal":   { cor: "#a78bfa", ordem: 5 },
+  "Super Chefe": { cor: "#ff5edb", ordem: 6 },
+  "Ambiental":   { cor: "#8be05a", ordem: -1 },
 };
 
 const C = (n, categoria, ameaca, hp, cd, desloc, ataques, habs, extra = {}) => ({ n, categoria, ameaca, hp, cd, desloc, ataques, habs, ...extra });
+// Perigos ambientais (flora/armadilhas): sem ficha de combate completa.
+const AMB = (n, categoria, desc, ameaca_txt, extra = {}) => ({ n, categoria, ameaca: "Ambiental", ambiental: true, desc, ameaca_txt, hp: null, cd: null, desloc: null, ataques: [], habs: [], ...extra });
 
 export const BESTIARIO = [
   // ---------------- CRIAS DO VAZIO (Cap. 14) ----------------
@@ -45,6 +49,30 @@ export const BESTIARIO = [
     [{ n: "Feixe Desintegrador", bonus: 6, dano: "2d8+3", extra: "energia" }],
     [{ n: "Pulverizar e Aprender", d: "Se matar alguém, adquire permanentemente as perícias e passa a disparar as armas da vítima." }],
     { nota: "Assimilador." }),
+
+  C("Tecelão de Fendas", "Crias do Vazio", "Elite", 50, 14, 12,
+    [],
+    [{ n: "Portal Sombrio (Ação Principal)", d: "Abre dois portais no campo de batalha e transporta aliados do Vazio de um lado ao outro instantaneamente." },
+     { n: "Redirecionar (Reação)", d: "Se for alvo de um tiro à distância, abre uma mini-fenda à frente e outra atrás de um jogador: o tiro acerta o próprio jogador (ou um aliado dele), usando a mesma rolagem de ataque." }],
+    { nota: "Suporte. Não luta de frente — reposiciona o campo de batalha." }),
+  C("Silenciador Cósmico", "Crias do Vazio", "Forte", 65, 15, 9,
+    [{ n: "Lâmina de Nulificação", bonus: 6, dano: "1d8", extra: "físico" }],
+    [{ n: "Zona Morta (Aura)", d: "Num raio de 15m, as leis da física digital são apagadas: ninguém conjura Scripts de Tecnomancia e todos os implantes cibernéticos param de funcionar (olhos biônicos apagam, pernas pneumáticas travam)." }],
+    { nota: "O pesadelo de Tecnomantes e de quem depende de cromo." }),
+  C("Terror Subterrâneo", "Crias do Vazio", "Elite", 70, 14, 15,
+    [{ n: "Erupção", bonus: 5, dano: "2d6", extra: "físico" }],
+    [{ n: "Sentido Sísmico", d: "É cego e imune a Glitches Visuais ou Cegueira. Localiza os jogadores pelos passos." },
+     { n: "Ataque Submerso", d: "Escava sob o chão. O alvo testa Constituição ou Força; se falhar, o Terror emerge debaixo dele causando o dano de Erupção e deixando-o Caído." }],
+    { nota: "Deslocamento de 15m escavando." }),
+  C("Soberana da Ruína", "Crias do Vazio", "Super Chefe", 180, 17, 12,
+    [{ n: "Chicote Neural", bonus: 7, dano: "2d8", extra: "psíquico, alcance 5m" }],
+    [{ n: "Mar de Escravos (Passiva)", d: "No início do seu turno, invoca 1d4 Enxames Adaptativos (Lacaios) que entram em campo." },
+     { n: "Corrupção Soberana (Ação Principal)", d: "Foca-se num jogador: teste de Sabedoria (CD 16). Se falhar, no próximo turno é obrigado a gastar todas as suas Ações atacando o aliado mais próximo com a sua arma mais letal." }],
+    { nota: "Flutua. O ápice da hierarquia do Vazio." }),
+  C("Bocarra Corrosiva", "Crias do Vazio", "Forte", 55, 12, 6,
+    [{ n: "Artilharia de Bio-Ácido", bonus: null, dano: "2d8", extra: "alcance 30m em arco, área 2x2m; testam Acrobacia (CD 14), falha = dano ácido inesquivável" }],
+    [{ n: "Sangue Cáustico (Passiva)", d: "Quem a atingir com Arma Branca sofre 1d4 de dano direto e a sua armadura perde 1 ponto de CD permanentemente, até um Mecânico consertá-la fora de combate." }],
+    { nota: "O Morteiro Biológico. Lenta e fácil de acertar, letal se ignorada." }),
 
   // ---------------- INIMIGOS DAS RAÇAS (Cap. 13) ----------------
   // TERRÁQUEOS
@@ -144,6 +172,27 @@ export const BESTIARIO = [
     [{ n: "Crescimento do Desclassificado (Fase 2)", d: "A 75 PV cresce p/ 5m: ignora ataques de oportunidade, empurra 5m e cura 20 PV." }], { raca: "Infimor" }),
 
   // ---------------- HERANÇAS DAS ESTRELAS (fauna exoplanetária) ----------------
+
+  // ---- Flora alienígena e fungos mutantes (perigos ambientais) ----
+  AMB("Musgo Necrótico de Sirius", "Heranças das Estrelas",
+      "Fungo cinzento e pulsante de ambientes úmidos e escuros. Não faz fotossíntese: alimenta-se de proteína animal. O Caminho da Espiral usa-o para descartar cadáveres e evidências.",
+      "Se tocado sem proteção, libera esporos que dissolvem a pele: 1d4 de dano de ácido por turno até ser queimado ou tratado com Kit Médico.",
+      { apelido: "A Esponja de Carne" }),
+  AMB("Lírio-Ímã de Eridani", "Heranças das Estrelas",
+      "Planta de silício com pétalas metálicas afiadas. Absorve energia estática do ambiente para florescer.",
+      "Armadilha natural: quem chegar a menos de 2m com equipamento ligado sofre um pulso Anti-Sintético que desativa implantes cibernéticos e escudos por 1d4 turnos.",
+      { apelido: "A Flor-EMP" }),
+  AMB("Árvore-Pulmão de Centauri", "Heranças das Estrelas",
+      "Árvores carnudas com folhas que lembram brânquias. Filtram toxinas pesadas do ar e são muito usadas nos laboratórios de Vênus.",
+      "O ar purificado que expiram é alucinógeno para não-nativos: teste de Constituição (CD 14) ou o personagem fica Atordoado por visões bizarras durante o combate."),
+  AMB("Vinhas de Tungstênio", "Heranças das Estrelas",
+      "Cipós densos de minerais super-resistentes que reagem ao calor corporal, contraindo-se como músculos.",
+      "Perfeitas para emboscadas: ao pisar nelas, teste de Destreza (CD 15) ou fica Preso. Armas Brancas comuns quebram ao tentar cortá-las — só funcionam armas com Derretimento ou Despedaçador.",
+      { apelido: "A Jiboia de Metal" }),
+  AMB("Orquídea de Sangue", "Heranças das Estrelas",
+      "Mutação criada a partir de uma flor de Proxima Centauri. Raízes vermelhas e grossas bombeiam um líquido que ferve ao ar livre.",
+      "Não ataca: é processada para criar o \"Néctar\", droga de combate que concede +2 em Força e Destreza por 1 hora. Ao fim do efeito, o usuário perde permanentemente 1 PV máximo até receber tratamento médico avançado.",
+      { apelido: "O Estimulante Espiral" }),
   C("Cão-Cego de Eridani", "Heranças das Estrelas", "Comum", 18, 12, 12,
     [{ n: "Mordida Rasgante", bonus: 4, dano: "1d6+2", extra: "Sangramento" }],
     [{ n: "Matilha Cega", d: "Imunes a Granadas de Luz e escuridão. Dois ou mais atacando o mesmo alvo = Vantagem." }]),
