@@ -6,6 +6,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./config.js";
 import { RACAS, CLASSES, FILOSOFIAS, IMPLANTES, SCRIPTS, ARMAS, ARMADURAS, PERICIAS, NAVES, ESTACOES, REGRAS_NAVE, RIQUEZA, TEMAS, CONVERTE_2D8, RENOME_PERICIAS, KEYWORDS, propsArma } from "./dados-jogo.js";
 import { BESTIARIO, NIVEIS_AMEACA } from "./dados-bestiario.js";
+import { NPCS, PAPEIS } from "./dados-npcs.js";
 import { modalForm, confirmModal, somMensagem, somDado, notificar, pedirNotificacao, getSom, setSom } from "./ui.js";
 
 export const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -298,11 +299,52 @@ function aplicarTema(f) {
   document.documentElement.style.setProperty("--sombra", t.sombra);
 }
 
+// ---------------- ACESSIBILIDADE ----------------
+const A11Y = [
+  { k: "contraste", lbl: "Alto contraste", d: "Cores mais fortes e bordas mais nítidas." },
+  { k: "dislexia", lbl: "Fonte para dislexia", d: "Letras espaçadas e linhas mais largas." },
+  { k: "grande", lbl: "Texto maior", d: "Aumenta o tamanho do texto em toda a interface." },
+  { k: "reduzir", lbl: "Reduzir animações", d: "Desliga transições e movimentos." },
+];
+function aplicarA11y() {
+  A11Y.forEach(({ k }) => {
+    const on = localStorage.getItem("ps-a11y-" + k) === "1";
+    document.body.classList.toggle("a11y-" + k, on);
+  });
+  if (localStorage.getItem("ps-a11y-reduzir") === "1") document.documentElement.style.setProperty("scroll-behavior", "auto");
+}
+function montarA11y() {
+  if (document.querySelector(".a11y-btn")) return;
+  const b = document.createElement("button");
+  b.className = "a11y-btn"; b.type = "button";
+  b.setAttribute("aria-label", "Opções de acessibilidade");
+  b.setAttribute("aria-expanded", "false");
+  b.textContent = "♿";
+  document.body.appendChild(b);
+  let painel = null;
+  b.onclick = () => {
+    if (painel) { painel.remove(); painel = null; b.setAttribute("aria-expanded", "false"); return; }
+    painel = document.createElement("div");
+    painel.className = "a11y-painel"; painel.setAttribute("role", "dialog");
+    painel.setAttribute("aria-label", "Opções de acessibilidade");
+    painel.innerHTML = `<h3>Acessibilidade</h3><p class="regra">As escolhas ficam salvas neste dispositivo.</p>`
+      + A11Y.map(({ k, lbl, d }) => `<label title="${esc(d)}"><input type="checkbox" data-a11y="${k}" ${localStorage.getItem("ps-a11y-" + k) === "1" ? "checked" : ""}/> <span>${esc(lbl)}</span></label>`).join("");
+    document.body.appendChild(painel);
+    b.setAttribute("aria-expanded", "true");
+    painel.querySelectorAll("[data-a11y]").forEach((i) => i.onchange = () => {
+      localStorage.setItem("ps-a11y-" + i.dataset.a11y, i.checked ? "1" : "0"); aplicarA11y();
+    });
+    painel.querySelector("input")?.focus();
+  };
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && painel) { painel.remove(); painel = null; b.setAttribute("aria-expanded", "false"); b.focus(); } });
+}
+
 // ---------------- ROTEADOR ----------------
 window.addEventListener("hashchange", rotear);
 async function rotear() {
   if (canalMesa) { sb.removeChannel(canalMesa); canalMesa = null; }
   const [_, rota, arg] = location.hash.split("/");
+  if (rota === "p") return telaFichaPublica(arg);           // ficha compartilhada (sem login)
   if (!usuario && rota !== "biblioteca") return telaLogin();
   switch (rota) {
     case "hangar": return telaHangar();
@@ -312,6 +354,39 @@ async function rotear() {
     case "biblioteca": return telaBiblioteca(arg);
     default: location.hash = usuario ? "#/hangar" : "#/login";
   }
+}
+
+// Ficha compartilhada por link público (somente leitura, sem login).
+async function telaFichaPublica(token) {
+  const app = document.getElementById("app");
+  app.innerHTML = `<div class="carregando"><div class="pulse"></div>Carregando ficha…</div>`;
+  if (!token) { app.innerHTML = `<div class="frame"><p class="regra">Link inválido.</p></div>`; return; }
+  const { data, error } = await sb.from("personagens").select("nome,dados,publico").eq("token_publico", token).eq("publico", true).maybeSingle();
+  if (error || !data) {
+    app.innerHTML = `<div class="frame" style="padding-top:60px;text-align:center">
+      <h1>Ficha indisponível</h1>
+      <p class="regra">Este link não existe mais ou o dono deixou de compartilhá-lo.</p>
+      <p><a class="btn-ghost" href="#/hangar">Ir para o app</a></p></div>`;
+    return;
+  }
+  const f = { ...novaFichaDados(), ...(data.dados || {}) };
+  aplicarTema(f);
+  const html = gerarFichaHTML(data.nome, f, calc(f));
+  const corpoInterno = html.slice(html.indexOf("<body>") + 6, html.indexOf("</body>"));
+  const estilos = html.slice(html.indexOf("<style>") + 7, html.indexOf("</style>"));
+  app.innerHTML = `<style>${estilos}</style>
+    <div style="background:#fff;min-height:100vh;padding:18px">
+      <div style="max-width:900px;margin:0 auto">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap">
+          <span style="font-size:11px;color:#777">Ficha compartilhada · Passagem Sombria · somente leitura</span>
+          <span style="display:flex;gap:8px">
+            <button id="pub-print" style="border:1px solid #ccc;background:#f5f5f5;padding:7px 12px;border-radius:5px;cursor:pointer">🖨 Imprimir / PDF</button>
+            <a href="#/hangar" style="border:1px solid #ccc;background:#f5f5f5;padding:7px 12px;border-radius:5px;text-decoration:none;color:#15181f">Abrir o app</a>
+          </span>
+        </div>
+        ${corpoInterno}
+      </div></div>`;
+  document.getElementById("pub-print").onclick = () => imprimirFichaHTML(html);
 }
 
 function shell(titulo, corpo, ativo = "") {
@@ -330,6 +405,7 @@ function shell(titulo, corpo, ativo = "") {
 
 // ---------------- AUTH ----------------
 async function iniciar() {
+  aplicarA11y(); montarA11y();
   const { data: { session } } = await sb.auth.getSession();
   usuario = session?.user || null;
   if (usuario) { const { data } = await sb.from("perfis").select("*").eq("id", usuario.id).single(); perfil = data; }
@@ -415,7 +491,7 @@ async function telaFicha(id) {
     usados.forEach((v) => { const i = pool.indexOf(v); if (i >= 0) pool.splice(i, 1); });
     const ganhos = ganhosDoNivel(f.nivel + 1, f);
     shell("ficha", `
-      <nav class="topo"><a class="btn-ghost" href="#/hangar">← HANGAR</a><div class="topo-status" id="st"></div><button id="imprimir" class="btn-ghost" title="Abre o diálogo de impressão — escolha 'Salvar como PDF'">🖨 PDF</button><button id="baixar" class="btn-ghost" title="Baixa a ficha como arquivo .html">💾 .html</button><button id="salvar" class="btn-primario">SALVAR</button></nav>
+      <nav class="topo"><a class="btn-ghost" href="#/hangar">← HANGAR</a><div class="topo-status" id="st"></div><button id="imprimir" class="btn-ghost" title="Abre o diálogo de impressão — escolha 'Salvar como PDF'">🖨 PDF</button><button id="baixar" class="btn-ghost" title="Baixa a ficha como arquivo .html">💾 .html</button><button id="compartilhar" class="btn-ghost" title="Gerar link público (somente leitura)">🔗 LINK</button><button id="salvar" class="btn-primario">SALVAR</button></nav>
 
       <section class="sec">
         <header><span class="tag">ID</span><h2>Identidade</h2></header>
@@ -554,6 +630,29 @@ async function telaFicha(id) {
 
     // ---- binds ----
     $("#salvar").onclick = async () => { $("#st").textContent = "Transmitindo…"; await salvar(); $("#st").textContent = "Salvo ✓"; };
+    $("#compartilhar").onclick = async () => {
+      const { data: atual } = await sb.from("personagens").select("publico,token_publico").eq("id", p.id).single();
+      const ativo = !!atual?.publico;
+      const link = `${location.origin}${location.pathname}#/p/${atual?.token_publico}`;
+      const r = await modalForm({
+        titulo: ativo ? "🔗 Link público ativo" : "🔗 Compartilhar ficha",
+        campos: [
+          { k: "aviso", label: ativo ? "Qualquer pessoa com este link vê a ficha, sem precisar de conta. Copie abaixo ou desative." : "Cria um link somente leitura da ficha, para mostrar o personagem fora do app. Você pode desativar quando quiser.", tipo: "info" },
+          ...(ativo ? [{ k: "link", label: "Link", tipo: "texto", valor: link }] : []),
+        ],
+        okLabel: ativo ? "Desativar link" : "Ativar link",
+      });
+      if (!r) return;
+      const { error } = await sb.from("personagens").update({ publico: !ativo }).eq("id", p.id);
+      if (error) return alert("Não consegui alterar o compartilhamento: " + error.message);
+      if (!ativo) {
+        try { await navigator.clipboard.writeText(link); } catch (_) {}
+        await modalForm({ titulo: "✅ Link ativado", campos: [
+          { k: "i", label: "Copiado para a área de transferência. Qualquer pessoa com ele pode ver a ficha (somente leitura).", tipo: "info" },
+          { k: "l", label: "Link", tipo: "texto", valor: link }], okLabel: "Fechar" });
+        $("#st").textContent = "Link público ativo ✓";
+      } else $("#st").textContent = "Link público desativado";
+    };
     $("#imprimir").onclick = () => { const nome = $("#nome")?.value || p.nome; imprimirFichaHTML(gerarFichaHTML(nome, f, calc(f))); };
     $("#baixar").onclick = () => { const nome = $("#nome")?.value || p.nome; baixarFichaHTML(gerarFichaHTML(nome, f, calc(f)), nome); };
     $("#desc-curto")?.addEventListener("click", async () => { const r = aplicarDescanso(f, "curto"); registrar(`☾ Descanso Curto: ${r.notas.join(" · ")}.`); await salvar(); render(); $("#st").textContent = "Descanso curto ✓ (salvo)"; });
@@ -769,7 +868,7 @@ async function telaMesa(id) {
     const meuPosto = membros?.find((m) => m.perfil_id === usuario.id)?.posto;
     shell("mesa", `
       <nav class="topo"><a class="btn-ghost" href="#/campanhas">← CAMPANHAS</a>
-        <div class="topo-status">${esc(camp.nome)} · código <b class="chrome">${camp.codigo}</b></div><span style="display:flex;gap:6px"><button id="abrir-diario" class="btn-ghost" title="Diário da campanha">📔 DIÁRIO</button><button id="abrir-mapa" class="btn-ghost" title="Mapa do sistema (compartilhado)">🗺 MAPA</button></span></nav>
+        <div class="topo-status">${esc(camp.nome)} · código <b class="chrome">${camp.codigo}</b></div><span style="display:flex;gap:6px"><button id="abrir-diario" class="btn-ghost" title="Diário da campanha">📔 DIÁRIO</button><button id="abrir-stats" class="btn-ghost" title="Estatísticas de rolagem da mesa">📊 DADOS</button><button id="abrir-mapa" class="btn-ghost" title="Mapa do sistema (compartilhado)">🗺 MAPA</button></span></nav>
       <div class="mesa">
         <div class="mesa-lateral">
           ${(camp.combate.ativo || souMestre) ? `<section class="sec combate-sec">
@@ -831,6 +930,7 @@ async function telaMesa(id) {
             <p class="regra">Convoque um descanso para toda a mesa. Cada jogador conectado com personagem vinculado recupera automaticamente na própria ficha.</p>
             <div class="filtros" style="margin-top:8px"><button id="mestre-curto" class="mini">☾ Descanso Curto (todos)</button><button id="mestre-longo" class="mini eq">🌙 Descanso Longo (todos)</button></div>
             <div class="filtros" style="margin-top:6px"><button id="mestre-xp" class="mini">🎖 Conceder XP</button><button id="mestre-cg" class="mini">🎁 Conceder Créditos</button></div>
+            <div class="filtros" style="margin-top:6px"><button id="camp-export" class="mini">💾 Backup da campanha</button><button id="camp-import" class="mini">📥 Restaurar</button></div>
           </section>` : ""}
         </div>
         <section class="sec mesa-chat">
@@ -972,6 +1072,67 @@ async function telaMesa(id) {
     $("#mestre-longo")?.addEventListener("click", () => { if (confirm("Convocar Descanso Longo para toda a mesa? Cada jogador conectado tem PV restaurados, RAM recarregada e todas as habilidades reiniciadas.")) enviar("descanso", "O Mestre convocou um Descanso Longo (8h). PV restaurados, RAM recarregada e todas as habilidades reiniciadas.", { tipo: "longo" }); });
     $("#mestre-xp")?.addEventListener("click", async () => { const r = await modalForm({ titulo: "🎖 Conceder XP", descricao: "Todos os jogadores conectados com personagem vinculado recebem.", campos: [{ k: "xp", label: "Quantidade de XP", tipo: "numero", valor: 500, min: 1 }], okLabel: "Conceder" }); if (!r || !r.xp || r.xp <= 0) return; enviar("recompensa", `O Mestre concedeu ${r.xp} XP à tripulação.`, { xp: r.xp }); });
     $("#mestre-cg")?.addEventListener("click", async () => { const r = await modalForm({ titulo: "🎁 Conceder Créditos", descricao: "Saque distribuído a toda a tripulação conectada.", campos: [{ k: "cg", label: "Créditos (CG)", tipo: "numero", valor: 1000, min: 1 }], okLabel: "Distribuir" }); if (!r || !r.cg || r.cg <= 0) return; enviar("recompensa", `O Mestre distribuiu ${r.cg} CG de saque à tripulação.`, { creditos: r.cg }); });
+    $("#camp-export")?.addEventListener("click", async () => {
+      const [{ data: msgs2 }, { data: membros2 }, { data: pers2 }] = await Promise.all([
+        sb.from("mensagens").select("*").eq("campanha_id", id).order("criado_em", { ascending: true }).limit(5000),
+        sb.from("campanha_membros").select("*").eq("campanha_id", id),
+        sb.from("personagens").select("*").eq("campanha_id", id),
+      ]);
+      const backup = { formato: "passagem-sombria/campanha", versao: 1, exportado_em: new Date().toISOString(),
+        campanha: { nome: camp.nome, codigo: camp.codigo, nave: camp.nave, mapa: camp.mapa, combate: camp.combate, bestiario: camp.bestiario },
+        membros: membros2 || [], personagens: pers2 || [], mensagens: msgs2 || [] };
+      const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob); const a2 = document.createElement("a");
+      a2.href = url; a2.download = `campanha-${(camp.nome || "mesa").replace(/[^\w-]/g, "_")}-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(a2); a2.click(); a2.remove(); setTimeout(() => URL.revokeObjectURL(url), 2000);
+      $("#st") && ($("#st").textContent = "Backup baixado ✓");
+    });
+    $("#camp-import")?.addEventListener("click", () => {
+      const inp = document.createElement("input"); inp.type = "file"; inp.accept = "application/json,.json";
+      inp.onchange = async () => {
+        const arq = inp.files?.[0]; if (!arq) return;
+        let b; try { b = JSON.parse(await arq.text()); } catch { return alert("Arquivo inválido: não é um JSON legível."); }
+        if (b?.formato !== "passagem-sombria/campanha") return alert("Este arquivo não é um backup de campanha do Passagem Sombria.");
+        const ok = await confirmModal(`Restaurar o estado desta campanha a partir do backup de ${new Date(b.exportado_em).toLocaleDateString("pt-BR")}?\n\nIsso substitui a NAVE, o MAPA, o COMBATE e o BESTIÁRIO do Mestre pelos do arquivo. As mensagens e as fichas dos jogadores NÃO são tocadas.`, { okLabel: "Restaurar", perigo: true });
+        if (!ok) return;
+        const c = b.campanha || {};
+        const { error } = await sb.from("campanhas").update({ nave: c.nave ?? camp.nave, mapa: c.mapa ?? {}, combate: c.combate ?? combateVazio(), bestiario: c.bestiario ?? [] }).eq("id", id);
+        if (error) return alert("Não consegui restaurar: " + error.message);
+        Object.assign(camp, { nave: c.nave ?? camp.nave, mapa: c.mapa ?? {}, combate: c.combate ?? combateVazio(), bestiario: c.bestiario ?? [] });
+        await enviar("sistema", "♻ O Mestre restaurou o estado da campanha a partir de um backup.");
+        render();
+      };
+      inp.click();
+    });
+    $("#abrir-stats")?.addEventListener("click", async () => {
+      const { data: todas } = await sb.from("mensagens").select("autor_id,personagem_id,tipo,payload,perfis:autor_id(apelido)").eq("campanha_id", id).eq("tipo", "rolagem").limit(4000);
+      const porAutor = {};
+      (todas || []).forEach((m) => {
+        const p = m.payload || {}; const nat = /d20 \[(\d+)\]/.exec(p.detalhe || "");
+        if (!nat) return; // só rolagens de d20 entram na estatística
+        const nome = (pers || []).find((x) => x.id === m.personagem_id)?.nome || m.perfis?.apelido || "?";
+        const a = porAutor[nome] = porAutor[nome] || { n: 0, soma: 0, crits: 0, fumbles: 0, maior: 0, menor: 21 };
+        const v = +nat[1];
+        a.n++; a.soma += v; a.maior = Math.max(a.maior, v); a.menor = Math.min(a.menor, v);
+        if (v === 20) a.crits++; if (v === 1) a.fumbles++;
+      });
+      const linhas = Object.entries(porAutor).sort((x, y) => (y[1].soma / y[1].n) - (x[1].soma / x[1].n));
+      const ov = document.createElement("div"); ov.className = "ss-overlay ov-modal"; ov.style.zIndex = "10000";
+      const corpo = linhas.length ? `<table class="stats-tab"><thead><tr><th>Quem</th><th>Rolagens</th><th>Média</th><th>🎯 Crít</th><th>💀 Falha</th><th>Melhor</th><th>Pior</th></tr></thead><tbody>
+        ${linhas.map(([n, a]) => `<tr><td><b>${esc(n)}</b></td><td>${a.n}</td><td><b class="${(a.soma / a.n) >= 10.5 ? "tech-c" : "dim"}">${(a.soma / a.n).toFixed(1)}</b></td>
+          <td>${a.crits}${a.crits ? ` <span class="dim">(${(a.crits / a.n * 100).toFixed(0)}%)</span>` : ""}</td>
+          <td>${a.fumbles}${a.fumbles ? ` <span class="dim">(${(a.fumbles / a.n * 100).toFixed(0)}%)</span>` : ""}</td>
+          <td>${a.maior}</td><td>${a.menor === 21 ? "—" : a.menor}</td></tr>`).join("")}</tbody></table>
+        <p class="regra">A média esperada de um d20 honesto é <b>10,5</b>. Quem está acima teve sorte; quem está abaixo tem uma história para contar.</p>`
+        : `<p class="regra">Ninguém rolou nada nesta mesa ainda.</p>`;
+      ov.innerHTML = `<div class="ss-painel" style="width:620px;max-width:96vw;margin:auto;border:1px solid var(--line);border-radius:10px;max-height:92vh">
+        <div class="mp-topo"><b>📊 Estatísticas de Rolagem</b><button id="st-fechar" class="mp-x" style="margin-left:auto">✕</button></div>
+        <div class="di-corpo">${corpo}</div></div>`;
+      document.body.appendChild(ov); document.body.style.overflow = "hidden";
+      const fechar = () => { document.body.style.overflow = ""; ov.remove(); };
+      ov.querySelector("#st-fechar").onclick = fechar;
+      ov.addEventListener("keydown", (e) => { if (e.key === "Escape") fechar(); });
+    });
     $("#abrir-diario")?.addEventListener("click", async () => {
       const { data: todas } = await sb.from("mensagens").select("*,perfis:autor_id(apelido,avatar_url)").eq("campanha_id", id).order("criado_em", { ascending: true }).limit(2000);
       const ov = document.createElement("div"); ov.className = "ss-overlay ov-modal"; ov.style.zIndex = "10000";
@@ -1181,7 +1342,7 @@ async function telaMesa(id) {
 
 // ---------------- BIBLIOTECA (todas as informações detalhadas) ----------------
 function telaBiblioteca(aba = "racas") {
-  const abas = [["racas", "Raças"], ["classes", "Classes"], ["armas", "Arsenal"], ["armaduras", "Armaduras"], ["implantes", "Implantes"], ["scripts", "Scripts"], ["filosofias", "Filosofias"], ["naves", "Naves"], ["bestiario", "Bestiário"]];
+  const abas = [["racas", "Raças"], ["classes", "Classes"], ["armas", "Arsenal"], ["armaduras", "Armaduras"], ["implantes", "Implantes"], ["scripts", "Scripts"], ["filosofias", "Filosofias"], ["naves", "Naves"], ["bestiario", "Bestiário"], ["npcs", "NPCs"]];
   let corpo = "";
   const cardCriatura = (c) => { const nv = NIVEIS_AMEACA[c.ameaca] || { cor: "#8189a3" };
     return `<details class="det grande best-card" style="border-left:3px solid ${nv.cor}"><summary><b>${esc(c.n)}</b>${c.apelido ? ` <i class="dim">${esc(c.apelido)}</i>` : ""} <span class="best-tag" style="color:${nv.cor};border-color:${nv.cor}">${esc(c.ameaca)}</span>${c.raca ? ` <i class="dim">${esc(c.raca)}</i>` : ""}</summary>
@@ -1201,8 +1362,8 @@ function telaBiblioteca(aba = "racas") {
     ARMAS.filter((a) => a.tipo === t).map((a) => `<details class="det"><summary><b>${esc(a.n)}</b> · ${a.dano}${a.kw ? ` · <i>${esc(a.kw)}</i>` : ""}</summary><p>${esc(a.desc)}${a.attr === "Des" && a.tipo === "branca" ? "<br><b>Ágil:</b> usa Destreza." : ""}</p></details>`).join("")).join("");
   if (aba === "armaduras") corpo = ARMADURAS.map((a) => `<details class="det grande"><summary><b>${esc(a.n)}</b> · CD +${a.cd} <span class="dim">(${a.t})</span>${a.preco ? ` · <b class="chrome">${a.preco} CG</b>` : ""}</summary>${a.e ? `<p class="regra"><b>Efeito:</b> ${esc(a.e)}</p>` : ""}${a.desc ? `<p>${esc(a.desc)}</p>` : ""}</details>`).join("");
   if (aba === "implantes") corpo = IMPLANTES.map((i) => `<div class="det"><b>${esc(i.n)}</b> · <b class="chrome">${i.p} CG</b> <span class="dim">(${i.g})</span> — ${esc(i.e)}</div>`).join("");
-  if (aba === "scripts") corpo = SCRIPTS.map((s) => `<div class="det"><b>${esc(s.n)}</b> <i class="sombra-c">${s.c}◈ ${esc(s.a)}</i> — ${esc(s.d)}</div>`).join("");
-  if (aba === "filosofias") corpo = Object.entries(FILOSOFIAS).map(([n, x]) => `<div class="det"><b>${esc(n)}</b> — ${esc(x.d)}</div>`).join("");
+  if (aba === "scripts") corpo = SCRIPTS.map((s) => `<details class="det grande"><summary><b>${esc(s.n)}</b> <i class="sombra-c">${s.c}◈ ${esc(s.a)}</i></summary><p class="regra"><b>Efeito:</b> ${esc(s.d)}</p>${s.lore ? `<p>${esc(s.lore)}</p>` : ""}</details>`).join("");
+  if (aba === "filosofias") corpo = Object.entries(FILOSOFIAS).map(([n, x]) => `<details class="det grande"><summary><b>${esc(n)}</b>${x.apelido ? ` <i class="dim">${esc(x.apelido)}</i>` : ""}${x.freq ? ` <span class="best-tag">1x/desc. ${esc(x.freq)}</span>` : ""}</summary>${x.lore ? `<p>${esc(x.lore)}</p>` : ""}<p class="regra"><b class="tech-c">Mecânica:</b> ${esc(x.d)}</p></details>`).join("");
   if (aba === "naves") corpo = `<p class="regra">${esc(REGRAS_NAVE.defesa)}<br>${esc(REGRAS_NAVE.dobra)}<br>${esc(REGRAS_NAVE.critico)}</p>` +
     NAVES.map((n) => `<details class="det grande"><summary><b>${esc(n.n)}</b> · Casco ${n.casco} · Escudos ${n.escudos} · Manobra ${sign(n.manobra)} · Dano ${n.dano}</summary>
     <p>${esc(n.desc)}</p><p class="regra">Tripulação: ${esc(n.trip)}</p></details>`).join("") +
@@ -1212,6 +1373,22 @@ function telaBiblioteca(aba = "racas") {
     corpo = legenda + cats.map((cat) => { const lista = BESTIARIO.filter((c) => c.categoria === cat).sort((a, b) => (NIVEIS_AMEACA[a.ameaca]?.ordem || 0) - (NIVEIS_AMEACA[b.ameaca]?.ordem || 0));
       const desc = { "Crias do Vazio": "Os invasores de fora da realidade — escalonados de lacaios a chefes.", "Inimigos das Raças": "Adversários de cada povo do sistema, em três níveis de dificuldade.", "Heranças das Estrelas": "Fauna exoplanetária e quimeras do mercado negro do Caminho da Espiral." }[cat];
       return `<h3 class="sub">${esc(cat)} <span class="dim">(${lista.length})</span></h3><p class="regra">${esc(desc)}</p>${lista.map(cardCriatura).join("")}`; }).join(""); }
+  if (aba === "npcs") {
+    const porPapel = {};
+    NPCS.forEach((n) => (porPapel[n.papel] = porPapel[n.papel] || []).push(n));
+    corpo = `<p class="regra">Figuras prontas para o Mestre puxar numa cena social: o que oferecem, o que querem e o segredo que guardam.</p>`
+      + Object.entries(porPapel).map(([papel, lista]) => { const p = PAPEIS[papel] || { ic: "•", cor: "#8189a3" };
+        return `<h3 class="sub">${p.ic} ${esc(papel)} <span class="dim">(${lista.length})</span></h3>` + lista.map((n) => `
+          <details class="det grande best-card" style="border-left:3px solid ${p.cor}">
+            <summary><b>${esc(n.n)}</b> <span class="best-tag" style="color:${p.cor};border-color:${p.cor}">${esc(n.atitude)}</span> <i class="dim">${esc(n.raca)} · ${esc(n.faccao)}</i></summary>
+            <p class="regra">📍 ${esc(n.local)}</p>
+            <p>${esc(n.gancho)}</p>
+            <p class="npc-fala">${esc(n.fala)}</p>
+            <p><b class="tech-c">Oferece:</b> ${esc(n.oferece)}</p>
+            <p><b class="chrome">Quer:</b> ${esc(n.quer)}</p>
+            <p><b style="color:var(--sombra)">Segredo (só o Mestre):</b> ${esc(n.segredo)}</p>
+          </details>`).join(""); }).join("");
+  }
   shell("biblioteca", `
     <header class="masthead"><h1>BIBLIOTECA<span> DO SISTEMA</span></h1>
       <div class="mast-sub">Tudo do livro Passagem Sombria v1.3, pesquisável e completo</div></header>

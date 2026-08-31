@@ -13,6 +13,7 @@ export function modalForm({ titulo, descricao = "", campos = [], okLabel = "Conf
     ov.className = "mdl-overlay";
     const campoHtml = (c) => {
       const id = "mdl-" + c.k;
+      if (c.tipo === "info") return `<p class="mdl-info">${esc(c.label)}</p>`;
       if (c.tipo === "area") return `<label class="mdl-campo"><span>${esc(c.label)}</span><textarea id="${id}" rows="${c.rows || 3}" placeholder="${esc(c.placeholder || "")}">${esc(c.valor || "")}</textarea></label>`;
       if (c.tipo === "select") return `<label class="mdl-campo"><span>${esc(c.label)}</span><select id="${id}">${(c.opcoes || []).map((o) => { const val = typeof o === "object" ? o.v : o; const lbl = typeof o === "object" ? o.l : o; return `<option value="${esc(val)}" ${String(c.valor) === String(val) ? "selected" : ""}>${esc(lbl)}</option>`; }).join("")}</select></label>`;
       const t = c.tipo === "numero" ? "number" : "text";

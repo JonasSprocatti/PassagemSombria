@@ -398,3 +398,57 @@ input:focus,select:focus,button:focus-visible{outline:2px solid var(--tech);outl
 .mdl-cancel:hover{border-color:var(--dim)}
 .mdl-ok{cursor:pointer;padding:9px 18px;border-radius:6px}
 @media(max-width:480px){.mdl-acoes{flex-direction:column-reverse}.mdl-acoes button{width:100%}}
+
+/* NPCs */
+.npc-fala{font-style:italic;color:var(--chrome);border-left:2px solid var(--chrome);padding-left:10px;margin:8px 0}
+
+/* estatísticas de rolagem */
+.stats-tab{width:100%;border-collapse:collapse;font-size:13px;margin-bottom:12px}
+.stats-tab th{text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--dim);padding:6px 8px;border-bottom:1px solid var(--line)}
+.stats-tab td{padding:6px 8px;border-bottom:1px solid var(--panel2)}
+.stats-tab tr:hover td{background:var(--panel2)}
+
+/* ============================================================================
+   ACESSIBILIDADE
+   ============================================================================ */
+/* Foco sempre visível (navegação por teclado) */
+:focus-visible{outline:3px solid var(--tech);outline-offset:2px;border-radius:3px}
+/* Link "pular para o conteúdo" */
+.pular-link{position:absolute;left:-9999px;top:0;z-index:10001;background:var(--tech);color:#04050a;padding:10px 16px;font-weight:700;border-radius:0 0 6px 0}
+.pular-link:focus{left:0}
+/* Só para leitor de tela */
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+
+/* Alto contraste */
+body.a11y-contraste{--void:#000;--panel:#0b0b0b;--panel2:#161616;--line:#7a7a7a;--ink:#fff;--dim:#d0d0d0;
+  --tech:#5cffe0;--chrome:#ffc247;--sombra:#c9b6ff;--perigo:#ff8a8a}
+body.a11y-contraste .regra,body.a11y-contraste .dim,body.a11y-contraste small{color:var(--dim)}
+body.a11y-contraste .det,body.a11y-contraste .sec,body.a11y-contraste .m-txt,body.a11y-contraste .m-roll{border-color:var(--line)}
+body.a11y-contraste .mini,body.a11y-contraste .btn-ghost{border-width:2px}
+
+/* Fonte para dislexia: sem serifa, espaçada, com formas distintas */
+body.a11y-dislexia,body.a11y-dislexia .frame,body.a11y-dislexia input,body.a11y-dislexia select,
+body.a11y-dislexia textarea,body.a11y-dislexia button,body.a11y-dislexia h1,body.a11y-dislexia h2,
+body.a11y-dislexia h3,body.a11y-dislexia .m-txt,body.a11y-dislexia .det{
+  font-family:"Atkinson Hyperlegible","Verdana","Tahoma",sans-serif!important;
+  letter-spacing:.04em;word-spacing:.14em}
+body.a11y-dislexia{line-height:1.75}
+body.a11y-dislexia p,body.a11y-dislexia .regra,body.a11y-dislexia li{max-width:66ch}
+
+/* Texto maior */
+body.a11y-grande{font-size:118%}
+body.a11y-grande .regra,body.a11y-grande small,body.a11y-grande .dim{font-size:13px}
+
+/* Painel de acessibilidade */
+.a11y-btn{position:fixed;right:14px;bottom:14px;z-index:9990;width:46px;height:46px;border-radius:50%;
+  background:var(--panel);border:1px solid var(--line);color:var(--ink);font-size:20px;cursor:pointer;
+  box-shadow:0 4px 16px rgba(0,0,0,.5)}
+.a11y-btn:hover{border-color:var(--tech);color:var(--tech)}
+.a11y-painel{position:fixed;right:14px;bottom:70px;z-index:9991;background:var(--panel);border:1px solid var(--line);
+  border-radius:10px;padding:14px;width:265px;box-shadow:0 8px 30px rgba(0,0,0,.6)}
+.a11y-painel h3{margin:0 0 4px;font-family:'Chakra Petch',sans-serif;font-size:15px}
+.a11y-painel .regra{margin:0 0 10px}
+.a11y-painel label{display:flex;align-items:center;gap:8px;padding:7px 0;font-size:13px;cursor:pointer}
+.a11y-painel input[type=checkbox]{width:18px;height:18px;flex-shrink:0}
+@media(max-width:720px){.a11y-btn{bottom:10px;right:10px;width:42px;height:42px}.a11y-painel{right:8px;left:8px;width:auto}}
+.mdl-info{font-size:13px;color:var(--dim);line-height:1.55;margin:0 0 4px}
