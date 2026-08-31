@@ -345,7 +345,7 @@ export const ARMAS = [
   "desc": "Placas de metal que se encaixam sobre os nós dos dedos, equipadas com microbaterias que liberam energia cinética no impacto."
  },
  {
-  "n": "Bastão de Choque / Porrete de Segurança",
+  "n": "Bastão de Choque / Porrete de Segurança", "preco": 50,
   "dano": "1d6",
   "tipo": "branca",
   "per": "Armas Brancas",
@@ -714,7 +714,7 @@ export const ARMAS = [
   "desc": "Não usa balas. Esta arma projeta uma onda de choque de som hipercomprimido capaz de estourar tímpanos e amassar placas de metal. O impacto físico de perto é como ser atropelado por um rover."
  },
  {
-  "n": "Escopeta de Cano Duplo \"Rust\"",
+  "n": "Escopeta de Cano Duplo \"Rust\"", "preco": 300,
   "dano": "2d8",
   "tipo": "fogo",
   "per": "Armas de Fogo",
@@ -757,6 +757,78 @@ export const ARMAS = [
   "attr": "Des",
   "kw": "Atravessa Paredes",
   "desc": "A obra-prima da morte à distância. Usa imãs gigantes para disparar uma agulha de tungstênio muito além da velocidade do som, deixando um rastro de vácuo no ar."
+ },
+ {
+  "n": "Nano-Tatuagem: Garras de Enxame", "preco": 0, "nano": true,
+  "dano": "1d4", "escala": { "5": "1d6", "9": "1d8" },
+  "tipo": "branca",
+  "per": "Armas Brancas",
+  "attr": "Des",
+  "kw": "Ágil",
+  "desc": "Pares de garras que brotam das falanges. O enxame recobre os dedos e afia-se em lâminas curvas. Forma do implante Tatuagens de Nano-Enxame — não pode ser arremessada, largada nem desarmada."
+ },
+ {
+  "n": "Nano-Tatuagem: Punhal Dérmico", "preco": 0, "nano": true,
+  "dano": "1d4", "escala": { "5": "1d6", "9": "1d8" },
+  "tipo": "branca",
+  "per": "Armas Brancas",
+  "attr": "Des",
+  "kw": "Oculta",
+  "desc": "A tatuagem no antebraço escorre para a palma e endurece num punhal de fio único. Forma do implante Tatuagens de Nano-Enxame — não pode ser arremessada, largada nem desarmada."
+ },
+ {
+  "n": "Nano-Tatuagem: Machadinha de Enxame", "preco": 0, "nano": true,
+  "dano": "1d6", "escala": { "5": "1d8", "9": "1d10" },
+  "tipo": "branca",
+  "per": "Armas Brancas",
+  "attr": "Des",
+  "kw": "Ágil",
+  "desc": "Compacta e equilibrada, a tinta forma um cabo curto e uma cabeça pesada o suficiente para rachar visores. Forma do implante Tatuagens de Nano-Enxame — não pode ser arremessada, largada nem desarmada."
+ },
+ {
+  "n": "Nano-Tatuagem: Espada de Nanofio", "preco": 0, "nano": true,
+  "dano": "1d6", "escala": { "5": "1d8", "9": "1d10" },
+  "tipo": "branca",
+  "per": "Armas Brancas",
+  "attr": "For",
+  "kw": "Confiável",
+  "desc": "Uma lâmina reta de nanofio compactado. Nunca lasca, nunca emperra — simplesmente se refaz. Forma do implante Tatuagens de Nano-Enxame — não pode ser arremessada, largada nem desarmada."
+ },
+ {
+  "n": "Nano-Tatuagem: Lâmina Serrilhada de Enxame", "preco": 0, "nano": true,
+  "dano": "1d6", "escala": { "5": "1d8", "9": "1d10" },
+  "tipo": "branca",
+  "per": "Armas Brancas",
+  "attr": "For",
+  "kw": "Sangramento",
+  "desc": "Os nano-robôs vibram no fio da lâmina, serrando a carne em vez de cortá-la. Forma do implante Tatuagens de Nano-Enxame — não pode ser arremessada, largada nem desarmada."
+ },
+ {
+  "n": "Nano-Tatuagem: Manopla de Impacto", "preco": 0, "nano": true,
+  "dano": "1d6", "escala": { "5": "1d8", "9": "1d10" },
+  "tipo": "branca",
+  "per": "Armas Brancas",
+  "attr": "For",
+  "kw": "Impacto",
+  "desc": "A tinta cobre o punho numa manopla densa que descarrega a inércia acumulada no golpe. Forma do implante Tatuagens de Nano-Enxame — não pode ser arremessada, largada nem desarmada."
+ },
+ {
+  "n": "Nano-Tatuagem: Machado Pesado de Enxame", "preco": 0, "nano": true,
+  "dano": "1d8", "escala": { "5": "1d10", "9": "2d6" },
+  "tipo": "branca",
+  "per": "Armas Brancas",
+  "attr": "For",
+  "kw": "Despedaçador",
+  "desc": "O enxame inteiro migra para uma só mão e forma uma cabeça de machado brutal. Forma do implante Tatuagens de Nano-Enxame — não pode ser arremessada, largada nem desarmada."
+ },
+ {
+  "n": "Nano-Tatuagem: Alabarda Curta de Enxame", "preco": 0, "nano": true,
+  "dano": "1d6", "escala": { "5": "1d8", "9": "1d10" },
+  "tipo": "branca",
+  "per": "Armas Brancas",
+  "attr": "For",
+  "kw": "Alcance",
+  "desc": "O enxame estica-se num cabo de dois metros com uma ponta de lança e um gancho. Forma do implante Tatuagens de Nano-Enxame — não pode ser arremessada, largada nem desarmada."
  }
 ];
 
@@ -903,6 +975,7 @@ export const IMPLANTES = [
  {n:"Lâmina Oculta Retrátil (Mantis)",p:1000,e:"1d8; dobra dano em Furtivos",g:"Membros"},
  {n:"Pernas Pneumáticas",p:1500,e:"Dobra deslocamento, ignora quedas 15m",g:"Membros"},
  {n:"Âncoras Magnéticas (Pés)",p:700,e:"Imune a derrubar; anda no teto em Grav. Zero",g:"Membros"},
+ {n:"Tatuagens de Nano-Enxame",p:2200,e:"Materializa armas brancas na mão; dano escala por nível",g:"Torso"},
 ];
 
 export const SCRIPTS = [

@@ -269,6 +269,16 @@ function aplicarDescanso(f, tipo) {
 }
 
 
+// Dano de arma no nível atual (armas Nano-Tatuagem escalam nos marcos NV5 e NV9)
+function danoArma(cat, nivel) {
+  if (!cat) return "1d4";
+  if (!cat.escala) return cat.dano;
+  const marcos = Object.keys(cat.escala).map(Number).sort((a, b) => a - b);
+  let d = cat.dano;
+  for (const m of marcos) if ((nivel || 1) >= m) d = cat.escala[String(m)];
+  return d;
+}
+
 // ---------------- COMBATE: rastreador de iniciativa ----------------
 const CONDICOES = ["Sangrando", "Atordoado", "Cego", "Envenenado", "Caído", "Congelado", "Marcado", "Lento", "Amedrontado", "Enfraquecido", "Em chamas", "Silenciado"];
 const combateVazio = () => ({ ativo: false, rodada: 1, turno: 0, ordem: [] });
@@ -787,7 +797,7 @@ async function telaMesa(id) {
               ${armasEq.length ? `<label class="chk" style="margin:0" title="Ataque furtivo: +2 no acerto (armas Ocultas / Assassino) e dano DOBRADO para o Assassino."><input type="checkbox" id="atq-furtivo"/> 🥷 Furtivo</label>` : ""}
               ${armasEq.map((a, i) => { const cat = ARMAS.find((x) => x.n === a.nome); const pr = cat ? propsArma(cat) : {};
                 const tip = [cat?.kw ? `${cat.kw}: ${pr.efeito}` : "", pr.area ? `Área: ${pr.areaTxt}` : "", pr.alcance ? `Alcance: ${pr.alcanceTxt}` : "", pr.agil ? "Ágil (Des)" : ""].filter(Boolean).join(" · ");
-                return `<button class="mini atq" data-atq="${i}" title="${esc(tip)}">⚔ ${esc(a.nome)} (${cat?.dano})${pr.area ? " ◎" : ""}${pr.agil ? " ⚡" : ""}</button>`; }).join("")}
+                return `<button class="mini atq" data-atq="${i}" title="${esc(tip)}">⚔ ${esc(a.nome)} (${cat ? danoArma(cat, f.nivel) : "—"})${pr.area ? " ◎" : ""}${pr.agil ? " ⚡" : ""}</button>`; }).join("")}
               <select id="sel-scr">${(f.deck.length ? SCRIPTS.filter((s) => f.deck.includes(s.n)) : SCRIPTS.filter((s) => s.c === 0)).map((s) => `<option>${esc(s.n)}</option>`).join("")}</select>
               <button id="conjurar" class="mini">⚡ CONJURAR</button>
               <input id="dado-livre" placeholder="1d20+2d10" style="width:80px"/><button id="rolar-livre" class="mini">🎲</button>
@@ -1102,7 +1112,8 @@ async function telaMesa(id) {
           + (furtivo && assassino ? 2 : 0);          // Assassino: +2 no furtivo
         let nat, detVant = "";
         if (vantagem !== 0) { const r1 = d(20), r2 = d(20); nat = vantagem > 0 ? Math.max(r1, r2) : Math.min(r1, r2); detVant = ` [${vantagem > 0 ? "vant" : "desv"} ${r1}/${r2}]`; } else nat = d(20);
-        const pd = parseDice(cat.dano);
+        const danoBase = danoArma(cat, f.nivel);
+        const pd = parseDice(danoBase);
         // dobra o dano por Crítico (20) e/ou Ataque Furtivo do Assassino (cada um adiciona um conjunto de dados)
         const sets = 1 + (nat === 20 ? 1 : 0) + (furtivo && assassino ? 1 : 0);
         let dados = rollNd(pd.n * sets, pd.f);
@@ -1111,7 +1122,7 @@ async function telaMesa(id) {
         const marcadores = [nat === 20 ? "CRÍTICO ×2" : "", furtivo && assassino ? "FURTIVO ×2" : furtivo ? "furtivo +2 acerto" : "", pr.agil ? `Ágil (${atkAttr})` : "", pr.brutal ? "Brutal (vantagem)" : ""].filter(Boolean).join(" · ");
         const infoArma = [pr.area ? `◎ Área: ${pr.areaTxt}` : "", pr.alcance ? `⟿ Alcance: ${pr.alcanceTxt}` : "", cat.kw ? `🏷 ${cat.kw}: ${pr.efeito}` : ""].filter(Boolean).join("  ·  ");
         enviar("rolagem", null, { titulo: (privada ? "🔒 " : "") + `Ataque — ${a.nome}${furtivo ? " 🥷" : ""}`,
-          detalhe: `d20 [${nat}]${detVant} ${sign(mod)} · dano ${cat.dano}${sets > 1 ? `×${sets}` : ""} [${dados.join(", ")}] ${sign(danoMod)}${marcadores ? " · " + marcadores : ""}`,
+          detalhe: `d20 [${nat}]${detVant} ${sign(mod)} · dano ${danoBase}${sets > 1 ? `×${sets}` : ""} [${dados.join(", ")}] ${sign(danoMod)}${marcadores ? " · " + marcadores : ""}`,
           total: nat + mod, crit: nat === 20, fumble: nat === 1, ...(privada ? { privada: true } : {}), dano_total: dados.reduce((x, y) => x + y, 0) + danoMod,
           extra: `Dano: ${dados.reduce((x, y) => x + y, 0) + danoMod}${infoArma ? "  —  " + infoArma : ""}` }); });
       $("#conjurar").onclick = async () => {
