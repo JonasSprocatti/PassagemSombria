@@ -7,6 +7,7 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./config.js";
 import { RACAS, CLASSES, FILOSOFIAS, IMPLANTES, SCRIPTS, ARMAS, ARMADURAS, PERICIAS, NAVES, ESTACOES, REGRAS_NAVE, RIQUEZA, TEMAS, CONVERTE_2D8, RENOME_PERICIAS, KEYWORDS, propsArma } from "./dados-jogo.js";
 import { BESTIARIO, NIVEIS_AMEACA } from "./dados-bestiario.js";
 import { NPCS, PAPEIS } from "./dados-npcs.js";
+import { FACCOES, NIVEIS_REPUTACAO, TABELAS, REFERENCIA } from "./dados-mestre.js";
 import { modalForm, confirmModal, somMensagem, somDado, notificar, pedirNotificacao, getSom, setSom } from "./ui.js";
 
 export const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -278,6 +279,32 @@ function danoArma(cat, nivel) {
   let d = cat.dano;
   for (const m of marcos) if ((nivel || 1) >= m) d = cat.escala[String(m)];
   return d;
+}
+
+// ---------------- FERRAMENTAS DO MESTRE ----------------
+const sorteia = (lista) => lista[Math.floor(Math.random() * lista.length)];
+// Gera um resultado de tabela aleatória (npc é montado por partes)
+function rolarTabela(chave) {
+  const t = TABELAS[chave]; if (!t) return "";
+  if (t.monta) return `${sorteia(t.nomes)} ${sorteia(t.sobrenomes)} — ${sorteia(t.papeis)}. `
+    + `Traço: ${sorteia(t.tracos)}. Quer: ${sorteia(t.querem)}.`;
+  return sorteia(t.itens).replace(/\{creditos\}/g, () => String((1 + Math.floor(Math.random() * 12)) * 25));
+}
+// Orçamento de encontro: "pontos de ameaça" que uma party aguenta sem TPK.
+const PESO_AMEACA = { Lacaio: 1, Comum: 2, Forte: 4, Elite: 6, Chefe: 12, Colossal: 18, "Super Chefe": 24 };
+function orcamentoEncontro(nivel, jogadores, dificuldade) {
+  const base = (2 + (nivel || 1) * 1.5) * (jogadores || 1);
+  const mult = { facil: 0.6, medio: 1, dificil: 1.5, mortal: 2.2 }[dificuldade] || 1;
+  return Math.max(1, Math.round(base * mult));
+}
+// Sugere combinações de criaturas que cabem no orçamento
+function sugerirEncontro(orc) {
+  const sug = [];
+  for (const [tipo, peso] of Object.entries(PESO_AMEACA)) {
+    const q = Math.floor(orc / peso);
+    if (q >= 1 && q <= 12) sug.push({ tipo, q, sobra: orc - q * peso });
+  }
+  return sug.sort((a, b) => a.sobra - b.sobra).slice(0, 5);
 }
 
 // ---------------- COMBATE: rastreador de iniciativa ----------------
@@ -836,12 +863,16 @@ async function telaMesa(id) {
   let pintarMsg = null;          // aponta pro addMsg do render atual (renderização otimista)
   const historico = msgs || [];  // lista mutável de mensagens (sobrevive a re-renders)
   let mapaCtrl = null;           // controlador do mapa aberto (para sync via realtime)
+  let timerInt = null;           // cronômetro de turno (local)
   let vantagem = 0;              // 0 normal · 1 vantagem · -1 desvantagem
   let privada = false;           // rolagem/mensagem privada (só Mestre + autor veem)
   const salvarMapa = async (mapa) => { camp.mapa = mapa; const { error } = await sb.from("campanhas").update({ mapa }).eq("id", id); if (error) alert("Não consegui salvar o mapa: " + error.message); };
   if (!camp.combate || typeof camp.combate !== "object" || !("ordem" in camp.combate)) camp.combate = combateVazio();
   const salvarCombate = async () => { const { error } = await sb.from("campanhas").update({ combate: camp.combate }).eq("id", id); if (error) alert("Não consegui salvar o combate: " + error.message); };
   if (!Array.isArray(camp.bestiario)) camp.bestiario = [];
+  if (!camp.faccoes || typeof camp.faccoes !== "object") camp.faccoes = {};
+  if (!Array.isArray(camp.contratos)) camp.contratos = [];
+  if (!camp.handout || typeof camp.handout !== "object") camp.handout = {};
   const salvarBestiario = async () => { const { error } = await sb.from("campanhas").update({ bestiario: camp.bestiario }).eq("id", id); if (error) alert("Não consegui salvar o bestiário: " + error.message); };
 
   const enviar = async (tipo, conteudo, payload = null) => {
@@ -868,7 +899,7 @@ async function telaMesa(id) {
     const meuPosto = membros?.find((m) => m.perfil_id === usuario.id)?.posto;
     shell("mesa", `
       <nav class="topo"><a class="btn-ghost" href="#/campanhas">← CAMPANHAS</a>
-        <div class="topo-status">${esc(camp.nome)} · código <b class="chrome">${camp.codigo}</b></div><span style="display:flex;gap:6px"><button id="abrir-diario" class="btn-ghost" title="Diário da campanha">📔 DIÁRIO</button><button id="abrir-stats" class="btn-ghost" title="Estatísticas de rolagem da mesa">📊 DADOS</button><button id="abrir-mapa" class="btn-ghost" title="Mapa do sistema (compartilhado)">🗺 MAPA</button></span></nav>
+        <div class="topo-status">${esc(camp.nome)} · código <b class="chrome">${camp.codigo}</b></div><span style="display:flex;gap:6px"><button id="abrir-diario" class="btn-ghost" title="Diário da campanha">📔 DIÁRIO</button>${souMestre ? `<button id="abrir-mestre" class="btn-ghost" title="Tela do Mestre">🎛 MESTRE</button>` : ""}<button id="abrir-stats" class="btn-ghost" title="Estatísticas de rolagem da mesa">📊 DADOS</button><button id="abrir-mapa" class="btn-ghost" title="Mapa do sistema (compartilhado)">🗺 MAPA</button></span></nav>
       <div class="mesa">
         <div class="mesa-lateral">
           ${(camp.combate.ativo || souMestre) ? `<section class="sec combate-sec">
@@ -884,7 +915,7 @@ async function telaMesa(id) {
             ${souMestre ? `<div class="cb-add">
               <select id="cb-quem"><optgroup label="Jogadores">${(pers || []).map((p) => `<option value="j:${p.id}">${esc(p.nome) || "sem nome"}</option>`).join("")}</optgroup>${camp.bestiario.length ? `<optgroup label="Minhas criaturas">${camp.bestiario.map((b, ci) => `<option value="c:${ci}">${esc(b.n)} · ${b.ameaca}</option>`).join("")}</optgroup>` : ""}<optgroup label="Inimigos (bestiário)">${BESTIARIO.map((b, bi) => b.ambiental ? "" : `<option value="e:${bi}">${esc(b.n)} · ${b.ameaca}</option>`).join("")}</optgroup></select>
               <button id="cb-add-btn" class="mini">🎲 Add</button><button id="cb-criar" class="mini" title="Criar/editar criaturas do Mestre">🐉</button></div>
-            <div class="cb-ctrl"><button id="cb-prox" class="mini eq">▶ Próximo turno</button><button id="cb-fim" class="mini rm">⏹ Encerrar</button></div>` : ""}`}
+            <div class="cb-ctrl"><button id="cb-prox" class="mini eq">▶ Próximo turno</button><button id="cb-timer" class="mini" title="Cronômetro do turno">⏱</button><button id="cb-fim" class="mini rm">⏹ Encerrar</button></div><div id="cb-timer-out" class="cb-timer"></div>` : ""}`}
           </section>` : ""}
           <section class="sec"><header><span class="tag">◈</span><h2>Meu personagem</h2></header>
             <select id="sel-pers">${meuPers ? "" : `<option value="">— vincular personagem —</option>`}
@@ -923,6 +954,11 @@ async function telaMesa(id) {
               <input id="nave-nome" placeholder="Nome de batismo"/>
               <button id="def-nave" class="btn-primario" style="margin-top:8px">DEFINIR NAVE</button>` : `<p class="regra">O Mestre ainda não definiu a nave.</p>`}
           </section>
+          ${(camp.contratos?.length || Object.keys(camp.faccoes || {}).length) ? `<section class="sec"><header><span class="tag">📋</span><h2>Contratos & Reputação</h2></header>
+            ${(camp.contratos || []).filter((c) => c.status !== "concluido").map((c) => `<div class="inv"><span><b>${esc(c.titulo)}</b> <span class="best-tag">${esc(c.status)}</span><br><span class="regra">${esc(c.recompensa)}${c.faccao ? ` · ${esc(c.faccao)}` : ""}</span></span></div>`).join("") || `<p class="regra">Nenhum contrato aberto.</p>`}
+            ${Object.entries(camp.faccoes || {}).filter(([, v]) => v !== 0).map(([n, v]) => { const nv = NIVEIS_REPUTACAO.find((x) => x.v === v) || NIVEIS_REPUTACAO[3];
+              return `<p class="regra">${esc(n)}: <b style="color:${nv.cor}">${esc(nv.n)}</b></p>`; }).join("")}
+          </section>` : ""}
           <section class="sec"><header><span class="tag">👥</span><h2>Tripulação</h2></header>
             ${(membros || []).map((m) => `<p class="regra">${esc(m.perfis?.apelido)}${m.posto ? ` · ${ESTACOES[m.posto]?.n}` : ""}${m.perfil_id === camp.mestre_id ? " · MESTRE" : ""}</p>`).join("")}
           </section>
@@ -930,11 +966,13 @@ async function telaMesa(id) {
             <p class="regra">Convoque um descanso para toda a mesa. Cada jogador conectado com personagem vinculado recupera automaticamente na própria ficha.</p>
             <div class="filtros" style="margin-top:8px"><button id="mestre-curto" class="mini">☾ Descanso Curto (todos)</button><button id="mestre-longo" class="mini eq">🌙 Descanso Longo (todos)</button></div>
             <div class="filtros" style="margin-top:6px"><button id="mestre-xp" class="mini">🎖 Conceder XP</button><button id="mestre-cg" class="mini">🎁 Conceder Créditos</button></div>
+            <div class="filtros" style="margin-top:6px"><button id="handout-btn" class="mini">🖼 Mostrar imagem</button>${camp.handout?.visivel ? `<button id="handout-off" class="mini rm">Ocultar</button>` : ""}</div>
             <div class="filtros" style="margin-top:6px"><button id="camp-export" class="mini">💾 Backup da campanha</button><button id="camp-import" class="mini">📥 Restaurar</button></div>
           </section>` : ""}
         </div>
         <section class="sec mesa-chat">
           <header><span class="tag">≣</span><h2>Mesa · transmissão ao vivo</h2></header>
+          ${camp.handout?.visivel && camp.handout?.url ? `<div class="handout"><div class="handout-cab"><b>🖼 ${esc(camp.handout.titulo || "O Mestre mostra algo")}</b><a href="${esc(camp.handout.url)}" target="_blank" rel="noopener" class="mini">abrir</a></div><img src="${esc(camp.handout.url)}" alt="${esc(camp.handout.titulo || "imagem compartilhada pelo Mestre")}"/></div>` : ""}
           <div id="chat" class="chat"></div>
           <div id="resp-preview" class="resp-preview" style="display:none"><span class="rp-txt"></span><button id="resp-cancel" class="rp-x" title="Cancelar resposta">✕</button></div>
           <div class="rol-toggles"><span class="regra" style="margin:0">Rolagem:</span>
@@ -1048,7 +1086,7 @@ async function telaMesa(id) {
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "mensagens", filter: `campanha_id=eq.${id}` },
         async (pl) => { const { data: m } = await sb.from("mensagens").select("*,perfis:autor_id(apelido,avatar_url)").eq("id", pl.new.id).single(); if (m) addMsg(m, true); })
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "campanhas", filter: `id=eq.${id}` },
-        (pl) => { camp.nave = pl.new.nave; camp.mapa = pl.new.mapa; camp.combate = pl.new.combate; mapaCtrl?.atualizar(pl.new.mapa, pl.new.combate); render(); })
+        (pl) => { camp.nave = pl.new.nave; camp.mapa = pl.new.mapa; camp.combate = pl.new.combate; camp.handout = pl.new.handout || {}; camp.faccoes = pl.new.faccoes || {}; camp.contratos = pl.new.contratos || []; camp.bestiario = pl.new.bestiario || []; mapaCtrl?.atualizar(pl.new.mapa, pl.new.combate); render(); })
       .subscribe();
 
     // ---- binds ----
@@ -1072,6 +1110,24 @@ async function telaMesa(id) {
     $("#mestre-longo")?.addEventListener("click", () => { if (confirm("Convocar Descanso Longo para toda a mesa? Cada jogador conectado tem PV restaurados, RAM recarregada e todas as habilidades reiniciadas.")) enviar("descanso", "O Mestre convocou um Descanso Longo (8h). PV restaurados, RAM recarregada e todas as habilidades reiniciadas.", { tipo: "longo" }); });
     $("#mestre-xp")?.addEventListener("click", async () => { const r = await modalForm({ titulo: "🎖 Conceder XP", descricao: "Todos os jogadores conectados com personagem vinculado recebem.", campos: [{ k: "xp", label: "Quantidade de XP", tipo: "numero", valor: 500, min: 1 }], okLabel: "Conceder" }); if (!r || !r.xp || r.xp <= 0) return; enviar("recompensa", `O Mestre concedeu ${r.xp} XP à tripulação.`, { xp: r.xp }); });
     $("#mestre-cg")?.addEventListener("click", async () => { const r = await modalForm({ titulo: "🎁 Conceder Créditos", descricao: "Saque distribuído a toda a tripulação conectada.", campos: [{ k: "cg", label: "Créditos (CG)", tipo: "numero", valor: 1000, min: 1 }], okLabel: "Distribuir" }); if (!r || !r.cg || r.cg <= 0) return; enviar("recompensa", `O Mestre distribuiu ${r.cg} CG de saque à tripulação.`, { creditos: r.cg }); });
+    $("#handout-btn")?.addEventListener("click", async () => {
+      const r = await modalForm({ titulo: "🖼 Mostrar imagem para a mesa", campos: [
+        { k: "i", label: "Cole o endereço de uma imagem (mapa da sala, documento, retrato de NPC). Ela aparece no topo do chat de todos.", tipo: "info" },
+        { k: "url", label: "URL da imagem", tipo: "texto", valor: camp.handout?.url || "" },
+        { k: "titulo", label: "Legenda (opcional)", tipo: "texto", valor: camp.handout?.titulo || "" },
+      ], okLabel: "Mostrar" });
+      if (!r || !r.url) return;
+      camp.handout = { url: r.url.trim(), titulo: (r.titulo || "").trim(), visivel: true };
+      const { error } = await sb.from("campanhas").update({ handout: camp.handout }).eq("id", id);
+      if (error) return alert("Não consegui compartilhar: " + error.message);
+      await enviar("sistema", `🖼 O Mestre mostrou uma imagem${r.titulo ? `: ${r.titulo}` : ""}.`);
+      render();
+    });
+    $("#handout-off")?.addEventListener("click", async () => {
+      camp.handout = { ...(camp.handout || {}), visivel: false };
+      await sb.from("campanhas").update({ handout: camp.handout }).eq("id", id);
+      render();
+    });
     $("#camp-export")?.addEventListener("click", async () => {
       const [{ data: msgs2 }, { data: membros2 }, { data: pers2 }] = await Promise.all([
         sb.from("mensagens").select("*").eq("campanha_id", id).order("criado_em", { ascending: true }).limit(5000),
@@ -1103,6 +1159,125 @@ async function telaMesa(id) {
         render();
       };
       inp.click();
+    });
+    $("#abrir-mestre")?.addEventListener("click", async () => {
+      if (!camp.faccoes || typeof camp.faccoes !== "object") camp.faccoes = {};
+      if (!Array.isArray(camp.contratos)) camp.contratos = [];
+      const { data: nota } = await sb.from("mestre_notas").select("texto").eq("campanha_id", id).maybeSingle();
+      let notaTxt = nota?.texto || "";
+      const ov = document.createElement("div"); ov.className = "ss-overlay ov-modal"; ov.style.zIndex = "10000";
+      const abas = [["ref", "📖 Referência"], ["tab", "🎲 Tabelas"], ["enc", "⚖ Encontros"], ["fac", "🏛 Facções"], ["con", "📋 Contratos"], ["not", "📝 Anotações"]];
+      let abaAtiva = "ref";
+      const salvarCamp = async (campos) => { const { error } = await sb.from("campanhas").update(campos).eq("id", id); if (error) alert("Não consegui salvar: " + error.message); };
+
+      const painelRef = () => Object.values(REFERENCIA).map((r) => `<details class="det grande" open><summary><b>${r.ic} ${esc(r.n)}</b></summary>
+        <table class="stats-tab"><tbody>${r.linhas.map(([a2, b2]) => `<tr><td style="width:34%"><b>${esc(a2)}</b></td><td>${esc(b2)}</td></tr>`).join("")}</tbody></table></details>`).join("")
+        + `<details class="det grande"><summary><b>🩹 Condições</b></summary><table class="stats-tab"><tbody>${CONDICOES.map((c) => `<tr><td>${esc(c)}</td></tr>`).join("")}</tbody></table></details>`
+        + `<details class="det grande"><summary><b>🏷 Palavras-chave de armas</b></summary><table class="stats-tab"><tbody>${Object.entries(KEYWORDS).map(([k, v]) => `<tr><td style="width:34%"><b>${esc(k)}</b></td><td>${esc(v)}</td></tr>`).join("")}</tbody></table></details>`
+        + `<details class="det grande"><summary><b>💀 Níveis de ameaça</b></summary><table class="stats-tab"><tbody>${Object.entries(NIVEIS_AMEACA).map(([k, v]) => `<tr><td><span class="best-tag" style="color:${v.cor};border-color:${v.cor}">${esc(k)}</span></td><td>peso ${PESO_AMEACA[k] ?? "—"} no orçamento de encontro</td></tr>`).join("")}</tbody></table></details>`;
+
+      const painelTab = () => Object.entries(TABELAS).map(([k, t]) => `<div class="det grande">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><b>${t.ic} ${esc(t.n)}</b><button class="mini" data-rolar="${k}">🎲 Rolar</button></div>
+        <p class="regra">${esc(t.d)}</p><p class="tab-res" data-res="${k}"></p></div>`).join("");
+
+      const painelEnc = () => `<div class="det grande">
+        <div class="linha-3"><label>Nível médio<input id="enc-nv" type="number" min="1" max="10" value="${(pers || [])[0]?.dados?.nivel || 1}"/></label>
+        <label>Jogadores<input id="enc-j" type="number" min="1" max="8" value="${(pers || []).length || 4}"/></label>
+        <label>Dificuldade<select id="enc-d"><option value="facil">Fácil</option><option value="medio" selected>Média</option><option value="dificil">Difícil</option><option value="mortal">Mortal</option></select></label></div>
+        <button id="enc-calc" class="mini eq" style="margin-top:8px">⚖ Calcular</button>
+        <div id="enc-out"></div></div>`;
+
+      const painelFac = () => `<p class="regra">Ajuste a relação da tripulação com cada facção. Os jogadores veem a reputação, mas não as suas anotações.</p>`
+        + FACCOES.map((f) => { const v = camp.faccoes[f.n] ?? 0; const nv = NIVEIS_REPUTACAO.find((x) => x.v === v) || NIVEIS_REPUTACAO[3];
+          return `<div class="det grande" style="border-left:3px solid ${f.cor}">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+              <b>${esc(f.n)}</b><span class="best-tag" style="color:${nv.cor};border-color:${nv.cor}">${esc(nv.n)}</span></div>
+            <p class="regra">${esc(f.sede)} · ${esc(f.d)}</p>
+            <div class="filtros"><button class="mini" data-fac="${esc(f.n)}" data-d="-1">−</button>
+              <input type="range" min="-3" max="3" value="${v}" data-facr="${esc(f.n)}" style="flex:1"/>
+              <button class="mini" data-fac="${esc(f.n)}" data-d="1">+</button></div>
+            <p class="regra"><i>${esc(nv.d)}</i></p></div>`; }).join("");
+
+      const painelCon = () => `<button id="con-novo" class="mini eq">➕ Publicar contrato</button>`
+        + (camp.contratos.length ? camp.contratos.map((c, i) => `<div class="det grande" style="border-left:3px solid ${c.status === "concluido" ? "var(--tech)" : c.status === "aceito" ? "var(--chrome)" : "var(--line)"}">
+            <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><b>${esc(c.titulo)}</b><span class="best-tag">${esc(c.status)}</span></div>
+            <p>${esc(c.desc)}</p>
+            <p class="regra"><b class="chrome">Recompensa:</b> ${esc(c.recompensa)}${c.faccao ? ` · <b>Contratante:</b> ${esc(c.faccao)}` : ""}</p>
+            <div class="filtros"><button class="mini" data-con-st="${i}" data-st="aberto">Aberto</button><button class="mini" data-con-st="${i}" data-st="aceito">Aceito</button>
+              <button class="mini" data-con-st="${i}" data-st="concluido">Concluído</button><button class="mini rm" data-con-del="${i}">✕</button></div></div>`).join("")
+          : `<p class="regra">Nenhum contrato publicado. Os que você publicar aparecem para a tripulação na mesa.</p>`);
+
+      const painelNot = () => `<p class="regra">Só você lê isto. Fica guardado numa tabela separada, protegida por permissão de banco — nem uma consulta direta de jogador alcança.</p>
+        <textarea id="not-txt" rows="16" style="width:100%" placeholder="Segredos, ganchos, o que o vilão faz se ninguém interferir…">${esc(notaTxt)}</textarea>
+        <button id="not-salvar" class="mini eq" style="margin-top:8px">💾 Salvar anotações</button> <span id="not-st" class="regra"></span>`;
+
+      const conteudo = () => ({ ref: painelRef, tab: painelTab, enc: painelEnc, fac: painelFac, con: painelCon, not: painelNot }[abaAtiva])();
+
+      const pintar = () => {
+        ov.innerHTML = `<div class="ss-painel" style="width:700px;max-width:96vw;margin:auto;border:1px solid var(--line);border-radius:10px;max-height:94vh">
+          <div class="mp-topo"><b>🎛 Tela do Mestre</b><button id="me-fechar" class="mp-x" style="margin-left:auto">✕</button></div>
+          <div class="filtros" style="padding:8px 14px;border-bottom:1px solid var(--line);flex-wrap:wrap">
+            ${abas.map(([k, l]) => `<button class="mini ${abaAtiva === k ? "on" : ""}" data-aba="${k}">${l}</button>`).join("")}</div>
+          <div class="di-corpo">${conteudo()}</div></div>`;
+        ov.querySelector("#me-fechar").onclick = fechar;
+        ov.querySelectorAll("[data-aba]").forEach((b) => b.onclick = () => { abaAtiva = b.dataset.aba; pintar(); });
+        // tabelas
+        ov.querySelectorAll("[data-rolar]").forEach((b) => b.onclick = () => {
+          const k = b.dataset.rolar; const alvo = ov.querySelector(`[data-res="${k}"]`);
+          alvo.textContent = rolarTabela(k); alvo.classList.add("tab-res-on");
+        });
+        // encontros
+        ov.querySelector("#enc-calc") && (ov.querySelector("#enc-calc").onclick = () => {
+          const nv = +ov.querySelector("#enc-nv").value || 1, j = +ov.querySelector("#enc-j").value || 1, d = ov.querySelector("#enc-d").value;
+          const orc = orcamentoEncontro(nv, j, d); const sug = sugerirEncontro(orc);
+          ov.querySelector("#enc-out").innerHTML = `<p class="regra" style="margin-top:10px">Orçamento: <b class="chrome">${orc} pontos de ameaça</b> para ${j} jogador(es) de nível ${nv}.</p>
+            <table class="stats-tab"><thead><tr><th>Combinação</th><th>Peso</th></tr></thead><tbody>
+            ${sug.map((x) => `<tr><td><b>${x.q}×</b> ${esc(x.tipo)}</td><td>${x.q * PESO_AMEACA[x.tipo]} pts${x.sobra ? ` <span class="dim">(sobram ${x.sobra})</span>` : ""}</td></tr>`).join("")}
+            </tbody></table><p class="regra">Misture: 1 Elite + 4 Lacaios costuma render mais que 1 Chefe sozinho. Sobras viram terreno, armadilhas ou reforços.</p>`;
+        });
+        // facções
+        ov.querySelectorAll("[data-fac]").forEach((b) => b.onclick = async () => {
+          const n = b.dataset.fac; const v = Math.max(-3, Math.min(3, (camp.faccoes[n] ?? 0) + (+b.dataset.d)));
+          camp.faccoes[n] = v; await salvarCamp({ faccoes: camp.faccoes });
+          const nv = NIVEIS_REPUTACAO.find((x) => x.v === v);
+          await enviar("sistema", `🏛 Reputação com ${n}: ${nv.n}.`); pintar();
+        });
+        ov.querySelectorAll("[data-facr]").forEach((r) => r.onchange = async () => {
+          camp.faccoes[r.dataset.facr] = +r.value; await salvarCamp({ faccoes: camp.faccoes }); pintar();
+        });
+        // contratos
+        ov.querySelector("#con-novo") && (ov.querySelector("#con-novo").onclick = async () => {
+          const r = await modalForm({ titulo: "📋 Publicar contrato", campos: [
+            { k: "titulo", label: "Título", tipo: "texto" },
+            { k: "desc", label: "Descrição / objetivo", tipo: "area", rows: 3 },
+            { k: "recompensa", label: "Recompensa", tipo: "texto", valor: "1000 CG" },
+            { k: "faccao", label: "Contratante", tipo: "select", opcoes: ["—", ...FACCOES.map((f) => f.n)] },
+          ], okLabel: "Publicar" });
+          if (!r || !r.titulo) return;
+          camp.contratos.push({ id: "k" + Math.random().toString(36).slice(2, 8), titulo: r.titulo, desc: r.desc || "", recompensa: r.recompensa || "", faccao: r.faccao === "—" ? "" : r.faccao, status: "aberto" });
+          await salvarCamp({ contratos: camp.contratos });
+          await enviar("sistema", `📋 Novo contrato disponível: ${r.titulo} — ${r.recompensa || "recompensa a negociar"}.`);
+          pintar();
+        });
+        ov.querySelectorAll("[data-con-st]").forEach((b) => b.onclick = async () => {
+          const c = camp.contratos[+b.dataset.conSt]; if (!c) return; c.status = b.dataset.st;
+          await salvarCamp({ contratos: camp.contratos });
+          await enviar("sistema", `📋 Contrato "${c.titulo}": ${c.status}.`); pintar();
+        });
+        ov.querySelectorAll("[data-con-del]").forEach((b) => b.onclick = async () => {
+          camp.contratos.splice(+b.dataset.conDel, 1); await salvarCamp({ contratos: camp.contratos }); pintar();
+        });
+        // anotações
+        ov.querySelector("#not-salvar") && (ov.querySelector("#not-salvar").onclick = async () => {
+          notaTxt = ov.querySelector("#not-txt").value;
+          const { error } = await sb.from("mestre_notas").upsert({ campanha_id: id, texto: notaTxt, atualizado_em: new Date().toISOString() });
+          ov.querySelector("#not-st").textContent = error ? "erro: " + error.message : "salvo ✓";
+        });
+      };
+      const fechar = () => { document.body.style.overflow = ""; ov.remove(); };
+      document.body.appendChild(ov); document.body.style.overflow = "hidden";
+      pintar();
+      ov.addEventListener("keydown", (e) => { if (e.key === "Escape") fechar(); });
     });
     $("#abrir-stats")?.addEventListener("click", async () => {
       const { data: todas } = await sb.from("mensagens").select("autor_id,personagem_id,tipo,payload,perfis:autor_id(apelido)").eq("campanha_id", id).eq("tipo", "rolagem").limit(4000);
@@ -1205,6 +1380,24 @@ async function telaMesa(id) {
         ov.querySelector("#cr-n").value = ""; ov.querySelector("#cr-atk-n").value = ""; ov.querySelector("#cr-hab-n").value = ""; ov.querySelector("#cr-hab-d").value = "";
         relista();
       };
+    });
+    $("#cb-timer")?.addEventListener("click", async () => {
+      if (timerInt) { clearInterval(timerInt); timerInt = null; const o = $("#cb-timer-out"); if (o) o.textContent = ""; return; }
+      const r = await modalForm({ titulo: "⏱ Cronômetro de turno", campos: [
+        { k: "i", label: "Conta o tempo de cada jogador. É local: só você vê, e serve para manter o combate andando.", tipo: "info" },
+        { k: "seg", label: "Segundos por turno", tipo: "numero", valor: 60 },
+      ], okLabel: "Iniciar" });
+      if (!r) return;
+      const total = Math.max(10, +r.seg || 60);
+      let resta = total;
+      const pinta = () => { const o = $("#cb-timer-out"); if (!o) { clearInterval(timerInt); timerInt = null; return; }
+        const m = String(Math.floor(resta / 60)).padStart(1, "0"), sg = String(resta % 60).padStart(2, "0");
+        o.textContent = `⏱ ${m}:${sg}`;
+        o.className = "cb-timer" + (resta <= 10 ? " urgente" : "");
+        if (resta <= 0) { clearInterval(timerInt); timerInt = null; o.textContent = "⏱ tempo!"; try { somDado(); } catch (_) {} }
+        resta--;
+      };
+      pinta(); timerInt = setInterval(pinta, 1000);
     });
     $("#cb-fim")?.addEventListener("click", async () => { if (confirm("Encerrar o combate e limpar a ordem?")) { camp.combate = combateVazio(); await salvarCombate(); render(); } });
     app.querySelectorAll(".cb-cond-add").forEach((b) => b.onclick = async () => {

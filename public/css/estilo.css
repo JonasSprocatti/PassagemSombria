@@ -452,3 +452,13 @@ body.a11y-grande .regra,body.a11y-grande small,body.a11y-grande .dim{font-size:1
 .a11y-painel input[type=checkbox]{width:18px;height:18px;flex-shrink:0}
 @media(max-width:720px){.a11y-btn{bottom:10px;right:10px;width:42px;height:42px}.a11y-painel{right:8px;left:8px;width:auto}}
 .mdl-info{font-size:13px;color:var(--dim);line-height:1.55;margin:0 0 4px}
+
+/* handout (imagem compartilhada pelo Mestre) */
+.handout{border:1px solid var(--chrome);border-radius:8px;overflow:hidden;margin-bottom:10px;background:var(--panel2)}
+.handout-cab{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 10px;background:rgba(240,168,96,.14);font-size:13px}
+.handout img{width:100%;max-height:44vh;object-fit:contain;display:block;background:#05060c}
+/* tabelas aleatórias */
+.tab-res{min-height:20px;font-size:13px;color:var(--dim);margin:6px 0 0}
+.tab-res-on{color:var(--ink);border-left:2px solid var(--tech);padding-left:10px}
+.cb-timer{font-family:'IBM Plex Mono',monospace;font-size:20px;text-align:center;color:var(--tech);margin-top:6px;font-weight:700}
+.cb-timer.urgente{color:var(--perigo);animation:piscar 1s ease-in-out infinite}
