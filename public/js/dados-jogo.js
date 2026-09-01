@@ -1132,8 +1132,13 @@ export function propsArma(cat) {
 }
 
 // ---------------- MUNIÇÃO (Cap. 12: munição abstrata) ----------------
-// 1 pente = 3 turnos atirando livremente. Rajada consome 2 turnos por uso.
-export const TURNOS_POR_PENTE = 3;
+// Um Pente dá 3 turnos de disparo. Esvaziou, é preciso gastar a Ação de
+// Movimento para trocar por outro pente da reserva. Sem reserva, sem tiro:
+// só o Mestre concedendo (saque) ou um descanso repõe os pentes.
+export const TIROS_POR_PENTE = 3;     // tiros que cabem num pente
+export const PENTES_MAX = 4;          // total carregado: 1 no cano + 3 na reserva
+export const PENTES_RESERVA_INICIAL = PENTES_MAX - 1;
+export const TURNOS_POR_PENTE = 3;    // compat.
 export function custoTiro(cat) {
   if (!cat || cat.tipo !== "fogo") return 0;            // brancas e nano não gastam
   return /rajada|supress|artilharia/i.test(cat.kw || "") ? 2 : 1;

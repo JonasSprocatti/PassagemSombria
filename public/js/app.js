@@ -4,7 +4,7 @@
 // ============================================================
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./config.js";
-import { RACAS, CLASSES, FILOSOFIAS, IMPLANTES, SCRIPTS, ARMAS, ARMADURAS, PERICIAS, NAVES, ESTACOES, REGRAS_NAVE, RIQUEZA, TEMAS, CONVERTE_2D8, RENOME_PERICIAS, KEYWORDS, propsArma, AVARIAS, UPGRADES_NAVE, TURNOS_POR_PENTE, custoTiro, PENTES_INICIAIS } from "./dados-jogo.js";
+import { RACAS, CLASSES, FILOSOFIAS, IMPLANTES, SCRIPTS, ARMAS, ARMADURAS, PERICIAS, NAVES, ESTACOES, REGRAS_NAVE, RIQUEZA, TEMAS, CONVERTE_2D8, RENOME_PERICIAS, KEYWORDS, propsArma, AVARIAS, UPGRADES_NAVE, TURNOS_POR_PENTE, PENTES_MAX, custoTiro, PENTES_INICIAIS } from "./dados-jogo.js";
 import { BESTIARIO, NIVEIS_AMEACA } from "./dados-bestiario.js";
 import { NPCS, PAPEIS } from "./dados-npcs.js";
 import { FACCOES, NIVEIS_REPUTACAO, TABELAS, REFERENCIA  } from "./dados-mestre.js";
@@ -258,7 +258,7 @@ function aplicarDescanso(f, tipo) {
     pvRec = Math.max(0, (f.pvMax || 0) - (f.pvAtual || 0));
     f.pvAtual = f.pvMax || 0;
     ramRec = f.ramGasta || 0; f.ramGasta = 0;
-    f.municaoUsada = 0;   // reorganizar equipamento: pentes recarregados
+    f.pentes = PENTES_MAX - 1; f.tirosPente = TURNOS_POR_PENTE;   // reorganizar equipamento: pentes repostos
     cat.forEach((a) => { if (f.usos[a.id]) { delete f.usos[a.id]; habsReset++; } });
     notas.push(pvRec ? `+${pvRec} PV (cheio)` : "PV já cheio", ramRec ? `RAM recarregada (+${ramRec})` : "RAM já cheia", `${cat.length} habilidade(s) reiniciada(s)`);
   } else {
@@ -977,16 +977,20 @@ async function telaMesa(id) {
             <select id="sel-pers">${meuPers ? "" : `<option value="">— vincular personagem —</option>`}
               ${(meus || []).map((m) => `<option value="${m.id}" ${meuPers?.id === m.id ? "selected" : ""}>${esc(m.nome) || "sem nome"}</option>`).join("")}</select>
             ${f ? `<p class="regra">PV ${f.pvAtual}/${f.pvMax} · CD ${k.cd} · RAM ${k.ramLivre}/${k.ramMax} · conj +${k.conj}</p>
-            ${(() => { const pentes = f.pentes ?? PENTES_INICIAIS, cap = pentes * TURNOS_POR_PENTE, us = f.municaoUsada || 0, resta = Math.max(0, cap - us);
-              const nivel = resta === 0 ? "vazio" : resta <= 3 ? "critico" : resta <= 6 ? "baixo" : "";
-              const pips = Array.from({ length: cap }, (_, i2) => `<i class="pip ${i2 < resta ? "cheio" : ""} ${(i2 + 1) % TURNOS_POR_PENTE === 0 ? "fim-pente" : ""}"></i>`).join("");
+            ${(() => { const noCano = f.tirosPente ?? TURNOS_POR_PENTE, reserva = f.pentes ?? (PENTES_MAX - 1);
+              const seco = noCano === 0 && reserva === 0;
+              const nivel = seco ? "vazio" : noCano === 0 ? "critico" : (noCano === 1 && reserva === 0) ? "critico" : reserva === 0 ? "baixo" : "";
+              const cano = Array.from({ length: TURNOS_POR_PENTE }, (_, i2) => `<i class="pip ${i2 < noCano ? "cheio" : ""}"></i>`).join("");
+              const res = Array.from({ length: PENTES_MAX - 1 }, (_, i2) => `<i class="pente ${i2 < reserva ? "cheio" : ""}" title="pente de reserva"></i>`).join("");
+              const msg = seco ? "⛔ SEM MUNIÇÃO — só um saque ou um descanso repõe os pentes."
+                : noCano === 0 ? `⚠ Pente vazio! Troque agora (Ação de Movimento) — ${reserva} na reserva.`
+                : reserva === 0 ? `⚠ Último pente: ${noCano} tiro${noCano > 1 ? "s" : ""} e acabou a munição.`
+                : `${noCano} tiro${noCano > 1 ? "s" : ""} no pente · ${reserva} na reserva`;
               return `<div class="municao-box ${nivel}">
-                <div class="municao-cab"><span>🔫 Munição</span><b>${resta}<span class="dim">/${cap}</span></b>
-                  <button id="recarregar" class="mini" title="Recarrega todos os pentes (Ação de Movimento)">↻ Recarregar</button></div>
-                <div class="pips">${pips}</div>
-                <p class="municao-msg">${resta === 0 ? "⛔ SEM MUNIÇÃO — recarregue antes de atirar (Ação de Movimento)."
-                  : resta <= 3 ? `⚠ Últimos ${resta} tiro${resta > 1 ? "s" : ""}! Considere recarregar.`
-                  : `${pentes} pente${pentes > 1 ? "s" : ""} · ${TURNOS_POR_PENTE} turnos cada`}</p>
+                <div class="municao-cab"><span>🔫 Munição</span><b>${noCano}<span class="dim">/${TURNOS_POR_PENTE}</span></b>
+                  <button id="recarregar" class="mini" ${reserva <= 0 ? "disabled" : ""} title="${reserva > 0 ? "Troca o pente (Ação de Movimento)" : "Sem pentes na reserva"}">↻ Trocar pente</button></div>
+                <div class="pips" title="Tiros no pente carregado">${cano}<span class="pips-sep"></span>${res}</div>
+                <p class="municao-msg">${msg}</p>
               </div>`; })()}
             <div class="acoes-mesa">
               <select id="sel-per">${PERICIAS.map(([pn]) => `<option>${pn}</option>`).join("")}</select>
@@ -1165,6 +1169,9 @@ async function telaMesa(id) {
           const dados = { ...novaFichaDados(), ...meuPers.dados }; const p = m.payload || {}; const notas = [];
           if (p.xp) { dados.xp = (dados.xp || 0) + p.xp; notas.push(`+${p.xp} XP (${dados.xp}/${dados.xpMeta})`); }
           if (p.creditos) { dados.creditos = (dados.creditos || 0) + p.creditos; notas.push(`+${p.creditos} CG (${dados.creditos})`); }
+          if (p.pentes) { const antes = dados.pentes ?? (PENTES_MAX - 1);
+            dados.pentes = Math.min(PENTES_MAX - 1, antes + p.pentes);
+            notas.push(`+${dados.pentes - antes} pente(s) (${dados.pentes} na reserva)`); }
           dados.log = [{ q: new Date().toISOString(), t: `🎁 Recompensa do Mestre: ${notas.join(" · ")}` }, ...(dados.log || [])].slice(0, 60);
           const { error } = await sb.from("personagens").update({ dados }).eq("id", meuPers.id);
           if (!error) { meuPers.dados = dados; await enviar("sistema", `🎖 ${meuPers.nome}: ${notas.join(" · ")}${dados.metodoNivel === "xp" && dados.xp >= dados.xpMeta ? " — PRONTO PARA SUBIR!" : ""}`); }
@@ -1206,6 +1213,12 @@ async function telaMesa(id) {
     $("#mestre-curto")?.addEventListener("click", () => { if (confirm("Convocar Descanso Curto para toda a mesa? Cada jogador conectado recupera as habilidades de descanso curto no próprio personagem.")) enviar("descanso", "O Mestre convocou um Descanso Curto (1h). Habilidades de descanso curto reiniciadas; cura via Kits Médicos.", { tipo: "curto" }); });
     $("#mestre-longo")?.addEventListener("click", () => { if (confirm("Convocar Descanso Longo para toda a mesa? Cada jogador conectado tem PV restaurados, RAM recarregada e todas as habilidades reiniciadas.")) enviar("descanso", "O Mestre convocou um Descanso Longo (8h). PV restaurados, RAM recarregada e todas as habilidades reiniciadas.", { tipo: "longo" }); });
     $("#mestre-xp")?.addEventListener("click", async () => { const r = await modalForm({ titulo: "🎖 Conceder XP", descricao: "Todos os jogadores conectados com personagem vinculado recebem.", campos: [{ k: "xp", label: "Quantidade de XP", tipo: "numero", valor: 500, min: 1 }], okLabel: "Conceder" }); if (!r || !r.xp || r.xp <= 0) return; enviar("recompensa", `O Mestre concedeu ${r.xp} XP à tripulação.`, { xp: r.xp }); });
+    $("#mestre-mun")?.addEventListener("click", async () => {
+      const r = await modalForm({ titulo: "🔫 Conceder pentes", descricao: "Munição encontrada no chão, saqueada de um corpo ou comprada. Vai para a reserva de cada tripulante conectado (máximo de " + (PENTES_MAX - 1) + " na reserva).",
+        campos: [{ k: "p", label: "Pentes", tipo: "numero", valor: 1, min: 1, max: PENTES_MAX - 1 }], okLabel: "Distribuir" });
+      if (!r || !r.p || r.p <= 0) return;
+      enviar("recompensa", `O Mestre distribuiu ${r.p} pente${r.p > 1 ? "s" : ""} de munição à tripulação.`, { pentes: r.p });
+    });
     $("#mestre-cg")?.addEventListener("click", async () => { const r = await modalForm({ titulo: "🎁 Conceder Créditos", descricao: "Saque distribuído a toda a tripulação conectada.", campos: [{ k: "cg", label: "Créditos (CG)", tipo: "numero", valor: 1000, min: 1 }], okLabel: "Distribuir" }); if (!r || !r.cg || r.cg <= 0) return; enviar("recompensa", `O Mestre distribuiu ${r.cg} CG de saque à tripulação.`, { creditos: r.cg }); });
     $("#handout-btn")?.addEventListener("click", async () => {
       const r = await modalForm({ titulo: "🖼 Mostrar imagem para a mesa", campos: [
@@ -1278,7 +1291,7 @@ async function telaMesa(id) {
           <div class="filtros"><button id="mestre-curto" class="mini">☾ Curto (1h)</button><button id="mestre-longo" class="mini eq">🌙 Longo (8h)</button></div></div>
         <div class="det grande"><b>🎁 Recompensas</b>
           <p class="regra">Distribui para todos os jogadores conectados, direto nas fichas.</p>
-          <div class="filtros"><button id="mestre-xp" class="mini">🎖 Conceder XP</button><button id="mestre-cg" class="mini">🎁 Conceder Créditos</button></div></div>
+          <div class="filtros"><button id="mestre-xp" class="mini">🎖 Conceder XP</button><button id="mestre-cg" class="mini">🎁 Conceder Créditos</button><button id="mestre-mun" class="mini">🔫 Conceder pentes</button></div></div>
         <div class="det grande"><b>🖼 Imagem para a mesa</b>
           <p class="regra">Mostra um mapa, documento ou retrato no topo do chat de todos.</p>
           <div class="filtros"><button id="handout-btn" class="mini">🖼 Mostrar imagem</button>${camp.handout?.visivel ? `<button id="handout-off" class="mini rm">Ocultar atual</button>` : ""}</div></div>
@@ -1710,11 +1723,18 @@ async function telaMesa(id) {
         let precisaRender = false;
         const custo = custoTiro(cat);
         if (custo > 0) {
-          const cap = (f.pentes ?? PENTES_INICIAIS) * TURNOS_POR_PENTE;
-          const usado = (meuPers.dados?.municaoUsada) || 0;   // lê o estado real, não a cópia do render
-          if (usado + custo > cap) { await enviar("sistema", `🔫 ${meuPers.nome} puxa o gatilho e ouve o clique: sem munição para ${a.nome}. Recarregar custa uma Ação de Movimento.`); return render(); }
-          f.municaoUsada = usado + custo;                       // mantém a cópia local coerente
-          meuPers.dados = { ...meuPers.dados, municaoUsada: f.municaoUsada };
+          const dd0 = meuPers.dados || {};
+          const noCano = dd0.tirosPente ?? TURNOS_POR_PENTE;
+          const reserva = dd0.pentes ?? (PENTES_MAX - 1);
+          if (noCano < custo) {
+            const falta = reserva > 0
+              ? `o pente de ${a.nome} está vazio. Gaste a Ação de Movimento para recarregar (${reserva} pente${reserva > 1 ? "s" : ""} na reserva).`
+              : `${a.nome} está sem munição e não há pentes na reserva. Só um saque ou um descanso resolve.`;
+            await enviar("sistema", `🔫 ${meuPers.nome} puxa o gatilho e ouve o clique: ${falta}`);
+            return render();
+          }
+          f.tirosPente = noCano - custo;
+          meuPers.dados = { ...dd0, tirosPente: f.tirosPente };
           await sb.from("personagens").update({ dados: meuPers.dados }).eq("id", meuPers.id);
           precisaRender = true;
         }
@@ -1744,10 +1764,13 @@ async function telaMesa(id) {
         if (precisaRender) render();      // atualiza o contador de munição na tela
       });
       $("#recarregar")?.addEventListener("click", async () => {
-        f.municaoUsada = 0;
-        meuPers.dados = { ...meuPers.dados, municaoUsada: 0 };
+        const dd1 = meuPers.dados || {};
+        const res = dd1.pentes ?? (PENTES_MAX - 1);
+        if (res <= 0) { await enviar("sistema", `🔫 ${meuPers.nome} procura um pente e não acha nenhum. Sem munição na reserva.`); return render(); }
+        f.pentes = res - 1; f.tirosPente = TURNOS_POR_PENTE;
+        meuPers.dados = { ...dd1, pentes: f.pentes, tirosPente: f.tirosPente };
         await sb.from("personagens").update({ dados: meuPers.dados }).eq("id", meuPers.id);
-        await enviar("sistema", `🔫 ${meuPers.nome} recarrega (Ação de Movimento).`); render();
+        await enviar("sistema", `🔫 ${meuPers.nome} troca o pente (Ação de Movimento) — restam ${f.pentes} na reserva.`); render();
       });
       $("#conjurar").onclick = async () => {
         const s = SCRIPTS.find((x) => x.n === $("#sel-scr").value);
