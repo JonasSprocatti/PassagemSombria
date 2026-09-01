@@ -1131,6 +1131,15 @@ export function propsArma(cat) {
   return { agil, oculta, brutal, area, areaTxt, alcance, alcanceTxt, efeito: KEYWORDS[kw] || kw || "" };
 }
 
+// ---------------- MUNIÇÃO (Cap. 12: munição abstrata) ----------------
+// 1 pente = 3 turnos atirando livremente. Rajada consome 2 turnos por uso.
+export const TURNOS_POR_PENTE = 3;
+export function custoTiro(cat) {
+  if (!cat || cat.tipo !== "fogo") return 0;            // brancas e nano não gastam
+  return /rajada|supress|artilharia/i.test(cat.kw || "") ? 2 : 1;
+}
+export const PENTES_INICIAIS = 4;
+
 // ---------------- COMBATE ESPACIAL ----------------
 // Tabela de Falhas Críticas do Casco (1d6) — Cap. 12 do livro.
 export const AVARIAS = [

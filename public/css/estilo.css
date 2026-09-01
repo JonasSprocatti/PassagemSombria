@@ -493,3 +493,25 @@ body.a11y-grande .regra,body.a11y-grande small,body.a11y-grande .dim{font-size:1
   .mesa-aba{padding:10px 2px;font-size:17px}
   .mesa-aba span{font-size:11px}
 }
+.municao.baixo{color:var(--chrome)}
+.municao.vazio{color:var(--perigo)}
+.municao b{font-family:'IBM Plex Mono',monospace}
+
+/* party frame — estado da tripulação */
+.pf-linha{display:flex;align-items:center;gap:8px;padding:4px 6px;border-radius:5px;background:var(--panel2);margin-bottom:4px;font-size:12px}
+.pf-linha.ferido{border-left:3px solid var(--perigo)}
+.pf-linha.morto{opacity:.45;filter:grayscale(1)}
+.pf-nome{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#tg-cega.on{border-color:var(--dim);color:var(--ink);background:rgba(129,137,163,.2)}
+.mdl-html{font-size:13px;line-height:1.6}
+.mdl-html ul{margin:4px 0 8px;padding-left:18px}
+.mdl-html li{margin:3px 0}
+
+/* linha do tempo da campanha */
+.lin-dia{font-family:'Chakra Petch',sans-serif;color:var(--chrome);font-size:13px;margin:14px 0 6px;border-bottom:1px solid var(--line);padding-bottom:3px}
+.lin-ev{display:flex;gap:8px;align-items:flex-start;font-size:13px;padding:3px 0;line-height:1.5}
+.lin-ic{flex-shrink:0}
+.lin-ev.marco{background:rgba(240,168,96,.12);border-left:3px solid var(--chrome);padding:6px 10px;border-radius:4px;margin:6px 0;font-family:'Chakra Petch',sans-serif}
+.lin-ev.baixa{color:var(--perigo)}
+.lin-ev.dim{color:var(--dim);font-size:12px}
+.cb-linha .cb-hp+.cb-hp{margin-left:2px}

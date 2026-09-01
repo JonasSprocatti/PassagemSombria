@@ -4,7 +4,7 @@
 // ============================================================
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./config.js";
-import { RACAS, CLASSES, FILOSOFIAS, IMPLANTES, SCRIPTS, ARMAS, ARMADURAS, PERICIAS, NAVES, ESTACOES, REGRAS_NAVE, RIQUEZA, TEMAS, CONVERTE_2D8, RENOME_PERICIAS, KEYWORDS, propsArma, AVARIAS, UPGRADES_NAVE } from "./dados-jogo.js";
+import { RACAS, CLASSES, FILOSOFIAS, IMPLANTES, SCRIPTS, ARMAS, ARMADURAS, PERICIAS, NAVES, ESTACOES, REGRAS_NAVE, RIQUEZA, TEMAS, CONVERTE_2D8, RENOME_PERICIAS, KEYWORDS, propsArma, AVARIAS, UPGRADES_NAVE, TURNOS_POR_PENTE, custoTiro, PENTES_INICIAIS } from "./dados-jogo.js";
 import { BESTIARIO, NIVEIS_AMEACA } from "./dados-bestiario.js";
 import { NPCS, PAPEIS } from "./dados-npcs.js";
 import { FACCOES, NIVEIS_REPUTACAO, TABELAS, REFERENCIA  } from "./dados-mestre.js";
@@ -258,6 +258,7 @@ function aplicarDescanso(f, tipo) {
     pvRec = Math.max(0, (f.pvMax || 0) - (f.pvAtual || 0));
     f.pvAtual = f.pvMax || 0;
     ramRec = f.ramGasta || 0; f.ramGasta = 0;
+    f.municaoUsada = 0;   // reorganizar equipamento: pentes recarregados
     cat.forEach((a) => { if (f.usos[a.id]) { delete f.usos[a.id]; habsReset++; } });
     notas.push(pvRec ? `+${pvRec} PV (cheio)` : "PV já cheio", ramRec ? `RAM recarregada (+${ramRec})` : "RAM já cheia", `${cat.length} habilidade(s) reiniciada(s)`);
   } else {
@@ -326,13 +327,18 @@ function sugerirEncontro(orc) {
 
 // ---------------- COMBATE: rastreador de iniciativa ----------------
 const CONDICOES = ["Sangrando", "Atordoado", "Cego", "Envenenado", "Caído", "Congelado", "Marcado", "Lento", "Amedrontado", "Enfraquecido", "Em chamas", "Silenciado"];
-const combateVazio = () => ({ ativo: false, rodada: 1, turno: 0, ordem: [] });
+const combateVazio = () => ({ ativo: false, rodada: 1, turno: 0, ordem: [], avarias: [], agiram: [] });
+// Um participante pode ser pessoa/criatura (hp) ou nave (casco). Estes helpers unificam os dois.
+const ehNave = (c) => c?.tipo === "nave";
+const foraDeCombate = (c) => ehNave(c) ? (c.casco || 0) <= 0 : (c.hp || 0) <= 0;
+const vidaAtual = (c) => ehNave(c) ? c.casco : c.hp;
+const vidaMax = (c) => ehNave(c) ? c.casco_max : c.hp_max;
 const ordenarCombate = (cb) => { cb.ordem.sort((a, b) => (b.ini - a.ini) || a.nome.localeCompare(b.nome)); return cb; };
 // Avança para o próximo combatente vivo; vira a rodada ao dar a volta.
 const proximoTurno = (cb) => {
   if (!cb.ordem.length) return cb;
   let i = cb.turno, voltas = 0;
-  do { i++; if (i >= cb.ordem.length) { i = 0; cb.rodada++; voltas++; } } while (cb.ordem[i] && cb.ordem[i].hp <= 0 && voltas < 2);
+  do { i++; if (i >= cb.ordem.length) { i = 0; cb.rodada++; voltas++; } } while (cb.ordem[i] && foraDeCombate(cb.ordem[i]) && voltas < 2);
   cb.turno = i; return cb;
 };
 
@@ -389,6 +395,12 @@ async function rotear() {
   if (canalMesa) { sb.removeChannel(canalMesa); canalMesa = null; }
   const [_, rota, arg] = location.hash.split("/");
   if (rota === "p") return telaFichaPublica(arg);           // ficha compartilhada (sem login)
+  if (rota === "entrar" && arg) {                          // convite por link
+    if (!usuario) { sessionStorage.setItem("ps-convite", arg); return telaLogin(); }
+    const { data, error } = await sb.rpc("entrar_campanha", { cod: arg.toUpperCase() });
+    if (error) { alert("Não consegui entrar: " + error.message); return (location.hash = "#/campanhas"); }
+    return (location.hash = `#/mesa/${data}`);
+  }
   if (!usuario && rota !== "biblioteca") return telaLogin();
   switch (rota) {
     case "hangar": return telaHangar();
@@ -449,6 +461,8 @@ function shell(titulo, corpo, ativo = "") {
 
 // ---------------- AUTH ----------------
 async function iniciar() {
+  const convite = sessionStorage.getItem("ps-convite");
+  if (convite && location.hash.indexOf("#/entrar/") !== 0) { sessionStorage.removeItem("ps-convite"); location.hash = `#/entrar/${convite}`; }
   aplicarA11y(); montarA11y();
   const { data: { session } } = await sb.auth.getSession();
   usuario = session?.user || null;
@@ -884,8 +898,11 @@ async function telaMesa(id) {
   let timerInt = null;           // cronômetro de turno (local)
   let vantagem = 0;              // 0 normal · 1 vantagem · -1 desvantagem
   let privada = false;           // rolagem/mensagem privada (só Mestre + autor veem)
+  let asCegas = false;           // rolagem às cegas: resultado só para o Mestre, fora do chat
+  const pilhaUndo = [];          // snapshots para desfazer a última ação do Mestre (máx 10)
   const salvarMapa = async (mapa) => { camp.mapa = mapa; const { error } = await sb.from("campanhas").update({ mapa }).eq("id", id); if (error) alert("Não consegui salvar o mapa: " + error.message); };
   if (!camp.combate || typeof camp.combate !== "object" || !("ordem" in camp.combate)) camp.combate = combateVazio();
+  const snapshot = (rotulo) => { pilhaUndo.push({ rotulo, combate: JSON.parse(JSON.stringify(camp.combate || {})), nave: JSON.parse(JSON.stringify(camp.nave || null)), combate_nave: JSON.parse(JSON.stringify(camp.combate_nave || {})) }); if (pilhaUndo.length > 10) pilhaUndo.shift(); };
   const salvarCombate = async () => { const { error } = await sb.from("campanhas").update({ combate: camp.combate }).eq("id", id); if (error) alert("Não consegui salvar o combate: " + error.message); };
   if (!Array.isArray(camp.bestiario)) camp.bestiario = [];
   if (!camp.combate_nave || typeof camp.combate_nave !== "object" || !("inimigas" in camp.combate_nave)) camp.combate_nave = combateNaveVazio();
@@ -895,6 +912,12 @@ async function telaMesa(id) {
   const salvarBestiario = async () => { const { error } = await sb.from("campanhas").update({ bestiario: camp.bestiario }).eq("id", id); if (error) alert("Não consegui salvar o bestiário: " + error.message); };
 
   const enviar = async (tipo, conteudo, payload = null) => {
+    if (asCegas && souMestre && tipo === "rolagem") {   // às cegas: fica só na tela do Mestre
+      const p = payload || {};
+      await modalForm({ titulo: "🙈 Rolagem às cegas", campos: [
+        { k: "i", label: `${p.titulo || "Rolagem"} — ${p.detalhe || ""}${p.total != null ? `  =  ${p.total}` : ""}${p.extra ? "\n" + p.extra : ""}`, tipo: "info" }], okLabel: "Fechar" });
+      return true;
+    }
     const { data, error } = await sb.from("mensagens").insert({ campanha_id: id, autor_id: usuario.id, personagem_id: meuPers?.id || null, tipo, conteudo, payload }).select("*,perfis:autor_id(apelido,avatar_url)").single();
     if (error) { alert("Não consegui transmitir: " + error.message); return false; }
     pintarMsg?.(data, true); // mostra na hora, sem depender do realtime voltar
@@ -933,16 +956,19 @@ async function telaMesa(id) {
             <header><span class="tag">⚔</span><h2>Combate</h2>${camp.combate.ativo ? `<span class="regra" style="margin-left:auto">Rodada ${camp.combate.rodada}</span>` : ""}</header>
             ${!camp.combate.ativo ? (souMestre ? `<button id="cb-iniciar" class="mini eq">⚔ Iniciar Combate</button><p class="regra">Adicione jogadores e inimigos do bestiário; a ordem é montada pela iniciativa.</p>` : "") : `
             <div class="cb-lista">${camp.combate.ordem.map((c, i) => `
-              <div class="cb-linha ${i === camp.combate.turno ? "cb-atual" : ""} ${c.hp <= 0 ? "cb-morto" : ""}">
+              <div class="cb-linha ${i === camp.combate.turno ? "cb-atual" : ""} ${foraDeCombate(c) ? "cb-morto" : ""}">
                 <span class="cb-ini" title="Iniciativa">${c.ini}</span>
-                <span class="cb-nome">${i === camp.combate.turno ? "▶ " : ""}${esc(c.nome)}${c.tipo === "inimigo" ? ` <i class="dim">${esc(c.ameaca || "")}</i>` : ""}${(c.cond && c.cond.length) ? `<span class="cb-conds">${c.cond.map((cd) => `<span class="cb-cond" title="${esc(cd.n)} · ${cd.turnos} turno(s)">${esc(cd.n)} ${cd.turnos}</span>`).join("")}</span>` : ""}</span>
-                <span class="cb-hp"><span class="cb-hp-barra" style="width:${Math.max(0, Math.min(100, c.hp_max ? c.hp / c.hp_max * 100 : 0))}%;background:${c.tipo === "inimigo" ? "var(--perigo)" : "var(--tech)"}"></span><b>${c.hp}/${c.hp_max}</b></span>
-                ${souMestre ? `<span class="cb-acoes">${c.tipo === "inimigo" && c.ataques ? c.ataques.map((atk, ai) => `<button class="cb-atk" data-cb="${c.id}" data-atk="${ai}" title="Rolar: ${esc(atk.n)}">⚔${c.ataques.length > 1 ? ai + 1 : ""}</button>`).join("") : ""}<button class="cb-dmg" data-cb="${c.id}" data-d="-5">−5</button><button class="cb-dmg" data-cb="${c.id}" data-d="5">+5</button><input class="cb-hpset" data-cb="${c.id}" type="number" value="${c.hp}" style="width:46px" title="definir HP"><button class="cb-hpset-lbl cb-cond-add" data-cb="${c.id}" title="Adicionar condição">🏷</button><button class="cb-rm" data-cb="${c.id}" title="remover">✕</button></span>` : ""}
+                <span class="cb-nome">${i === camp.combate.turno ? "▶ " : ""}${ehNave(c) ? "🚀 " : ""}${esc(c.nome)}${c.tipo === "inimigo" ? ` <i class="dim">${esc(c.ameaca || "")}</i>` : ""}${ehNave(c) ? ` <i class="dim">Def ${10 + (c.manobra || 0)}</i>` : ""}${(c.cond && c.cond.length) ? `<span class="cb-conds">${c.cond.map((cd) => `<span class="cb-cond" title="${esc(cd.n)} · ${cd.turnos} turno(s)">${esc(cd.n)} ${cd.turnos}</span>`).join("")}</span>` : ""}</span>
+                <span class="cb-hp" title="${ehNave(c) ? "Casco" : "Vida"}"><span class="cb-hp-barra" style="width:${Math.max(0, Math.min(100, vidaMax(c) ? vidaAtual(c) / vidaMax(c) * 100 : 0))}%;background:${(c.tipo === "inimigo" || c.lado === "inimiga") ? "var(--perigo)" : ehNave(c) ? "var(--chrome)" : "var(--tech)"}"></span><b>${vidaAtual(c)}/${vidaMax(c)}</b></span>${ehNave(c) ? `<span class="cb-hp" title="Escudos"><span class="cb-hp-barra" style="width:${Math.max(0, Math.min(100, c.escudos_max ? c.escudos / c.escudos_max * 100 : 0))}%;background:var(--tech)"></span><b>${c.escudos}/${c.escudos_max}</b></span>` : ""}
+                ${souMestre ? `<span class="cb-acoes">${c.tipo === "inimigo" && c.ataques ? c.ataques.map((atk, ai) => `<button class="cb-atk" data-cb="${c.id}" data-atk="${ai}" title="Rolar: ${esc(atk.n)}">⚔${c.ataques.length > 1 ? ai + 1 : ""}</button>`).join("") : ""}${(ehNave(c) && c.lado === "inimiga") ? `<button class="cb-atk" data-cb-nave="${c.id}" title="Esta nave dispara">⚔</button>` : ""}<button class="cb-dmg" data-cb="${c.id}" data-d="-5">−5</button><button class="cb-dmg" data-cb="${c.id}" data-d="5">+5</button><input class="cb-hpset" data-cb="${c.id}" type="number" value="${vidaAtual(c)}" style="width:46px" title="${ehNave(c) ? "definir Casco" : "definir HP"}"><button class="cb-hpset-lbl cb-cond-add" data-cb="${c.id}" title="Adicionar condição">🏷</button><button class="cb-rm" data-cb="${c.id}" title="remover">✕</button></span>` : ""}
               </div>`).join("")}</div>
+            ${(camp.combate.avarias || []).length ? `<div class="avarias">${camp.combate.avarias.map((av, ai) => `<div class="avaria"><b>⚠ ${esc(av.n)}</b> <span class="regra">${esc(av.e)}</span>${souMestre ? `<button class="mini rm" data-av-fix2="${ai}">✔</button>` : ""}</div>`).join("")}</div>` : ""}
+            ${camp.combate.ordem.some((x) => x.nave_party) ? `<p class="regra cbn-postos">Postos: ${POSTOS_ORDEM.map((pk) => { const q2 = (membros || []).find((m) => m.posto === pk); const ag = (camp.combate.agiram || []).includes(pk);
+              return `<span class="cbn-posto ${ag ? "ok" : ""} ${q2 ? "" : "vazio"}">${esc(ESTACOES[pk].n.split(" ")[0])}${ag ? " ✓" : ""}</span>`; }).join(" ")}</p>` : ""}
             ${souMestre ? `<div class="cb-add">
-              <select id="cb-quem"><optgroup label="Jogadores">${(pers || []).map((p) => `<option value="j:${p.id}">${esc(p.nome) || "sem nome"}</option>`).join("")}</optgroup>${camp.bestiario.length ? `<optgroup label="Minhas criaturas">${camp.bestiario.map((b, ci) => `<option value="c:${ci}">${esc(b.n)} · ${b.ameaca}</option>`).join("")}</optgroup>` : ""}<optgroup label="Inimigos (bestiário)">${BESTIARIO.map((b, bi) => b.ambiental ? "" : `<option value="e:${bi}">${esc(b.n)} · ${b.ameaca}</option>`).join("")}</optgroup></select>
+              <select id="cb-quem"><optgroup label="Jogadores">${(pers || []).map((p) => `<option value="j:${p.id}">${esc(p.nome) || "sem nome"}</option>`).join("")}</optgroup>${camp.bestiario.length ? `<optgroup label="Minhas criaturas">${camp.bestiario.map((b, ci) => `<option value="c:${ci}">${esc(b.n)} · ${b.ameaca}</option>`).join("")}</optgroup>` : ""}<optgroup label="Inimigos (bestiário)">${BESTIARIO.map((b, bi) => b.ambiental ? "" : `<option value="e:${bi}">${esc(b.n)} · ${b.ameaca}</option>`).join("")}</optgroup>${camp.nave ? `<optgroup label="Nossa nave"><option value="np:party">🚀 ${esc(camp.nave.nome_batismo || camp.nave.modelo)}</option></optgroup>` : ""}<optgroup label="Naves inimigas">${NAVES.map((n, ni) => `<option value="ni:${ni}">🚀 ${esc(n.n)}</option>`).join("")}</optgroup></select>
               <button id="cb-add-btn" class="mini">🎲 Add</button><button id="cb-criar" class="mini" title="Criar/editar criaturas do Mestre">🐉</button></div>
-            <div class="cb-ctrl"><button id="cb-prox" class="mini eq">▶ Próximo turno</button><button id="cb-timer" class="mini" title="Cronômetro do turno">⏱</button><button id="cb-fim" class="mini rm">⏹ Encerrar</button></div><div id="cb-timer-out" class="cb-timer"></div>` : ""}`}
+            <div class="cb-ctrl"><button id="cb-undo" class="mini" title="Desfazer a última ação">↶</button><button id="cb-prox" class="mini eq">▶ Próximo turno</button><button id="cb-timer" class="mini" title="Cronômetro do turno">⏱</button><button id="cb-fim" class="mini rm">⏹ Encerrar</button></div><div id="cb-timer-out" class="cb-timer"></div>` : ""}`}
           </section>` : ""}
           </div>
           <div class="mesa-painel" ${abaMesa === "ficha" ? "" : "hidden"}>
@@ -950,6 +976,8 @@ async function telaMesa(id) {
             <select id="sel-pers">${meuPers ? "" : `<option value="">— vincular personagem —</option>`}
               ${(meus || []).map((m) => `<option value="${m.id}" ${meuPers?.id === m.id ? "selected" : ""}>${esc(m.nome) || "sem nome"}</option>`).join("")}</select>
             ${f ? `<p class="regra">PV ${f.pvAtual}/${f.pvMax} · CD ${k.cd} · RAM ${k.ramLivre}/${k.ramMax} · conj +${k.conj}</p>
+            ${(() => { const cap = (f.pentes ?? PENTES_INICIAIS) * TURNOS_POR_PENTE, us = f.municaoUsada || 0, resta = Math.max(0, cap - us);
+              return `<p class="regra municao ${resta === 0 ? "vazio" : resta <= 3 ? "baixo" : ""}">🔫 Munição: <b>${resta}</b>/${cap} turnos de tiro <span class="dim">(${f.pentes ?? PENTES_INICIAIS} pentes)</span> <button id="recarregar" class="mini" title="Recarrega tudo (Ação de Movimento)">↻ Recarregar</button></p>`; })()}
             <div class="acoes-mesa">
               <select id="sel-per">${PERICIAS.map(([pn]) => `<option>${pn}</option>`).join("")}</select>
               <button id="rolar-per" class="mini">TESTE</button>
@@ -981,7 +1009,7 @@ async function telaMesa(id) {
               ${meuPosto && f ? `<div class="acoes-mesa">${ESTACOES[meuPosto].acoes.map((a, i) => `<button class="mini" data-est="${i}" title="${esc(a.d)}">${esc(a.n)}</button>`).join("")}</div>` : ""}
               ${(cbn.avarias || []).length ? `<div class="avarias">${cbn.avarias.map((av, ai) => `<div class="avaria"><b>⚠ ${esc(av.n)}</b> <span class="regra">${esc(av.e)}</span>${souMestre ? `<button class="mini rm" data-av-fix="${ai}" title="Consertar">✔</button>` : ""}</div>`).join("")}</div>` : ""}
               ${souMestre ? `<div class="acoes-mesa"><input id="nave-dano" type="number" placeholder="dano" style="width:70px"/><button id="nave-hit" class="mini dano">💥 NAVE SOFRE</button><button id="nave-upg" class="mini">🔧 Upgrades</button></div>` : ""}
-              ${cbn.ativo ? `
+              ${(cbn.ativo && !camp.combate.ordem.some((x) => ehNave(x))) ? `
                 <div class="cbn-box">
                   <div class="cbn-cab"><b>🚀 COMBATE ESPACIAL</b><span class="regra">Rodada ${cbn.rodada}</span></div>
                   ${(cbn.inimigas || []).map((x, xi) => `<div class="cb-linha ${x.casco <= 0 ? "cb-morto" : ""}">
@@ -993,7 +1021,7 @@ async function telaMesa(id) {
                   <p class="regra cbn-postos">Postos: ${POSTOS_ORDEM.map((pk) => { const quem = (membros || []).find((m) => m.posto === pk); const agiu = (cbn.agiram || []).includes(pk);
                     return `<span class="cbn-posto ${agiu ? "ok" : ""} ${quem ? "" : "vazio"}" title="${quem ? esc(quem.perfis?.apelido || "") : "vago"}">${esc(ESTACOES[pk].n.split(" ")[0])}${agiu ? " ✓" : ""}</span>`; }).join(" ")}</p>
                   ${souMestre ? `<div class="filtros"><button id="cbn-add" class="mini">➕ Nave inimiga</button><button id="cbn-prox" class="mini eq">▶ Próxima rodada</button><button id="cbn-fim" class="mini rm">⏹ Encerrar</button></div>` : ""}
-                </div>` : (souMestre ? `<button id="cbn-iniciar" class="mini eq" style="margin-top:8px">🚀 Iniciar combate espacial</button>` : "")}
+                </div>` : (souMestre ? `<p class="regra" style="margin-top:8px">⚔ Para uma batalha espacial, abra a aba <b>Combate</b> e adicione a nossa nave e as inimigas ao rastreador — a iniciativa é a mesma do combate pessoal.</p>` : "")}
             ` : souMestre ? `
               <select id="sel-nave">${NAVES.map((n) => `<option>${esc(n.n)}</option>`).join("")}</select>
               <input id="nave-nome" placeholder="Nome de batismo"/>
@@ -1006,8 +1034,24 @@ async function telaMesa(id) {
             ${Object.entries(camp.faccoes || {}).filter(([, v]) => v !== 0).map(([n, v]) => { const nv = NIVEIS_REPUTACAO.find((x) => x.v === v) || NIVEIS_REPUTACAO[3];
               return `<p class="regra">${esc(n)}: <b style="color:${nv.cor}">${esc(nv.n)}</b></p>`; }).join("")}
           </section>` : ""}
+          <section class="sec"><header><span class="tag">🩺</span><h2>Estado da tripulação</h2></header>
+            ${(pers || []).length ? (pers || []).map((x) => { const fx = { ...novaFichaDados(), ...(x.dados || {}) }; const kx = calc(fx);
+              const pv = fx.pvMax ? Math.max(0, Math.min(100, 100 * fx.pvAtual / fx.pvMax)) : 0;
+              const ram = kx.ramMax ? Math.max(0, Math.min(100, 100 * kx.ramLivre / kx.ramMax)) : 0;
+              const crit = fx.pvAtual <= 0 ? "morto" : (fx.pvMax && fx.pvAtual / fx.pvMax <= 0.3) ? "ferido" : "";
+              return `<div class="pf-linha ${crit}">
+                <span class="pf-nome">${esc(x.nome) || "sem nome"}${fx.pvAtual <= 0 ? " ☠" : ""}</span>
+                <span class="cb-hp" title="Pontos de Vida"><span class="cb-hp-barra" style="width:${pv}%;background:${crit === "ferido" ? "var(--perigo)" : "var(--tech)"}"></span><b>${fx.pvAtual}/${fx.pvMax}</b></span>
+                <span class="cb-hp" title="RAM"><span class="cb-hp-barra" style="width:${ram}%;background:var(--sombra)"></span><b>${kx.ramLivre}/${kx.ramMax}</b></span>
+              </div>`; }).join("") : `<p class="regra">Nenhum personagem vinculado ainda.</p>`}
+          </section>
           <section class="sec"><header><span class="tag">👥</span><h2>Tripulação</h2></header>
             ${(membros || []).map((m) => `<p class="regra">${esc(m.perfis?.apelido)}${m.posto ? ` · ${ESTACOES[m.posto]?.n}` : ""}${m.perfil_id === camp.mestre_id ? " · MESTRE" : ""}</p>`).join("")}
+          </section>
+          <section class="sec"><header><span class="tag">📊</span><h2>Registros da mesa</h2></header>
+            <p class="regra">Consulte o que já rolou nesta campanha.</p>
+            <div class="filtros"><button id="abrir-stats" class="mini">📊 Estatísticas de rolagem</button><button id="ir-diario" class="mini">📔 Diário</button></div>
+            <div class="filtros" style="margin-top:6px"><button id="copiar-convite" class="mini">🔗 Copiar convite</button></div>
           </section>
           </div>
         </div>
@@ -1020,7 +1064,7 @@ async function telaMesa(id) {
           <div class="rol-toggles"><span class="regra" style="margin:0">Rolagem:</span>
             <button id="tg-vant" class="mini" title="Vantagem: rola 2d20, pega o maior">▲ Vantagem</button>
             <button id="tg-desv" class="mini" title="Desvantagem: rola 2d20, pega o menor">▼ Desvantagem</button>
-            <button id="tg-priv" class="mini" title="Privado: só o Mestre e você veem o resultado">🔒 Privado</button>
+            <button id="tg-priv" class="mini" title="Privado: só o Mestre e você veem o resultado">🔒 Privado</button>${souMestre ? `<button id="tg-cega" class="mini" title="Às cegas: o resultado aparece só para você, e não entra no chat da mesa">🙈 Às cegas</button>` : ""}
             <button id="tg-som" class="mini" title="Ligar/desligar som e notificações" style="margin-left:auto"></button></div>
           <div class="linha-add"><input id="msg" placeholder="Mensagem ou rolagem: /1d20 · /r2d6+1 · /1d20+2d10"/><button id="enviar-msg" class="btn-primario">▶</button></div>
         </section>
@@ -1139,10 +1183,11 @@ async function telaMesa(id) {
         return enviar("rolagem", null, { titulo: (privada ? "🔒 " : "") + `Rolagem ${rr[1]}`, detalhe: r.detalhe, total: r.total, ...(privada ? { privada: true } : {}), ...(resp ? { resp } : {}) }); } }
       enviar("texto", t, resp ? { resp } : null); };
     $("#resp-cancel")?.addEventListener("click", cancelarResp);
-    const syncTg = () => { $("#tg-vant")?.classList.toggle("on", vantagem > 0); $("#tg-desv")?.classList.toggle("on", vantagem < 0); $("#tg-priv")?.classList.toggle("on", privada); };
+    const syncTg = () => { $("#tg-vant")?.classList.toggle("on", vantagem > 0); $("#tg-desv")?.classList.toggle("on", vantagem < 0); $("#tg-priv")?.classList.toggle("on", privada); $("#tg-cega")?.classList.toggle("on", asCegas); };
     $("#tg-vant")?.addEventListener("click", () => { vantagem = vantagem > 0 ? 0 : 1; syncTg(); });
     $("#tg-desv")?.addEventListener("click", () => { vantagem = vantagem < 0 ? 0 : -1; syncTg(); });
     $("#tg-priv")?.addEventListener("click", () => { privada = !privada; syncTg(); });
+    $("#tg-cega")?.addEventListener("click", () => { asCegas = !asCegas; syncTg(); });
     const syncSom = () => { const b = $("#tg-som"); if (b) b.textContent = getSom() ? "🔔 Som" : "🔕 Mudo"; };
     $("#tg-som")?.addEventListener("click", () => { setSom(!getSom()); if (getSom()) { pedirNotificacao(); somMensagem(); } syncSom(); });
     syncSom();
@@ -1213,7 +1258,7 @@ async function telaMesa(id) {
       const { data: nota } = await sb.from("mestre_notas").select("texto").eq("campanha_id", id).maybeSingle();
       let notaTxt = nota?.texto || "";
       const ov = document.createElement("div"); ov.className = "ss-overlay ov-modal"; ov.style.zIndex = "10000";
-      const abas = [["mesa", "🎬 Mesa"], ["ref", "📖 Referência"], ["tab", "🎲 Tabelas"], ["enc", "⚖ Encontros"], ["fac", "🏛 Facções"], ["con", "📋 Contratos"], ["not", "📝 Anotações"]];
+      const abas = [["mesa", "🎬 Mesa"], ["ref", "📖 Referência"], ["tab", "🎲 Tabelas"], ["enc", "⚖ Encontros"], ["fac", "🏛 Facções"], ["con", "📋 Contratos"], ["lin", "🕰 Linha do tempo"], ["not", "📝 Anotações"]];
       let abaAtiva = "mesa";
       const salvarCamp = async (campos) => { const { error } = await sb.from("campanhas").update(campos).eq("id", id); if (error) alert("Não consegui salvar: " + error.message); };
 
@@ -1268,11 +1313,37 @@ async function telaMesa(id) {
               <button class="mini" data-con-st="${i}" data-st="concluido">Concluído</button><button class="mini rm" data-con-del="${i}">✕</button></div></div>`).join("")
           : `<p class="regra">Nenhum contrato publicado. Os que você publicar aparecem para a tripulação na mesa.</p>`);
 
+      let linCache = null;
+      const painelLin = () => {
+        if (!linCache) { setTimeout(async () => {
+          const { data: tudo } = await sb.from("mensagens").select("tipo,conteudo,payload,criado_em,perfis:autor_id(apelido)")
+            .eq("campanha_id", id).order("criado_em", { ascending: true }).limit(3000);
+          const eventos = [];
+          (tudo || []).forEach((m) => {
+            const q = new Date(m.criado_em);
+            if (m.tipo === "sistema" && /^📖/.test(m.conteudo || "")) eventos.push({ q, ic: "📖", cls: "marco", t: (m.conteudo || "").replace(/^📖\s*/, "") });
+            else if (m.tipo === "recompensa") { const p = m.payload || {}; eventos.push({ q, ic: "🎖", cls: "", t: `Recompensa: ${p.xp ? p.xp + " XP" : ""}${p.xp && p.creditos ? " e " : ""}${p.creditos ? p.creditos + " CG" : ""}` }); }
+            else if (m.tipo === "sistema" && /combate espacial iniciado/i.test(m.conteudo || "")) eventos.push({ q, ic: "🚀", cls: "", t: "Combate espacial" });
+            else if (m.tipo === "sistema" && /Reputação com/i.test(m.conteudo || "")) eventos.push({ q, ic: "🏛", cls: "", t: (m.conteudo || "").replace(/^🏛\s*/, "") });
+            else if (m.tipo === "sistema" && /Novo contrato|Contrato "/i.test(m.conteudo || "")) eventos.push({ q, ic: "📋", cls: "", t: (m.conteudo || "").replace(/^📋\s*/, "") });
+            else if (/NAVE ABATIDA|CASCO A ZERO/i.test(m.payload?.extra || "")) eventos.push({ q, ic: "💥", cls: "baixa", t: (m.payload?.titulo || "Nave destruída") });
+            else if (m.tipo === "descanso") eventos.push({ q, ic: m.payload?.tipo === "longo" ? "🌙" : "☾", cls: "dim", t: m.payload?.tipo === "longo" ? "Descanso longo" : "Descanso curto" });
+          });
+          let ultimoDia = "";
+          const html = eventos.length ? eventos.map((e) => { const dia = e.q.toLocaleDateString("pt-BR", { day: "2-digit", month: "short", year: "numeric" });
+            const cab = dia !== ultimoDia ? `<h4 class="lin-dia">${dia}</h4>` : ""; ultimoDia = dia;
+            return cab + `<div class="lin-ev ${e.cls}"><span class="lin-ic">${e.ic}</span><span>${esc(e.t)}</span></div>`; }).join("")
+            : `<p class="regra">Ainda não há eventos marcantes registrados.</p>`;
+          linCache = `<p class="regra">A história da campanha, montada a partir do que aconteceu na mesa.</p>` + html;
+          if (abaAtiva === "lin") pintar();
+        }, 0); return `<p class="regra">Montando a linha do tempo…</p>`; }
+        return linCache;
+      };
       const painelNot = () => `<p class="regra">Só você lê isto. Fica guardado numa tabela separada, protegida por permissão de banco — nem uma consulta direta de jogador alcança.</p>
         <textarea id="not-txt" rows="16" style="width:100%" placeholder="Segredos, ganchos, o que o vilão faz se ninguém interferir…">${esc(notaTxt)}</textarea>
         <button id="not-salvar" class="mini eq" style="margin-top:8px">💾 Salvar anotações</button> <span id="not-st" class="regra"></span>`;
 
-      const conteudo = () => ({ mesa: painelMesa, ref: painelRef, tab: painelTab, enc: painelEnc, fac: painelFac, con: painelCon, not: painelNot }[abaAtiva])();
+      const conteudo = () => ({ mesa: painelMesa, ref: painelRef, tab: painelTab, enc: painelEnc, fac: painelFac, con: painelCon, lin: painelLin, not: painelNot }[abaAtiva])();
 
       const pintar = () => {
         ov.innerHTML = `<div class="ss-painel" style="width:700px;max-width:96vw;margin:auto;border:1px solid var(--line);border-radius:10px;max-height:94vh">
@@ -1360,6 +1431,15 @@ async function telaMesa(id) {
       pintar();
       ov.addEventListener("keydown", (e) => { if (e.key === "Escape") fechar(); });
     });
+    $("#copiar-convite")?.addEventListener("click", async () => {
+      const link = `${location.origin}${location.pathname}#/entrar/${camp.codigo}`;
+      try { await navigator.clipboard.writeText(link); } catch (_) {}
+      await modalForm({ titulo: "🔗 Convite da mesa", campos: [
+        { k: "i", label: "Quem abrir este link entra direto na campanha (basta ter conta).", tipo: "info" },
+        { k: "l", label: "Link", tipo: "texto", valor: link }], okLabel: "Fechar" });
+    });
+    $("#ir-diario")?.addEventListener("click", () => $("#abrir-diario")?.click());
+    $("#abrir-stats")?.addEventListener("click", () => $("#abrir-stats-oculto")?.click());
     $("#abrir-stats-oculto")?.addEventListener("click", async () => {
       const { data: todas } = await sb.from("mensagens").select("autor_id,personagem_id,tipo,payload,perfis:autor_id(apelido)").eq("campanha_id", id).eq("tipo", "rolagem").limit(4000);
       const porAutor = {};
@@ -1389,6 +1469,32 @@ async function telaMesa(id) {
       ov.querySelector("#st-fechar").onclick = fechar;
       ov.addEventListener("keydown", (e) => { if (e.key === "Escape") fechar(); });
     });
+    // Recapitulação: o que aconteceu desde a última vez que esta pessoa abriu a mesa.
+    const recapitular = async () => {
+      const chaveVisita = "ps-visita-" + id;
+      const ultima = localStorage.getItem(chaveVisita);
+      localStorage.setItem(chaveVisita, new Date().toISOString());
+      if (!ultima) return;                        // primeira visita: nada a recapitular
+      const { data: novas } = await sb.from("mensagens").select("tipo,conteudo,payload,criado_em,personagem_id,perfis:autor_id(apelido)")
+        .eq("campanha_id", id).gt("criado_em", ultima).order("criado_em", { ascending: true }).limit(600);
+      if (!novas?.length) return;
+      const marcos = novas.filter((m) => m.tipo === "sistema" && /^📖/.test(m.conteudo || ""));
+      const recompensas = novas.filter((m) => m.tipo === "recompensa");
+      const mortes = novas.filter((m) => /☠|0 PV|abatid|destruíd/i.test(m.conteudo || "") || /💀/.test(m.payload?.extra || ""));
+      const combates = novas.filter((m) => m.tipo === "sistema" && /Rodada 1 ·|combate espacial iniciado|Iniciar Combate/i.test(m.conteudo || ""));
+      const falas = novas.filter((m) => m.tipo === "texto").length;
+      const rolagens = novas.filter((m) => m.tipo === "rolagem").length;
+      const linhas = [];
+      if (marcos.length) linhas.push(`<p><b class="chrome">Momentos marcados:</b></p><ul>${marcos.map((m) => `<li>${esc((m.conteudo || "").replace(/^📖\s*/, ""))}</li>`).join("")}</ul>`);
+      if (combates.length) linhas.push(`<p>⚔ ${combates.length} combate(s) começaram.</p>`);
+      if (mortes.length) linhas.push(`<p class="dim">💀 ${mortes.length} registro(s) de baixa ou destruição.</p>`);
+      if (recompensas.length) { const xp = recompensas.reduce((a2, m) => a2 + (m.payload?.xp || 0), 0), cg = recompensas.reduce((a2, m) => a2 + (m.payload?.creditos || 0), 0);
+        linhas.push(`<p>🎖 Recompensas: ${xp ? `${xp} XP` : ""}${xp && cg ? " · " : ""}${cg ? `${cg} CG` : ""}.</p>`); }
+      linhas.push(`<p class="regra">${falas} mensagem(ns) e ${rolagens} rolagem(ns) desde a sua última visita (${new Date(ultima).toLocaleString("pt-BR")}).</p>`);
+      await modalForm({ titulo: "📼 Onde paramos", campos: [{ k: "i", label: "", tipo: "html", html: linhas.join("") }], okLabel: "Continuar a aventura" });
+    };
+    setTimeout(() => recapitular().catch(() => {}), 700);
+
     $("#abrir-diario")?.addEventListener("click", async () => {
       const { data: todas } = await sb.from("mensagens").select("*,perfis:autor_id(apelido,avatar_url)").eq("campanha_id", id).order("criado_em", { ascending: true }).limit(2000);
       const ov = document.createElement("div"); ov.className = "ss-overlay ov-modal"; ov.style.zIndex = "10000";
@@ -1481,7 +1587,37 @@ async function telaMesa(id) {
       };
       pinta(); timerInt = setInterval(pinta, 1000);
     });
+    $("#cb-undo")?.addEventListener("click", async () => {
+      const snap = pilhaUndo.pop();
+      if (!snap) return alert("Nada para desfazer nesta sessão.");
+      camp.combate = snap.combate; camp.combate_nave = snap.combate_nave; if (snap.nave) camp.nave = snap.nave;
+      await sb.from("campanhas").update({ combate: camp.combate, combate_nave: camp.combate_nave, ...(snap.nave ? { nave: camp.nave } : {}) }).eq("id", id);
+      await enviar("sistema", `↶ O Mestre desfez: ${snap.rotulo}.`); render();
+    });
     $("#cb-fim")?.addEventListener("click", async () => { if (confirm("Encerrar o combate e limpar a ordem?")) { camp.combate = combateVazio(); await salvarCombate(); render(); } });
+    app.querySelectorAll("[data-cb-nave]").forEach((b) => b.onclick = async () => {
+      const atc = camp.combate.ordem.find((x) => x.id === b.dataset.cbNave); if (!atc) return;
+      const alvos = camp.combate.ordem.filter((x) => ehNave(x) && x.lado === "aliada" && !foraDeCombate(x));
+      if (!alvos.length) return alert("Nenhuma nave aliada em campo para servir de alvo.");
+      const alvo = alvos[0];
+      snapshot("disparo de nave inimiga");
+      const nat = d(20), total = nat + 4, def = 10 + (alvo.manobra || 0);
+      if (nat === 1 || total < def) return enviar("rolagem", null, { titulo: `🚀 ${atc.nome} dispara`, detalhe: `d20 [${nat}] +4 vs Defesa ${def}`, total, fumble: nat === 1, extra: "Errou." });
+      const pd = parseDice(atc.dano); const dd = rollNd(pd.n * (nat === 20 ? 2 : 1), pd.f);
+      const bruto = dd.reduce((x, y) => x + y, 0) + pd.mod;
+      const r = danoNave(alvo, bruto);
+      let extra = `Escudos −${r.escudos}, Casco −${r.casco}. ${alvo.nome}: ${alvo.casco}/${alvo.casco_max}`;
+      if ((nat === 20 || r.critico) && r.casco > 0) { const av = rolarAvaria(); (camp.combate.avarias = camp.combate.avarias || []).push(av); extra += `  ⚠ ${av.n}: ${av.e}`; }
+      if (alvo.casco <= 0) extra += "  💀 Casco a zero!";
+      if (alvo.nave_party && camp.nave) { camp.nave.casco = alvo.casco; camp.nave.escudos = alvo.escudos; await sb.from("campanhas").update({ nave: camp.nave }).eq("id", id); }
+      await salvarCombate();
+      await enviar("rolagem", null, { titulo: `🚀 ${atc.nome} dispara`, detalhe: `d20 [${nat}] +4 vs Def ${def} · dano ${atc.dano} [${dd.join(", ")}]${nat === 20 ? " ×2" : ""}`, total, crit: nat === 20, extra });
+      render();
+    });
+    app.querySelectorAll("[data-av-fix2]").forEach((b) => b.onclick = async () => {
+      const av = (camp.combate.avarias || []).splice(+b.dataset.avFix2, 1)[0];
+      await salvarCombate(); await enviar("sistema", `🔧 Avaria reparada: ${av?.n}.`); render();
+    });
     app.querySelectorAll(".cb-cond-add").forEach((b) => b.onclick = async () => {
       const c = cbFind(b.dataset.cb); if (!c) return;
       const r = await modalForm({ titulo: `🏷 Condição — ${c.nome}`, campos: [
@@ -1492,7 +1628,7 @@ async function telaMesa(id) {
       enviar("sistema", `🏷 ${c.nome} está ${r.nome} (${r.turnos} turno${r.turnos > 1 ? "s" : ""}).`);
       await salvarCombate(); render();
     });
-    $("#cb-prox")?.addEventListener("click", async () => { proximoTurno(camp.combate); const atual = camp.combate.ordem[camp.combate.turno];
+    $("#cb-prox")?.addEventListener("click", async () => { const rodAntes = camp.combate.rodada; proximoTurno(camp.combate); if (camp.combate.rodada !== rodAntes) camp.combate.agiram = []; const atual = camp.combate.ordem[camp.combate.turno];
       if (atual) { // condições do combatente que começa o turno decrementam; expiradas somem
         if (atual.cond && atual.cond.length) { const expiradas = [];
           atual.cond = atual.cond.filter((cd) => { cd.turnos -= 1; if (cd.turnos <= 0) { expiradas.push(cd.n); return false; } return true; });
@@ -1506,6 +1642,20 @@ async function telaMesa(id) {
       if (v.startsWith("j:")) { const p = (pers || []).find((x) => x.id === v.slice(2)); if (!p) return;
         const kk = calc({ ...novaFichaDados(), ...p.dados }); const nome = p.nome || "Tripulante";
         camp.combate.ordem.push({ id: cbId(), nome, ini: d(20) + kk.iniciativa, hp: p.dados.pvAtual ?? kk.attr.Con, hp_max: p.dados.pvMax || 1, cd: kk.cd, tipo: "jogador", personagem_id: p.id });
+      } else if (v === "np:party") {
+        if (!camp.nave) return;
+        if (camp.combate.ordem.some((x) => x.nave_party)) return alert("A nave da tripulação já está neste combate.");
+        camp.combate.ordem.push({ id: cbId(), tipo: "nave", nave_party: true, lado: "aliada",
+          nome: camp.nave.nome_batismo || camp.nave.modelo, ini: d(20) + (camp.nave.manobra || 0),
+          casco: camp.nave.casco, casco_max: camp.nave.casco_max, escudos: camp.nave.escudos,
+          escudos_max: camp.nave.escudos_max, manobra: camp.nave.manobra, dano: camp.nave.dano });
+      } else if (v.startsWith("ni:")) {
+        const base = NAVES[+v.slice(3)]; if (!base) return;
+        const iguais = camp.combate.ordem.filter((x) => x.modelo === base.n).length;
+        camp.combate.ordem.push({ id: cbId(), tipo: "nave", lado: "inimiga", modelo: base.n,
+          nome: iguais ? `${base.n} #${iguais + 1}` : base.n, ini: d(20) + (base.manobra || 0),
+          casco: base.casco, casco_max: base.casco, escudos: base.escudos, escudos_max: base.escudos,
+          manobra: base.manobra, dano: base.dano });
       } else { const b = v.startsWith("c:") ? camp.bestiario[+v.slice(2)] : BESTIARIO[+v.slice(2)]; if (!b) return;
         const iguais = camp.combate.ordem.filter((x) => x.nome.replace(/ #\d+$/, "") === b.n).length;
         camp.combate.ordem.push({ id: cbId(), nome: iguais ? `${b.n} #${iguais + 1}` : b.n, ini: d(20), hp: b.hp, hp_max: b.hp, cd: b.cd, tipo: "inimigo", ameaca: b.ameaca, ataques: b.ataques });
@@ -1523,9 +1673,17 @@ async function telaMesa(id) {
         total: acerto, crit: nat === 20, fumble: nat === 1,
         extra: `${atk.extra ? atk.extra : ""}`, ...(danoTotal != null ? { dano_total: danoTotal } : {}) });
     });
-    app.querySelectorAll(".cb-dmg").forEach((b) => b.onclick = async () => { const c = cbFind(b.dataset.cb); if (!c) return; c.hp = Math.max(0, Math.min(c.hp_max, c.hp + (+b.dataset.d))); await salvarCombate(); render(); });
-    app.querySelectorAll(".cb-hpset").forEach((i) => i.onchange = async () => { const c = cbFind(i.dataset.cb); if (!c) return; c.hp = Math.max(0, Math.min(c.hp_max, +i.value || 0)); await salvarCombate(); render(); });
-    app.querySelectorAll(".cb-rm").forEach((b) => b.onclick = async () => { const idx = camp.combate.ordem.findIndex((x) => x.id === b.dataset.cb); if (idx < 0) return;
+    app.querySelectorAll(".cb-dmg").forEach((b) => b.onclick = async () => { const c = cbFind(b.dataset.cb); if (!c) return; snapshot("dano/cura no rastreador"); const delta = +b.dataset.d;
+      if (ehNave(c)) {
+        if (delta < 0) { const r = danoNave(c, -delta); if (r.critico) { const av = rolarAvaria(); (camp.combate.avarias = camp.combate.avarias || []).push(av); await enviar("sistema", `⚠ ${c.nome}: ${av.n} — ${av.e}`); } }
+        else c.escudos = Math.min(c.escudos_max, c.escudos + delta);
+        if (c.nave_party && camp.nave) { camp.nave.casco = c.casco; camp.nave.escudos = c.escudos; await sb.from("campanhas").update({ nave: camp.nave }).eq("id", id); }
+      } else c.hp = Math.max(0, Math.min(c.hp_max, c.hp + delta));
+      await salvarCombate(); render(); });
+    app.querySelectorAll(".cb-hpset").forEach((i) => i.onchange = async () => { const c = cbFind(i.dataset.cb); if (!c) return; if (ehNave(c)) { c.casco = Math.max(0, Math.min(c.casco_max, +i.value || 0)); if (c.nave_party && camp.nave) { camp.nave.casco = c.casco; await sb.from("campanhas").update({ nave: camp.nave }).eq("id", id); } }
+      else c.hp = Math.max(0, Math.min(c.hp_max, +i.value || 0));
+      await salvarCombate(); render(); });
+    app.querySelectorAll(".cb-rm").forEach((b) => b.onclick = async () => { const idx = camp.combate.ordem.findIndex((x) => x.id === b.dataset.cb); if (idx < 0) return; snapshot("remover combatente");
       camp.combate.ordem.splice(idx, 1); if (camp.combate.turno >= camp.combate.ordem.length) camp.combate.turno = 0; await salvarCombate(); render(); });
     $("#sel-pers").onchange = async (e) => {
       const pid = e.target.value; if (!pid) return;
@@ -1535,9 +1693,17 @@ async function telaMesa(id) {
     if (f) {
       $("#rolar-per").onclick = () => { const pn = $("#sel-per").value; const at = PERICIAS.find(([x]) => x === pn)[1];
         rolarEEnviar(`Teste de ${pn}`, k.attr[at] + k.per[pn]); };
-      app.querySelectorAll("[data-atq]").forEach((b) => b.onclick = () => {
+      app.querySelectorAll("[data-atq]").forEach((b) => b.onclick = async () => {
         const a = armasEq[+b.dataset.atq]; const cat = ARMAS.find((x) => x.n === a.nome);
         const pr = propsArma(cat);
+        const custo = custoTiro(cat);
+        if (custo > 0) {
+          const cap = (f.pentes ?? PENTES_INICIAIS) * TURNOS_POR_PENTE;
+          const usado = f.municaoUsada || 0;
+          if (usado + custo > cap) return enviar("sistema", `🔫 ${meuPers.nome} puxa o gatilho e ouve o clique: sem munição para ${a.nome}. Recarregar exige uma Ação de Movimento e um pente novo.`);
+          meuPers.dados = { ...f, municaoUsada: usado + custo };
+          await sb.from("personagens").update({ dados: meuPers.dados }).eq("id", meuPers.id);
+        }
         const furtivo = $("#atq-furtivo")?.checked;
         const assassino = f.classe === "Assassino";
         // Ágil: usa o melhor de For/Des no acerto e no dano
@@ -1561,6 +1727,11 @@ async function telaMesa(id) {
           detalhe: `d20 [${nat}]${detVant} ${sign(mod)} · dano ${danoBase}${sets > 1 ? `×${sets}` : ""} [${dados.join(", ")}] ${sign(danoMod)}${marcadores ? " · " + marcadores : ""}`,
           total: nat + mod, crit: nat === 20, fumble: nat === 1, ...(privada ? { privada: true } : {}), dano_total: dados.reduce((x, y) => x + y, 0) + danoMod,
           extra: `Dano: ${dados.reduce((x, y) => x + y, 0) + danoMod}${infoArma ? "  —  " + infoArma : ""}` }); });
+      $("#recarregar")?.addEventListener("click", async () => {
+        meuPers.dados = { ...f, municaoUsada: 0 };
+        await sb.from("personagens").update({ dados: meuPers.dados }).eq("id", meuPers.id);
+        await enviar("sistema", `🔫 ${meuPers.nome} recarrega (Ação de Movimento).`); render();
+      });
       $("#conjurar").onclick = async () => {
         const s = SCRIPTS.find((x) => x.n === $("#sel-scr").value);
         if (s.c > k.ramLivre) return enviar("sistema", `${p.nome || perfil.apelido} tentou conjurar ${s.n} sem RAM suficiente (Overclock manual: 1d6/ponto).`);
@@ -1692,8 +1863,8 @@ async function telaMesa(id) {
         extra = `+${val} de ${acao.cura}! (${n[acao.cura]}/${n[acao.cura + "_max"]})`;
       }
       // Artilharia: se há combate espacial ativo, resolve contra uma nave inimiga
-      if (acao.danoNave && camp.combate_nave?.ativo && (camp.combate_nave.inimigas || []).some((x) => x.casco > 0)) {
-        const vivas = camp.combate_nave.inimigas.filter((x) => x.casco > 0);
+      if (acao.danoNave && camp.combate?.ativo && camp.combate.ordem.some((x) => ehNave(x) && x.lado === "inimiga" && !foraDeCombate(x))) {
+        const vivas = camp.combate.ordem.filter((x) => ehNave(x) && x.lado === "inimiga" && !foraDeCombate(x));
         const esc1 = vivas.length === 1 ? vivas[0] : (await modalForm({ titulo: `⚔ ${acao.n} — escolher alvo`, campos: [
           { k: "alvo", label: "Nave inimiga", tipo: "select", opcoes: vivas.map((x) => ({ v: x.id, l: `${x.nome} — casco ${x.casco}/${x.casco_max}, Def ${10 + (x.manobra || 0)}` })) }], okLabel: "Disparar" }))?.alvo;
         const alvo = typeof esc1 === "string" ? vivas.find((x) => x.id === esc1) : esc1;
@@ -1707,12 +1878,12 @@ async function telaMesa(id) {
             extra = `Acertou (Def ${def})! Dano ${camp.nave?.dano}${nat === 20 ? " ×2" : ""} [${dd.join(", ")}] → escudos −${r2.escudos}, casco −${r2.casco}. ${alvo.nome}: ${alvo.casco}/${alvo.casco_max}`;
             if (alvo.casco <= 0) extra += "  💥 NAVE ABATIDA!";
           } else extra = `Errou — Defesa ${def} da ${alvo.nome}.`;
-          camp.combate_nave.agiram = [...new Set([...(camp.combate_nave.agiram || []), meuPosto])];
-          await sb.from("campanhas").update({ combate_nave: camp.combate_nave }).eq("id", id);
+          camp.combate.agiram = [...new Set([...(camp.combate.agiram || []), meuPosto])];
+          await sb.from("campanhas").update({ combate: camp.combate }).eq("id", id);
         }
-      } else if (camp.combate_nave?.ativo) {
-        camp.combate_nave.agiram = [...new Set([...(camp.combate_nave.agiram || []), meuPosto])];
-        await sb.from("campanhas").update({ combate_nave: camp.combate_nave }).eq("id", id);
+      } else if (camp.combate?.ativo) {
+        camp.combate.agiram = [...new Set([...(camp.combate.agiram || []), meuPosto])];
+        await sb.from("campanhas").update({ combate: camp.combate }).eq("id", id);
       }
       enviar("rolagem", null, { titulo: `${ESTACOES[meuPosto].n} — ${acao.n}`, detalhe: `d20 [${nat}] ${sign(mod)} (${at}+${pn})`, total, crit: nat === 20, fumble: nat === 1, extra });
     });
