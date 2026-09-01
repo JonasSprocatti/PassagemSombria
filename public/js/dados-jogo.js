@@ -1130,3 +1130,26 @@ export function propsArma(cat) {
   const alcanceTxt = has("curto") ? "curto" : has("mira") || has("telesc") ? "longo (mirar)" : has("alcance maior") ? "estendido" : has("alcance") ? "3m (corpo a corpo)" : "";
   return { agil, oculta, brutal, area, areaTxt, alcance, alcanceTxt, efeito: KEYWORDS[kw] || kw || "" };
 }
+
+// ---------------- COMBATE ESPACIAL ----------------
+// Tabela de Falhas Críticas do Casco (1d6) — Cap. 12 do livro.
+export const AVARIAS = [
+  { d: 1, n: "Falha de Suporte Vital", e: "O oxigênio vaza. Todos têm 3 turnos para vestir os Trajes de Bordo ou começam a sufocar.", bloqueia: null },
+  { d: 2, n: "Incêndio na Engenharia", e: "A Estação de Engenharia fica inacessível até alguém gastar uma Ação para apagar o fogo.", bloqueia: "engenharia" },
+  { d: 3, n: "Sobrecarga de Sensores", e: "O ecrã principal apaga. Piloto e Tático rolam com Desvantagem no próximo turno.", bloqueia: null },
+  { d: 4, n: "Arma Danificada", e: "Uma torreta emperra. O Artilheiro não pode usá-la até o Engenheiro consertar.", bloqueia: "artilharia" },
+  { d: 5, n: "Furo no Casco", e: "A nave perde 1d8 de Casco extra e todos a bordo sofrem 1d4 de dano cinético.", bloqueia: null },
+  { d: 6, n: "Pane no Reator", e: "A nave fica à deriva: Manobrabilidade 0 e não pode atacar no próximo turno, a menos que o Engenheiro a reinicie (Tecnomancia CD 15).", bloqueia: "leme" },
+];
+
+// Melhorias compráveis para a nave da tripulação.
+export const UPGRADES_NAVE = [
+  { n: "Placas de Blindagem Ablativa", p: 2500, e: "+15 de Casco máximo.", campo: "casco_max", v: 15 },
+  { n: "Gerador de Escudos Reforçado", p: 3000, e: "+15 de Escudos máximos.", campo: "escudos_max", v: 15 },
+  { n: "Propulsores Vetoriais", p: 3500, e: "+1 de Manobrabilidade (e de Defesa).", campo: "manobra", v: 1 },
+  { n: "Bateria de Canhões Extra", p: 4000, e: "+1 dado no dano da nave.", campo: "dano_bonus", v: 1 },
+  { n: "Casco Ablativo Urak", p: 5000, e: "+30 de Casco máximo. Pesado: −1 de Manobrabilidade.", campo: "casco_max", v: 30, penal: { manobra: -1 } },
+  { n: "Núcleo de Reparo Automático", p: 4500, e: "No início de cada rodada, a nave recupera 1d6 de Casco.", campo: null, passiva: "reparo" },
+  { n: "Camuflagem Térmica", p: 3800, e: "+2 na Defesa da nave contra o primeiro ataque de cada combate.", campo: null, passiva: "furtiva" },
+  { n: "Célula de Dobra Extra", p: 2000, e: "Um salto de dobra adicional sem consumir Célula de Matéria.", campo: null, passiva: "dobra" },
+];

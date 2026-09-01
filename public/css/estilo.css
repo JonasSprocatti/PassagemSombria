@@ -462,3 +462,15 @@ body.a11y-grande .regra,body.a11y-grande small,body.a11y-grande .dim{font-size:1
 .tab-res-on{color:var(--ink);border-left:2px solid var(--tech);padding-left:10px}
 .cb-timer{font-family:'IBM Plex Mono',monospace;font-size:20px;text-align:center;color:var(--tech);margin-top:6px;font-weight:700}
 .cb-timer.urgente{color:var(--perigo);animation:piscar 1s ease-in-out infinite}
+
+/* ---------------- COMBATE ESPACIAL ---------------- */
+.cbn-box{border:1px solid var(--chrome);border-radius:8px;padding:10px;margin-top:10px;background:rgba(240,168,96,.06)}
+.cbn-cab{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;font-family:'Chakra Petch',sans-serif}
+.cbn-postos{display:flex;gap:5px;flex-wrap:wrap;align-items:center;margin-top:8px}
+.cbn-posto{font-size:10px;border:1px solid var(--line);border-radius:3px;padding:1px 7px;font-family:'IBM Plex Mono',monospace}
+.cbn-posto.ok{border-color:var(--tech);color:var(--tech);background:rgba(89,227,200,.12)}
+.cbn-posto.vazio{opacity:.45;text-decoration:line-through}
+.cbn-atk{background:var(--panel)!important;border:1px solid var(--perigo)!important;color:var(--perigo)!important;cursor:pointer;font-size:10px;padding:1px 5px;border-radius:3px}
+.avarias{margin-top:8px;display:flex;flex-direction:column;gap:4px}
+.avaria{background:rgba(240,122,122,.12);border-left:3px solid var(--perigo);border-radius:4px;padding:5px 8px;font-size:12px;display:flex;gap:6px;align-items:flex-start;flex-wrap:wrap}
+.avaria b{color:var(--perigo)}

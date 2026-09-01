@@ -4,10 +4,10 @@
 // ============================================================
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./config.js";
-import { RACAS, CLASSES, FILOSOFIAS, IMPLANTES, SCRIPTS, ARMAS, ARMADURAS, PERICIAS, NAVES, ESTACOES, REGRAS_NAVE, RIQUEZA, TEMAS, CONVERTE_2D8, RENOME_PERICIAS, KEYWORDS, propsArma } from "./dados-jogo.js";
+import { RACAS, CLASSES, FILOSOFIAS, IMPLANTES, SCRIPTS, ARMAS, ARMADURAS, PERICIAS, NAVES, ESTACOES, REGRAS_NAVE, RIQUEZA, TEMAS, CONVERTE_2D8, RENOME_PERICIAS, KEYWORDS, propsArma, AVARIAS, UPGRADES_NAVE } from "./dados-jogo.js";
 import { BESTIARIO, NIVEIS_AMEACA } from "./dados-bestiario.js";
 import { NPCS, PAPEIS } from "./dados-npcs.js";
-import { FACCOES, NIVEIS_REPUTACAO, TABELAS, REFERENCIA } from "./dados-mestre.js";
+import { FACCOES, NIVEIS_REPUTACAO, TABELAS, REFERENCIA  } from "./dados-mestre.js";
 import { modalForm, confirmModal, somMensagem, somDado, notificar, pedirNotificacao, getSom, setSom } from "./ui.js";
 
 export const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -280,6 +280,23 @@ function danoArma(cat, nivel) {
   for (const m of marcos) if ((nivel || 1) >= m) d = cat.escala[String(m)];
   return d;
 }
+
+// ---------------- COMBATE ESPACIAL ----------------
+const POSTOS_ORDEM = ["leme", "artilharia", "engenharia", "sensores"];
+const combateNaveVazio = () => ({ ativo: false, rodada: 1, turno: 0, inimigas: [], avarias: [], agiram: [] });
+// Defesa da nave = 10 + Manobrabilidade (Cap. 12)
+const defesaNave = (n) => 10 + (n?.manobra || 0);
+// Aplica dano respeitando Escudos antes do Casco; devolve o detalhamento.
+function danoNave(alvo, valor) {
+  const r = { escudos: 0, casco: 0, critico: false };
+  let restante = valor;
+  const abs = Math.min(alvo.escudos || 0, restante);
+  alvo.escudos = (alvo.escudos || 0) - abs; restante -= abs; r.escudos = abs;
+  if (restante > 0) { alvo.casco = Math.max(0, (alvo.casco || 0) - restante); r.casco = restante; }
+  if (r.casco > 15) r.critico = true;   // dano massivo dispara Falha Crítica
+  return r;
+}
+const rolarAvaria = () => AVARIAS[d(6) - 1];
 
 // ---------------- FERRAMENTAS DO MESTRE ----------------
 const sorteia = (lista) => lista[Math.floor(Math.random() * lista.length)];
@@ -870,6 +887,7 @@ async function telaMesa(id) {
   if (!camp.combate || typeof camp.combate !== "object" || !("ordem" in camp.combate)) camp.combate = combateVazio();
   const salvarCombate = async () => { const { error } = await sb.from("campanhas").update({ combate: camp.combate }).eq("id", id); if (error) alert("Não consegui salvar o combate: " + error.message); };
   if (!Array.isArray(camp.bestiario)) camp.bestiario = [];
+  if (!camp.combate_nave || typeof camp.combate_nave !== "object" || !("inimigas" in camp.combate_nave)) camp.combate_nave = combateNaveVazio();
   if (!camp.faccoes || typeof camp.faccoes !== "object") camp.faccoes = {};
   if (!Array.isArray(camp.contratos)) camp.contratos = [];
   if (!camp.handout || typeof camp.handout !== "object") camp.handout = {};
@@ -897,6 +915,7 @@ async function telaMesa(id) {
     const armasEq = f ? (f.inventario || []).filter((i) => i.tipo === "arma" && i.equip) : [];
     const nave = camp.nave;
     const meuPosto = membros?.find((m) => m.perfil_id === usuario.id)?.posto;
+    const cbn = camp.combate_nave || combateNaveVazio();
     shell("mesa", `
       <nav class="topo"><a class="btn-ghost" href="#/campanhas">← CAMPANHAS</a>
         <div class="topo-status">${esc(camp.nome)} · código <b class="chrome">${camp.codigo}</b></div><span style="display:flex;gap:6px"><button id="abrir-diario" class="btn-ghost" title="Diário da campanha">📔 DIÁRIO</button>${souMestre ? `<button id="abrir-mestre" class="btn-ghost" title="Tela do Mestre">🎛 MESTRE</button>` : ""}<button id="abrir-stats" class="btn-ghost" title="Estatísticas de rolagem da mesa">📊 DADOS</button><button id="abrir-mapa" class="btn-ghost" title="Mapa do sistema (compartilhado)">🗺 MAPA</button></span></nav>
@@ -948,7 +967,21 @@ async function telaMesa(id) {
               <label>Meu posto<select id="sel-posto"><option value="">— fora da nave —</option>
                 ${Object.entries(ESTACOES).map(([pk, e]) => `<option value="${pk}" ${meuPosto === pk ? "selected" : ""}>${e.n}</option>`).join("")}</select></label>
               ${meuPosto && f ? `<div class="acoes-mesa">${ESTACOES[meuPosto].acoes.map((a, i) => `<button class="mini" data-est="${i}" title="${esc(a.d)}">${esc(a.n)}</button>`).join("")}</div>` : ""}
-              ${souMestre ? `<div class="acoes-mesa"><input id="nave-dano" type="number" placeholder="dano" style="width:70px"/><button id="nave-hit" class="mini dano">💥 NAVE SOFRE</button></div>` : ""}
+              ${(cbn.avarias || []).length ? `<div class="avarias">${cbn.avarias.map((av, ai) => `<div class="avaria"><b>⚠ ${esc(av.n)}</b> <span class="regra">${esc(av.e)}</span>${souMestre ? `<button class="mini rm" data-av-fix="${ai}" title="Consertar">✔</button>` : ""}</div>`).join("")}</div>` : ""}
+              ${souMestre ? `<div class="acoes-mesa"><input id="nave-dano" type="number" placeholder="dano" style="width:70px"/><button id="nave-hit" class="mini dano">💥 NAVE SOFRE</button><button id="nave-upg" class="mini">🔧 Upgrades</button></div>` : ""}
+              ${cbn.ativo ? `
+                <div class="cbn-box">
+                  <div class="cbn-cab"><b>🚀 COMBATE ESPACIAL</b><span class="regra">Rodada ${cbn.rodada}</span></div>
+                  ${(cbn.inimigas || []).map((x, xi) => `<div class="cb-linha ${x.casco <= 0 ? "cb-morto" : ""}">
+                    <span class="cb-nome"><b>${esc(x.nome)}</b> <span class="dim">Def ${10 + (x.manobra || 0)} · ${esc(x.dano)}</span></span>
+                    <span class="cb-hp" title="Casco"><span class="cb-hp-barra" style="width:${x.casco_max ? Math.max(0, 100 * x.casco / x.casco_max) : 0}%;background:var(--chrome)"></span><b>${x.casco}/${x.casco_max}</b></span>
+                    <span class="cb-hp" title="Escudos"><span class="cb-hp-barra" style="width:${x.escudos_max ? Math.max(0, 100 * x.escudos / x.escudos_max) : 0}%;background:var(--tech)"></span><b>${x.escudos}/${x.escudos_max}</b></span>
+                    ${souMestre ? `<span class="cb-acoes"><button class="cbn-atk" data-cbn-atk="${xi}" title="Esta nave dispara contra a tripulação">⚔</button><button class="cb-rm" data-cbn-rm="${xi}">✕</button></span>` : ""}
+                  </div>`).join("") || `<p class="regra">Nenhuma nave inimiga em campo.</p>`}
+                  <p class="regra cbn-postos">Postos: ${POSTOS_ORDEM.map((pk) => { const quem = (membros || []).find((m) => m.posto === pk); const agiu = (cbn.agiram || []).includes(pk);
+                    return `<span class="cbn-posto ${agiu ? "ok" : ""} ${quem ? "" : "vazio"}" title="${quem ? esc(quem.perfis?.apelido || "") : "vago"}">${esc(ESTACOES[pk].n.split(" ")[0])}${agiu ? " ✓" : ""}</span>`; }).join(" ")}</p>
+                  ${souMestre ? `<div class="filtros"><button id="cbn-add" class="mini">➕ Nave inimiga</button><button id="cbn-prox" class="mini eq">▶ Próxima rodada</button><button id="cbn-fim" class="mini rm">⏹ Encerrar</button></div>` : ""}
+                </div>` : (souMestre ? `<button id="cbn-iniciar" class="mini eq" style="margin-top:8px">🚀 Iniciar combate espacial</button>` : "")}
             ` : souMestre ? `
               <select id="sel-nave">${NAVES.map((n) => `<option>${esc(n.n)}</option>`).join("")}</select>
               <input id="nave-nome" placeholder="Nome de batismo"/>
@@ -1086,7 +1119,7 @@ async function telaMesa(id) {
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "mensagens", filter: `campanha_id=eq.${id}` },
         async (pl) => { const { data: m } = await sb.from("mensagens").select("*,perfis:autor_id(apelido,avatar_url)").eq("id", pl.new.id).single(); if (m) addMsg(m, true); })
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "campanhas", filter: `id=eq.${id}` },
-        (pl) => { camp.nave = pl.new.nave; camp.mapa = pl.new.mapa; camp.combate = pl.new.combate; camp.handout = pl.new.handout || {}; camp.faccoes = pl.new.faccoes || {}; camp.contratos = pl.new.contratos || []; camp.bestiario = pl.new.bestiario || []; mapaCtrl?.atualizar(pl.new.mapa, pl.new.combate); render(); })
+        (pl) => { camp.nave = pl.new.nave; camp.mapa = pl.new.mapa; camp.combate = pl.new.combate; camp.combate_nave = pl.new.combate_nave || combateNaveVazio(); camp.handout = pl.new.handout || {}; camp.faccoes = pl.new.faccoes || {}; camp.contratos = pl.new.contratos || []; camp.bestiario = pl.new.bestiario || []; mapaCtrl?.atualizar(pl.new.mapa, pl.new.combate); render(); })
       .subscribe();
 
     // ---- binds ----
@@ -1507,6 +1540,88 @@ async function telaMesa(id) {
       await sb.from("campanha_membros").update({ posto: e.target.value || null }).eq("campanha_id", id).eq("perfil_id", usuario.id);
       location.reload();
     });
+    const salvarCbn = async () => { const { error } = await sb.from("campanhas").update({ combate_nave: camp.combate_nave }).eq("id", id); if (error) alert("Não consegui salvar o combate espacial: " + error.message); };
+    $("#cbn-iniciar")?.addEventListener("click", async () => {
+      camp.combate_nave = { ...combateNaveVazio(), ativo: true };
+      await salvarCbn(); await enviar("sistema", "🚀 Alerta vermelho: combate espacial iniciado. Todos aos postos!"); render();
+    });
+    $("#cbn-fim")?.addEventListener("click", async () => {
+      if (!(await confirmModal("Encerrar o combate espacial? As naves inimigas e as avarias em campo serão limpas.", { okLabel: "Encerrar", perigo: true }))) return;
+      camp.combate_nave = combateNaveVazio(); await salvarCbn(); await enviar("sistema", "🚀 Combate espacial encerrado."); render();
+    });
+    $("#cbn-prox")?.addEventListener("click", async () => {
+      const cb = camp.combate_nave; cb.rodada++; cb.agiram = [];
+      // Núcleo de Reparo Automático
+      if ((camp.nave?.upgrades || []).some((u) => u === "Núcleo de Reparo Automático") && camp.nave.casco < camp.nave.casco_max) {
+        const rep = d(6); camp.nave.casco = Math.min(camp.nave.casco_max, camp.nave.casco + rep);
+        await sb.from("campanhas").update({ nave: camp.nave }).eq("id", id);
+        await enviar("sistema", `🔧 Núcleo de Reparo: +${rep} de Casco (${camp.nave.casco}/${camp.nave.casco_max}).`);
+      }
+      await salvarCbn(); await enviar("sistema", `🚀 Rodada ${cb.rodada}. Postos liberados para agir.`); render();
+    });
+    $("#cbn-add")?.addEventListener("click", async () => {
+      const r = await modalForm({ titulo: "➕ Nave inimiga", campos: [
+        { k: "modelo", label: "Modelo", tipo: "select", opcoes: NAVES.map((n) => n.n) },
+        { k: "nome", label: "Nome (opcional)", tipo: "texto" },
+      ], okLabel: "Lançar" });
+      if (!r) return;
+      const base = NAVES.find((n) => n.n === r.modelo); if (!base) return;
+      const iguais = camp.combate_nave.inimigas.filter((x) => x.modelo === base.n).length;
+      camp.combate_nave.inimigas.push({ id: "s" + Math.random().toString(36).slice(2, 8),
+        nome: r.nome?.trim() || (iguais ? `${base.n} #${iguais + 1}` : base.n), modelo: base.n,
+        casco: base.casco, casco_max: base.casco, escudos: base.escudos, escudos_max: base.escudos,
+        manobra: base.manobra, dano: base.dano });
+      await salvarCbn(); await enviar("sistema", `🚀 Contato hostil: ${camp.combate_nave.inimigas.slice(-1)[0].nome} entrou em alcance.`); render();
+    });
+    app.querySelectorAll("[data-cbn-rm]").forEach((b) => b.onclick = async () => {
+      camp.combate_nave.inimigas.splice(+b.dataset.cbnRm, 1); await salvarCbn(); render();
+    });
+    // Nave inimiga dispara contra a tripulação
+    app.querySelectorAll("[data-cbn-atk]").forEach((b) => b.onclick = async () => {
+      const x = camp.combate_nave.inimigas[+b.dataset.cbnAtk]; if (!x || !camp.nave) return;
+      const nat = d(20), total = nat + 4;                       // ataque padrão de nave
+      const def = defesaNave(camp.nave);
+      if (nat === 1 || total < def) {
+        return enviar("rolagem", null, { titulo: `🚀 ${x.nome} dispara`, detalhe: `d20 [${nat}] +4 vs Defesa ${def}`, total, fumble: nat === 1, extra: "Errou — o disparo passa de raspão." });
+      }
+      const pd = parseDice(x.dano); const dados = rollNd(pd.n * (nat === 20 ? 2 : 1), pd.f);
+      const bruto = dados.reduce((a2, b2) => a2 + b2, 0) + pd.mod;
+      const r = danoNave(camp.nave, bruto);
+      let extra = `Escudos absorveram ${r.escudos}; Casco sofreu ${r.casco}. Nave: ${camp.nave.casco}/${camp.nave.casco_max} casco · ${camp.nave.escudos}/${camp.nave.escudos_max} escudos.`;
+      if ((nat === 20 || r.critico) && r.casco > 0) {
+        const av = rolarAvaria(); camp.combate_nave.avarias.push(av);
+        extra += `  ⚠ FALHA CRÍTICA — ${av.n}: ${av.e}`;
+      }
+      if (camp.nave.casco <= 0) extra += "  💀 CASCO A ZERO: a nave está destruída ou à deriva.";
+      await sb.from("campanhas").update({ nave: camp.nave }).eq("id", id);
+      await salvarCbn();
+      await enviar("rolagem", null, { titulo: `🚀 ${x.nome} dispara`, detalhe: `d20 [${nat}] +4 vs Defesa ${def} · dano ${x.dano} [${dados.join(", ")}]${nat === 20 ? " ×2" : ""}`, total, crit: nat === 20, extra });
+      render();
+    });
+    app.querySelectorAll("[data-av-fix]").forEach((b) => b.onclick = async () => {
+      const av = camp.combate_nave.avarias.splice(+b.dataset.avFix, 1)[0];
+      await salvarCbn(); await enviar("sistema", `🔧 Avaria reparada: ${av?.n}.`); render();
+    });
+    // Upgrades da nave (ficha evolutiva)
+    $("#nave-upg")?.addEventListener("click", async () => {
+      if (!camp.nave) return;
+      camp.nave.upgrades = camp.nave.upgrades || [];
+      const r = await modalForm({ titulo: "🔧 Melhorias da nave", campos: [
+        { k: "i", label: `Instaladas: ${camp.nave.upgrades.length ? camp.nave.upgrades.join(", ") : "nenhuma"}. Escolha uma melhoria para instalar.`, tipo: "info" },
+        { k: "up", label: "Melhoria", tipo: "select", opcoes: UPGRADES_NAVE.filter((u) => !camp.nave.upgrades.includes(u.n)).map((u) => ({ v: u.n, l: `${u.n} — ${u.p} CG · ${u.e}` })) },
+      ], okLabel: "Instalar" });
+      if (!r || !r.up) return;
+      const u = UPGRADES_NAVE.find((x) => x.n === r.up); if (!u) return;
+      camp.nave.upgrades.push(u.n);
+      if (u.campo === "casco_max") { camp.nave.casco_max += u.v; camp.nave.casco += u.v; }
+      if (u.campo === "escudos_max") { camp.nave.escudos_max += u.v; camp.nave.escudos += u.v; }
+      if (u.campo === "manobra") camp.nave.manobra = (camp.nave.manobra || 0) + u.v;
+      if (u.penal?.manobra) camp.nave.manobra = (camp.nave.manobra || 0) + u.penal.manobra;
+      if (u.campo === "dano_bonus") { const pd = parseDice(camp.nave.dano); if (pd) camp.nave.dano = `${pd.n + 1}d${pd.f}${pd.mod ? sign(pd.mod) : ""}`; }
+      await sb.from("campanhas").update({ nave: camp.nave }).eq("id", id);
+      await enviar("sistema", `🔧 ${camp.nave.nome_batismo || camp.nave.modelo} recebeu uma melhoria: ${u.n}. ${u.e}`);
+      render();
+    });
     $("#nave-hit")?.addEventListener("click", async () => {
       const v = +$("#nave-dano").value; if (!v || !camp.nave) return;
       const n = { ...camp.nave };
@@ -1526,6 +1641,29 @@ async function telaMesa(id) {
         n[acao.cura] = Math.min(n[acao.cura + "_max"], n[acao.cura] + val);
         await sb.from("campanhas").update({ nave: n }).eq("id", id);
         extra = `+${val} de ${acao.cura}! (${n[acao.cura]}/${n[acao.cura + "_max"]})`;
+      }
+      // Artilharia: se há combate espacial ativo, resolve contra uma nave inimiga
+      if (acao.danoNave && camp.combate_nave?.ativo && (camp.combate_nave.inimigas || []).some((x) => x.casco > 0)) {
+        const vivas = camp.combate_nave.inimigas.filter((x) => x.casco > 0);
+        const esc1 = vivas.length === 1 ? vivas[0] : (await modalForm({ titulo: `⚔ ${acao.n} — escolher alvo`, campos: [
+          { k: "alvo", label: "Nave inimiga", tipo: "select", opcoes: vivas.map((x) => ({ v: x.id, l: `${x.nome} — casco ${x.casco}/${x.casco_max}, Def ${10 + (x.manobra || 0)}` })) }], okLabel: "Disparar" }))?.alvo;
+        const alvo = typeof esc1 === "string" ? vivas.find((x) => x.id === esc1) : esc1;
+        if (alvo) {
+          const def = defesaNave(alvo);
+          if (total >= def && nat !== 1) {
+            const pdn = parseDice(camp.nave?.dano || "1d6");
+            const dd = rollNd(pdn.n * (nat === 20 ? 2 : 1), pdn.f);
+            const bruto = dd.reduce((x2, y2) => x2 + y2, 0) + pdn.mod;
+            const r2 = danoNave(alvo, bruto);
+            extra = `Acertou (Def ${def})! Dano ${camp.nave?.dano}${nat === 20 ? " ×2" : ""} [${dd.join(", ")}] → escudos −${r2.escudos}, casco −${r2.casco}. ${alvo.nome}: ${alvo.casco}/${alvo.casco_max}`;
+            if (alvo.casco <= 0) extra += "  💥 NAVE ABATIDA!";
+          } else extra = `Errou — Defesa ${def} da ${alvo.nome}.`;
+          camp.combate_nave.agiram = [...new Set([...(camp.combate_nave.agiram || []), meuPosto])];
+          await sb.from("campanhas").update({ combate_nave: camp.combate_nave }).eq("id", id);
+        }
+      } else if (camp.combate_nave?.ativo) {
+        camp.combate_nave.agiram = [...new Set([...(camp.combate_nave.agiram || []), meuPosto])];
+        await sb.from("campanhas").update({ combate_nave: camp.combate_nave }).eq("id", id);
       }
       enviar("rolagem", null, { titulo: `${ESTACOES[meuPosto].n} — ${acao.n}`, detalhe: `d20 [${nat}] ${sign(mod)} (${at}+${pn})`, total, crit: nat === 20, fumble: nat === 1, extra });
     });
