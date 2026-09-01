@@ -880,6 +880,7 @@ async function telaMesa(id) {
   let pintarMsg = null;          // aponta pro addMsg do render atual (renderização otimista)
   const historico = msgs || [];  // lista mutável de mensagens (sobrevive a re-renders)
   let mapaCtrl = null;           // controlador do mapa aberto (para sync via realtime)
+  let abaMesa = sessionStorage.getItem("ps-aba-mesa") || "ficha";  // aba ativa da lateral
   let timerInt = null;           // cronômetro de turno (local)
   let vantagem = 0;              // 0 normal · 1 vantagem · -1 desvantagem
   let privada = false;           // rolagem/mensagem privada (só Mestre + autor veem)
@@ -918,9 +919,16 @@ async function telaMesa(id) {
     const cbn = camp.combate_nave || combateNaveVazio();
     shell("mesa", `
       <nav class="topo"><a class="btn-ghost" href="#/campanhas">← CAMPANHAS</a>
-        <div class="topo-status">${esc(camp.nome)} · código <b class="chrome">${camp.codigo}</b></div><span style="display:flex;gap:6px"><button id="abrir-diario" class="btn-ghost" title="Diário da campanha">📔 DIÁRIO</button>${souMestre ? `<button id="abrir-mestre" class="btn-ghost" title="Tela do Mestre">🎛 MESTRE</button>` : ""}<button id="abrir-stats" class="btn-ghost" title="Estatísticas de rolagem da mesa">📊 DADOS</button><button id="abrir-mapa" class="btn-ghost" title="Mapa do sistema (compartilhado)">🗺 MAPA</button></span></nav>
+        <div class="topo-status">${esc(camp.nome)} · código <b class="chrome">${camp.codigo}</b></div><span style="display:flex;gap:6px"><button id="abrir-diario" class="btn-ghost" title="Diário da campanha">📔 DIÁRIO</button>${souMestre ? `<button id="abrir-mestre" class="btn-ghost" title="Tela do Mestre">🎛 MESTRE</button>` : ""}<button id="abrir-mapa" class="btn-ghost" title="Mapa do sistema (compartilhado)">🗺 MAPA</button></span></nav>
       <div class="mesa">
         <div class="mesa-lateral">
+          <nav class="mesa-abas" role="tablist">
+            <button class="mesa-aba ${abaMesa === "ficha" ? "on" : ""}" data-mesa-aba="ficha" role="tab">◈ <span>Ficha</span></button>
+            <button class="mesa-aba ${abaMesa === "combate" ? "on" : ""}" data-mesa-aba="combate" role="tab">⚔ <span>Combate</span>${camp.combate.ativo ? `<i class="aba-dot"></i>` : ""}</button>
+            <button class="mesa-aba ${abaMesa === "nave" ? "on" : ""}" data-mesa-aba="nave" role="tab">🚀 <span>Nave</span>${cbn.ativo ? `<i class="aba-dot"></i>` : ""}</button>
+            <button class="mesa-aba ${abaMesa === "mesa" ? "on" : ""}" data-mesa-aba="mesa" role="tab">📋 <span>Mesa</span></button>
+          </nav>
+          <div class="mesa-painel" ${abaMesa === "combate" ? "" : "hidden"}>
           ${(camp.combate.ativo || souMestre) ? `<section class="sec combate-sec">
             <header><span class="tag">⚔</span><h2>Combate</h2>${camp.combate.ativo ? `<span class="regra" style="margin-left:auto">Rodada ${camp.combate.rodada}</span>` : ""}</header>
             ${!camp.combate.ativo ? (souMestre ? `<button id="cb-iniciar" class="mini eq">⚔ Iniciar Combate</button><p class="regra">Adicione jogadores e inimigos do bestiário; a ordem é montada pela iniciativa.</p>` : "") : `
@@ -936,6 +944,8 @@ async function telaMesa(id) {
               <button id="cb-add-btn" class="mini">🎲 Add</button><button id="cb-criar" class="mini" title="Criar/editar criaturas do Mestre">🐉</button></div>
             <div class="cb-ctrl"><button id="cb-prox" class="mini eq">▶ Próximo turno</button><button id="cb-timer" class="mini" title="Cronômetro do turno">⏱</button><button id="cb-fim" class="mini rm">⏹ Encerrar</button></div><div id="cb-timer-out" class="cb-timer"></div>` : ""}`}
           </section>` : ""}
+          </div>
+          <div class="mesa-painel" ${abaMesa === "ficha" ? "" : "hidden"}>
           <section class="sec"><header><span class="tag">◈</span><h2>Meu personagem</h2></header>
             <select id="sel-pers">${meuPers ? "" : `<option value="">— vincular personagem —</option>`}
               ${(meus || []).map((m) => `<option value="${m.id}" ${meuPers?.id === m.id ? "selected" : ""}>${esc(m.nome) || "sem nome"}</option>`).join("")}</select>
@@ -956,6 +966,8 @@ async function telaMesa(id) {
               <input id="dano-val" type="number" placeholder="valor" style="width:70px"/>
               <button id="enviar-dano" class="mini dano">💥 DANO</button><button id="enviar-cura" class="mini eq">✚ CURA</button></div>` : `<p class="regra">Vincule um personagem para rolar pela mesa.</p>`}
           </section>
+          </div>
+          <div class="mesa-painel" ${abaMesa === "nave" ? "" : "hidden"}>
           <section class="sec"><header><span class="tag">🚀</span><h2>Nave da campanha</h2></header>
             ${nave ? `
               <p><b>${esc(nave.nome_batismo || nave.modelo)}</b> <small>(${esc(nave.modelo)})</small></p>
@@ -987,6 +999,8 @@ async function telaMesa(id) {
               <input id="nave-nome" placeholder="Nome de batismo"/>
               <button id="def-nave" class="btn-primario" style="margin-top:8px">DEFINIR NAVE</button>` : `<p class="regra">O Mestre ainda não definiu a nave.</p>`}
           </section>
+          </div>
+          <div class="mesa-painel" ${abaMesa === "mesa" ? "" : "hidden"}>
           ${(camp.contratos?.length || Object.keys(camp.faccoes || {}).length) ? `<section class="sec"><header><span class="tag">📋</span><h2>Contratos & Reputação</h2></header>
             ${(camp.contratos || []).filter((c) => c.status !== "concluido").map((c) => `<div class="inv"><span><b>${esc(c.titulo)}</b> <span class="best-tag">${esc(c.status)}</span><br><span class="regra">${esc(c.recompensa)}${c.faccao ? ` · ${esc(c.faccao)}` : ""}</span></span></div>`).join("") || `<p class="regra">Nenhum contrato aberto.</p>`}
             ${Object.entries(camp.faccoes || {}).filter(([, v]) => v !== 0).map(([n, v]) => { const nv = NIVEIS_REPUTACAO.find((x) => x.v === v) || NIVEIS_REPUTACAO[3];
@@ -995,19 +1009,14 @@ async function telaMesa(id) {
           <section class="sec"><header><span class="tag">👥</span><h2>Tripulação</h2></header>
             ${(membros || []).map((m) => `<p class="regra">${esc(m.perfis?.apelido)}${m.posto ? ` · ${ESTACOES[m.posto]?.n}` : ""}${m.perfil_id === camp.mestre_id ? " · MESTRE" : ""}</p>`).join("")}
           </section>
-          ${souMestre ? `<section class="sec"><header><span class="tag">☾</span><h2>Controles do Mestre</h2></header>
-            <p class="regra">Convoque um descanso para toda a mesa. Cada jogador conectado com personagem vinculado recupera automaticamente na própria ficha.</p>
-            <div class="filtros" style="margin-top:8px"><button id="mestre-curto" class="mini">☾ Descanso Curto (todos)</button><button id="mestre-longo" class="mini eq">🌙 Descanso Longo (todos)</button></div>
-            <div class="filtros" style="margin-top:6px"><button id="mestre-xp" class="mini">🎖 Conceder XP</button><button id="mestre-cg" class="mini">🎁 Conceder Créditos</button></div>
-            <div class="filtros" style="margin-top:6px"><button id="handout-btn" class="mini">🖼 Mostrar imagem</button>${camp.handout?.visivel ? `<button id="handout-off" class="mini rm">Ocultar</button>` : ""}</div>
-            <div class="filtros" style="margin-top:6px"><button id="camp-export" class="mini">💾 Backup da campanha</button><button id="camp-import" class="mini">📥 Restaurar</button></div>
-          </section>` : ""}
+          </div>
         </div>
         <section class="sec mesa-chat">
           <header><span class="tag">≣</span><h2>Mesa · transmissão ao vivo</h2></header>
           ${camp.handout?.visivel && camp.handout?.url ? `<div class="handout"><div class="handout-cab"><b>🖼 ${esc(camp.handout.titulo || "O Mestre mostra algo")}</b><a href="${esc(camp.handout.url)}" target="_blank" rel="noopener" class="mini">abrir</a></div><img src="${esc(camp.handout.url)}" alt="${esc(camp.handout.titulo || "imagem compartilhada pelo Mestre")}"/></div>` : ""}
           <div id="chat" class="chat"></div>
           <div id="resp-preview" class="resp-preview" style="display:none"><span class="rp-txt"></span><button id="resp-cancel" class="rp-x" title="Cancelar resposta">✕</button></div>
+          <button id="abrir-stats-oculto" class="sr-only">Estatísticas de rolagem</button>
           <div class="rol-toggles"><span class="regra" style="margin:0">Rolagem:</span>
             <button id="tg-vant" class="mini" title="Vantagem: rola 2d20, pega o maior">▲ Vantagem</button>
             <button id="tg-desv" class="mini" title="Desvantagem: rola 2d20, pega o menor">▼ Desvantagem</button>
@@ -1161,7 +1170,7 @@ async function telaMesa(id) {
       await sb.from("campanhas").update({ handout: camp.handout }).eq("id", id);
       render();
     });
-    $("#camp-export")?.addEventListener("click", async () => {
+    const fazerBackup = async () => {
       const [{ data: msgs2 }, { data: membros2 }, { data: pers2 }] = await Promise.all([
         sb.from("mensagens").select("*").eq("campanha_id", id).order("criado_em", { ascending: true }).limit(5000),
         sb.from("campanha_membros").select("*").eq("campanha_id", id),
@@ -1175,8 +1184,8 @@ async function telaMesa(id) {
       a2.href = url; a2.download = `campanha-${(camp.nome || "mesa").replace(/[^\w-]/g, "_")}-${new Date().toISOString().slice(0, 10)}.json`;
       document.body.appendChild(a2); a2.click(); a2.remove(); setTimeout(() => URL.revokeObjectURL(url), 2000);
       $("#st") && ($("#st").textContent = "Backup baixado ✓");
-    });
-    $("#camp-import")?.addEventListener("click", () => {
+    };
+    const restaurarBackup = () => {
       const inp = document.createElement("input"); inp.type = "file"; inp.accept = "application/json,.json";
       inp.onchange = async () => {
         const arq = inp.files?.[0]; if (!arq) return;
@@ -1192,6 +1201,11 @@ async function telaMesa(id) {
         render();
       };
       inp.click();
+    };
+    app.querySelectorAll("[data-mesa-aba]").forEach((b) => b.onclick = () => {
+      abaMesa = b.dataset.mesaAba; sessionStorage.setItem("ps-aba-mesa", abaMesa);
+      app.querySelectorAll("[data-mesa-aba]").forEach((x) => x.classList.toggle("on", x.dataset.mesaAba === abaMesa));
+      app.querySelectorAll(".mesa-painel").forEach((p2, i2) => { p2.hidden = ["combate", "ficha", "nave", "mesa"][i2] !== abaMesa; });
     });
     $("#abrir-mestre")?.addEventListener("click", async () => {
       if (!camp.faccoes || typeof camp.faccoes !== "object") camp.faccoes = {};
@@ -1199,9 +1213,23 @@ async function telaMesa(id) {
       const { data: nota } = await sb.from("mestre_notas").select("texto").eq("campanha_id", id).maybeSingle();
       let notaTxt = nota?.texto || "";
       const ov = document.createElement("div"); ov.className = "ss-overlay ov-modal"; ov.style.zIndex = "10000";
-      const abas = [["ref", "📖 Referência"], ["tab", "🎲 Tabelas"], ["enc", "⚖ Encontros"], ["fac", "🏛 Facções"], ["con", "📋 Contratos"], ["not", "📝 Anotações"]];
-      let abaAtiva = "ref";
+      const abas = [["mesa", "🎬 Mesa"], ["ref", "📖 Referência"], ["tab", "🎲 Tabelas"], ["enc", "⚖ Encontros"], ["fac", "🏛 Facções"], ["con", "📋 Contratos"], ["not", "📝 Anotações"]];
+      let abaAtiva = "mesa";
       const salvarCamp = async (campos) => { const { error } = await sb.from("campanhas").update(campos).eq("id", id); if (error) alert("Não consegui salvar: " + error.message); };
+
+      const painelMesa = () => `
+        <div class="det grande"><b>☾ Descansos</b>
+          <p class="regra">Convoca um descanso para toda a mesa. Cada jogador conectado com personagem vinculado recupera na própria ficha.</p>
+          <div class="filtros"><button id="mestre-curto" class="mini">☾ Curto (1h)</button><button id="mestre-longo" class="mini eq">🌙 Longo (8h)</button></div></div>
+        <div class="det grande"><b>🎁 Recompensas</b>
+          <p class="regra">Distribui para todos os jogadores conectados, direto nas fichas.</p>
+          <div class="filtros"><button id="mestre-xp" class="mini">🎖 Conceder XP</button><button id="mestre-cg" class="mini">🎁 Conceder Créditos</button></div></div>
+        <div class="det grande"><b>🖼 Imagem para a mesa</b>
+          <p class="regra">Mostra um mapa, documento ou retrato no topo do chat de todos.</p>
+          <div class="filtros"><button id="handout-btn" class="mini">🖼 Mostrar imagem</button>${camp.handout?.visivel ? `<button id="handout-off" class="mini rm">Ocultar atual</button>` : ""}</div></div>
+        <div class="det grande"><b>💾 Backup</b>
+          <p class="regra">Baixa ou restaura o estado da campanha (nave, mapa, combate, bestiário).</p>
+          <div class="filtros"><button id="camp-export" class="mini">💾 Baixar backup</button><button id="camp-import" class="mini">📥 Restaurar</button></div></div>`;
 
       const painelRef = () => Object.values(REFERENCIA).map((r) => `<details class="det grande" open><summary><b>${r.ic} ${esc(r.n)}</b></summary>
         <table class="stats-tab"><tbody>${r.linhas.map(([a2, b2]) => `<tr><td style="width:34%"><b>${esc(a2)}</b></td><td>${esc(b2)}</td></tr>`).join("")}</tbody></table></details>`).join("")
@@ -1244,7 +1272,7 @@ async function telaMesa(id) {
         <textarea id="not-txt" rows="16" style="width:100%" placeholder="Segredos, ganchos, o que o vilão faz se ninguém interferir…">${esc(notaTxt)}</textarea>
         <button id="not-salvar" class="mini eq" style="margin-top:8px">💾 Salvar anotações</button> <span id="not-st" class="regra"></span>`;
 
-      const conteudo = () => ({ ref: painelRef, tab: painelTab, enc: painelEnc, fac: painelFac, con: painelCon, not: painelNot }[abaAtiva])();
+      const conteudo = () => ({ mesa: painelMesa, ref: painelRef, tab: painelTab, enc: painelEnc, fac: painelFac, con: painelCon, not: painelNot }[abaAtiva])();
 
       const pintar = () => {
         ov.innerHTML = `<div class="ss-painel" style="width:700px;max-width:96vw;margin:auto;border:1px solid var(--line);border-radius:10px;max-height:94vh">
@@ -1254,6 +1282,26 @@ async function telaMesa(id) {
           <div class="di-corpo">${conteudo()}</div></div>`;
         ov.querySelector("#me-fechar").onclick = fechar;
         ov.querySelectorAll("[data-aba]").forEach((b) => b.onclick = () => { abaAtiva = b.dataset.aba; pintar(); });
+        // controles migrados da lateral — os handlers globais são religados por render(),
+        // então aqui delegamos para eles disparando o clique no elemento equivalente.
+        const liga = (idm, fn) => { const el2 = ov.querySelector("#" + idm); if (el2) el2.onclick = fn; };
+        liga("mestre-curto", async () => { if (await confirmModal("Convocar Descanso Curto para toda a mesa?", { okLabel: "Convocar" })) { enviar("descanso", "O Mestre convocou um Descanso Curto (1h). Habilidades de descanso curto reiniciadas; cura via Kits Médicos.", { tipo: "curto" }); fechar(); } });
+        liga("mestre-longo", async () => { if (await confirmModal("Convocar Descanso Longo para toda a mesa? PV restaurados, RAM recarregada e todas as habilidades reiniciadas.", { okLabel: "Convocar" })) { enviar("descanso", "O Mestre convocou um Descanso Longo (8h). PV restaurados, RAM recarregada e todas as habilidades reiniciadas.", { tipo: "longo" }); fechar(); } });
+        liga("mestre-xp", async () => { const r = await modalForm({ titulo: "🎖 Conceder XP", campos: [{ k: "n", label: "XP para toda a tripulação conectada", tipo: "numero", valor: 500 }], okLabel: "Conceder" }); if (!r || !(+r.n > 0)) return; enviar("recompensa", `O Mestre concedeu ${+r.n} XP à tripulação.`, { xp: +r.n }); fechar(); });
+        liga("mestre-cg", async () => { const r = await modalForm({ titulo: "🎁 Conceder Créditos", campos: [{ k: "n", label: "CG para toda a tripulação conectada", tipo: "numero", valor: 1000 }], okLabel: "Conceder" }); if (!r || !(+r.n > 0)) return; enviar("recompensa", `O Mestre distribuiu ${+r.n} CG de saque à tripulação.`, { creditos: +r.n }); fechar(); });
+        liga("handout-btn", async () => {
+          const r = await modalForm({ titulo: "🖼 Mostrar imagem para a mesa", campos: [
+            { k: "i", label: "Cole o endereço de uma imagem. Ela aparece no topo do chat de todos.", tipo: "info" },
+            { k: "url", label: "URL da imagem", tipo: "texto", valor: camp.handout?.url || "" },
+            { k: "titulo", label: "Legenda (opcional)", tipo: "texto", valor: camp.handout?.titulo || "" }], okLabel: "Mostrar" });
+          if (!r || !r.url) return;
+          camp.handout = { url: r.url.trim(), titulo: (r.titulo || "").trim(), visivel: true };
+          await salvarCamp({ handout: camp.handout });
+          await enviar("sistema", `🖼 O Mestre mostrou uma imagem${r.titulo ? `: ${r.titulo}` : ""}.`); fechar(); render();
+        });
+        liga("handout-off", async () => { camp.handout = { ...(camp.handout || {}), visivel: false }; await salvarCamp({ handout: camp.handout }); fechar(); render(); });
+        liga("camp-export", () => fazerBackup());
+        liga("camp-import", () => restaurarBackup());
         // tabelas
         ov.querySelectorAll("[data-rolar]").forEach((b) => b.onclick = () => {
           const k = b.dataset.rolar; const alvo = ov.querySelector(`[data-res="${k}"]`);
@@ -1312,7 +1360,7 @@ async function telaMesa(id) {
       pintar();
       ov.addEventListener("keydown", (e) => { if (e.key === "Escape") fechar(); });
     });
-    $("#abrir-stats")?.addEventListener("click", async () => {
+    $("#abrir-stats-oculto")?.addEventListener("click", async () => {
       const { data: todas } = await sb.from("mensagens").select("autor_id,personagem_id,tipo,payload,perfis:autor_id(apelido)").eq("campanha_id", id).eq("tipo", "rolagem").limit(4000);
       const porAutor = {};
       (todas || []).forEach((m) => {
@@ -1357,13 +1405,14 @@ async function telaMesa(id) {
       const corpo = (todas || []).map((m) => { const dia = new Date(m.criado_em).toLocaleDateString("pt-BR", { day: "2-digit", month: "long", year: "numeric" });
         const cab = dia !== ultimoDia ? `<h3 class="di-dia">${dia}</h3>` : ""; ultimoDia = dia; return cab + linha(m); }).join("") || `<p class="regra">Ainda não há registros nesta campanha.</p>`;
       ov.innerHTML = `<div class="ss-painel" style="width:640px;max-width:96vw;margin:auto;border:1px solid var(--line);border-radius:10px;max-height:92vh">
-        <div class="mp-topo"><b>📔 Diário — ${esc(camp.nome)}</b>${souMestre ? `<button id="di-marco" class="mini">📖 Marcar momento</button>` : ""}<button id="di-fechar" class="mp-x" style="margin-left:auto">✕</button></div>
+        <div class="mp-topo"><b>📔 Diário — ${esc(camp.nome)}</b>${souMestre ? `<button id="di-marco" class="mini">📖 Marcar momento</button>` : ""}<button id="di-stats" class="mini">📊 Estatísticas</button><button id="di-fechar" class="mp-x" style="margin-left:auto">✕</button></div>
         <div class="di-corpo">${corpo}</div></div>`;
       document.body.appendChild(ov); document.body.style.overflow = "hidden";
       const fechar = () => { document.body.style.overflow = ""; ov.remove(); };
       ov.querySelector("#di-fechar").onclick = fechar;
       ov.addEventListener("keydown", (e) => { if (e.key === "Escape") fechar(); });
       const dc = ov.querySelector(".di-corpo"); dc.scrollTop = dc.scrollHeight;
+      ov.querySelector("#di-stats")?.addEventListener("click", () => { fechar(); $("#abrir-stats-oculto")?.click(); });
       ov.querySelector("#di-marco")?.addEventListener("click", async () => { const r = await modalForm({ titulo: "📖 Marcar momento", descricao: "Vira um marco destacado na linha do tempo do diário.", campos: [{ k: "t", label: "Título do momento", tipo: "texto", placeholder: "Ex.: A queda da estação Titã" }], okLabel: "Marcar" }); if (!r || !r.t?.trim()) return;
         await enviar("sistema", `📖 ${r.t.trim()}`); fechar(); });
     });

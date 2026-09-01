@@ -474,3 +474,22 @@ body.a11y-grande .regra,body.a11y-grande small,body.a11y-grande .dim{font-size:1
 .avarias{margin-top:8px;display:flex;flex-direction:column;gap:4px}
 .avaria{background:rgba(240,122,122,.12);border-left:3px solid var(--perigo);border-radius:4px;padding:5px 8px;font-size:12px;display:flex;gap:6px;align-items:flex-start;flex-wrap:wrap}
 .avaria b{color:var(--perigo)}
+
+/* ---------------- ABAS DA MESA (lateral) ---------------- */
+.mesa-abas{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin-bottom:10px;position:sticky;top:0;z-index:5;
+  background:var(--void);padding:2px 0}
+.mesa-aba{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
+  background:var(--panel);border:1px solid var(--line);color:var(--dim);cursor:pointer;border-radius:7px;
+  padding:8px 2px;font-size:15px;line-height:1;font-family:'Chakra Petch',sans-serif;transition:none}
+.mesa-aba span{font-size:10px;letter-spacing:.03em}
+.mesa-aba:hover{color:var(--ink);border-color:var(--dim)}
+.mesa-aba.on{color:var(--tech);border-color:var(--tech);background:rgba(89,227,200,.1)}
+.aba-dot{position:absolute;top:5px;right:7px;width:7px;height:7px;border-radius:50%;background:var(--perigo);
+  box-shadow:0 0 0 2px var(--panel)}
+.mesa-painel[hidden]{display:none}
+.mesa-painel>.sec:last-child{margin-bottom:0}
+@media(max-width:720px){
+  .mesa-abas{position:sticky;top:0}
+  .mesa-aba{padding:10px 2px;font-size:17px}
+  .mesa-aba span{font-size:11px}
+}
