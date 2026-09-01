@@ -493,9 +493,6 @@ body.a11y-grande .regra,body.a11y-grande small,body.a11y-grande .dim{font-size:1
   .mesa-aba{padding:10px 2px;font-size:17px}
   .mesa-aba span{font-size:11px}
 }
-.municao.baixo{color:var(--chrome)}
-.municao.vazio{color:var(--perigo)}
-.municao b{font-family:'IBM Plex Mono',monospace}
 
 /* party frame — estado da tripulação */
 .pf-linha{display:flex;align-items:center;gap:8px;padding:4px 6px;border-radius:5px;background:var(--panel2);margin-bottom:4px;font-size:12px}
@@ -514,4 +511,36 @@ body.a11y-grande .regra,body.a11y-grande small,body.a11y-grande .dim{font-size:1
 .lin-ev.marco{background:rgba(240,168,96,.12);border-left:3px solid var(--chrome);padding:6px 10px;border-radius:4px;margin:6px 0;font-family:'Chakra Petch',sans-serif}
 .lin-ev.baixa{color:var(--perigo)}
 .lin-ev.dim{color:var(--dim);font-size:12px}
-.cb-linha .cb-hp+.cb-hp{margin-left:2px}
+
+/* Naves no rastreador têm duas barras (casco + escudos): a linha quebra para caber */
+.cb-linha.cb-nave{flex-wrap:wrap;row-gap:5px}
+.cb-linha.cb-nave .cb-nome{flex:1 1 calc(100% - 34px)}
+.cb-linha.cb-nave .cb-hp{flex:1 1 0;width:auto;min-width:74px}
+.cb-linha.cb-nave .cb-acoes{flex:0 0 auto;margin-left:auto}
+@media(max-width:720px){
+  .cb-linha.cb-nave .cb-hp{flex:1 1 calc(50% - 4px)}
+  .cb-linha.cb-nave .cb-acoes{flex:1 1 100%;justify-content:flex-end}
+}
+
+/* ---------------- MUNIÇÃO ---------------- */
+.municao-box{border:1px solid var(--line);border-radius:6px;padding:7px 9px;margin:6px 0;background:var(--panel2);transition:border-color .2s,background .2s}
+.municao-cab{display:flex;align-items:center;gap:8px;font-size:12px}
+.municao-cab b{font-family:'IBM Plex Mono',monospace;font-size:15px;margin-left:auto}
+.municao-cab .mini{padding:3px 8px;font-size:10px}
+.pips{display:flex;gap:2px;margin:6px 0 4px;flex-wrap:wrap}
+.pip{width:9px;height:14px;border-radius:2px;background:#1a1e2e;border:1px solid #262c42;flex-shrink:0}
+.pip.cheio{background:var(--tech);border-color:var(--tech);box-shadow:0 0 4px rgba(89,227,200,.4)}
+.pip.fim-pente{margin-right:6px}
+.municao-msg{font-size:10.5px;color:var(--dim);margin:0;font-family:'IBM Plex Mono',monospace}
+/* atenção */
+.municao-box.baixo{border-color:var(--chrome)}
+.municao-box.baixo .pip.cheio{background:var(--chrome);border-color:var(--chrome);box-shadow:0 0 4px rgba(240,168,96,.4)}
+.municao-box.baixo .municao-msg{color:var(--chrome)}
+/* crítico */
+.municao-box.critico{border-color:var(--perigo);background:rgba(240,122,122,.08)}
+.municao-box.critico .pip.cheio{background:var(--perigo);border-color:var(--perigo);box-shadow:0 0 6px rgba(240,122,122,.5)}
+.municao-box.critico .municao-msg,.municao-box.critico .municao-cab b{color:var(--perigo)}
+/* vazio */
+.municao-box.vazio{border-color:var(--perigo);background:rgba(240,122,122,.16);animation:mun-alerta 1.6s ease-in-out infinite}
+.municao-box.vazio .municao-cab b,.municao-box.vazio .municao-msg{color:var(--perigo);font-weight:700}
+@keyframes mun-alerta{0%,100%{border-color:var(--perigo)}50%{border-color:rgba(240,122,122,.35)}}

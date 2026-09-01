@@ -900,6 +900,7 @@ async function telaMesa(id) {
   let privada = false;           // rolagem/mensagem privada (só Mestre + autor veem)
   let asCegas = false;           // rolagem às cegas: resultado só para o Mestre, fora do chat
   const pilhaUndo = [];          // snapshots para desfazer a última ação do Mestre (máx 10)
+  let recapFeita = false;        // a recapitulação aparece uma vez por entrada na mesa
   const salvarMapa = async (mapa) => { camp.mapa = mapa; const { error } = await sb.from("campanhas").update({ mapa }).eq("id", id); if (error) alert("Não consegui salvar o mapa: " + error.message); };
   if (!camp.combate || typeof camp.combate !== "object" || !("ordem" in camp.combate)) camp.combate = combateVazio();
   const snapshot = (rotulo) => { pilhaUndo.push({ rotulo, combate: JSON.parse(JSON.stringify(camp.combate || {})), nave: JSON.parse(JSON.stringify(camp.nave || null)), combate_nave: JSON.parse(JSON.stringify(camp.combate_nave || {})) }); if (pilhaUndo.length > 10) pilhaUndo.shift(); };
@@ -956,7 +957,7 @@ async function telaMesa(id) {
             <header><span class="tag">⚔</span><h2>Combate</h2>${camp.combate.ativo ? `<span class="regra" style="margin-left:auto">Rodada ${camp.combate.rodada}</span>` : ""}</header>
             ${!camp.combate.ativo ? (souMestre ? `<button id="cb-iniciar" class="mini eq">⚔ Iniciar Combate</button><p class="regra">Adicione jogadores e inimigos do bestiário; a ordem é montada pela iniciativa.</p>` : "") : `
             <div class="cb-lista">${camp.combate.ordem.map((c, i) => `
-              <div class="cb-linha ${i === camp.combate.turno ? "cb-atual" : ""} ${foraDeCombate(c) ? "cb-morto" : ""}">
+              <div class="cb-linha ${i === camp.combate.turno ? "cb-atual" : ""} ${foraDeCombate(c) ? "cb-morto" : ""} ${ehNave(c) ? "cb-nave" : ""}">
                 <span class="cb-ini" title="Iniciativa">${c.ini}</span>
                 <span class="cb-nome">${i === camp.combate.turno ? "▶ " : ""}${ehNave(c) ? "🚀 " : ""}${esc(c.nome)}${c.tipo === "inimigo" ? ` <i class="dim">${esc(c.ameaca || "")}</i>` : ""}${ehNave(c) ? ` <i class="dim">Def ${10 + (c.manobra || 0)}</i>` : ""}${(c.cond && c.cond.length) ? `<span class="cb-conds">${c.cond.map((cd) => `<span class="cb-cond" title="${esc(cd.n)} · ${cd.turnos} turno(s)">${esc(cd.n)} ${cd.turnos}</span>`).join("")}</span>` : ""}</span>
                 <span class="cb-hp" title="${ehNave(c) ? "Casco" : "Vida"}"><span class="cb-hp-barra" style="width:${Math.max(0, Math.min(100, vidaMax(c) ? vidaAtual(c) / vidaMax(c) * 100 : 0))}%;background:${(c.tipo === "inimigo" || c.lado === "inimiga") ? "var(--perigo)" : ehNave(c) ? "var(--chrome)" : "var(--tech)"}"></span><b>${vidaAtual(c)}/${vidaMax(c)}</b></span>${ehNave(c) ? `<span class="cb-hp" title="Escudos"><span class="cb-hp-barra" style="width:${Math.max(0, Math.min(100, c.escudos_max ? c.escudos / c.escudos_max * 100 : 0))}%;background:var(--tech)"></span><b>${c.escudos}/${c.escudos_max}</b></span>` : ""}
@@ -976,8 +977,17 @@ async function telaMesa(id) {
             <select id="sel-pers">${meuPers ? "" : `<option value="">— vincular personagem —</option>`}
               ${(meus || []).map((m) => `<option value="${m.id}" ${meuPers?.id === m.id ? "selected" : ""}>${esc(m.nome) || "sem nome"}</option>`).join("")}</select>
             ${f ? `<p class="regra">PV ${f.pvAtual}/${f.pvMax} · CD ${k.cd} · RAM ${k.ramLivre}/${k.ramMax} · conj +${k.conj}</p>
-            ${(() => { const cap = (f.pentes ?? PENTES_INICIAIS) * TURNOS_POR_PENTE, us = f.municaoUsada || 0, resta = Math.max(0, cap - us);
-              return `<p class="regra municao ${resta === 0 ? "vazio" : resta <= 3 ? "baixo" : ""}">🔫 Munição: <b>${resta}</b>/${cap} turnos de tiro <span class="dim">(${f.pentes ?? PENTES_INICIAIS} pentes)</span> <button id="recarregar" class="mini" title="Recarrega tudo (Ação de Movimento)">↻ Recarregar</button></p>`; })()}
+            ${(() => { const pentes = f.pentes ?? PENTES_INICIAIS, cap = pentes * TURNOS_POR_PENTE, us = f.municaoUsada || 0, resta = Math.max(0, cap - us);
+              const nivel = resta === 0 ? "vazio" : resta <= 3 ? "critico" : resta <= 6 ? "baixo" : "";
+              const pips = Array.from({ length: cap }, (_, i2) => `<i class="pip ${i2 < resta ? "cheio" : ""} ${(i2 + 1) % TURNOS_POR_PENTE === 0 ? "fim-pente" : ""}"></i>`).join("");
+              return `<div class="municao-box ${nivel}">
+                <div class="municao-cab"><span>🔫 Munição</span><b>${resta}<span class="dim">/${cap}</span></b>
+                  <button id="recarregar" class="mini" title="Recarrega todos os pentes (Ação de Movimento)">↻ Recarregar</button></div>
+                <div class="pips">${pips}</div>
+                <p class="municao-msg">${resta === 0 ? "⛔ SEM MUNIÇÃO — recarregue antes de atirar (Ação de Movimento)."
+                  : resta <= 3 ? `⚠ Últimos ${resta} tiro${resta > 1 ? "s" : ""}! Considere recarregar.`
+                  : `${pentes} pente${pentes > 1 ? "s" : ""} · ${TURNOS_POR_PENTE} turnos cada`}</p>
+              </div>`; })()}
             <div class="acoes-mesa">
               <select id="sel-per">${PERICIAS.map(([pn]) => `<option>${pn}</option>`).join("")}</select>
               <button id="rolar-per" class="mini">TESTE</button>
@@ -1484,6 +1494,7 @@ async function telaMesa(id) {
       const combates = novas.filter((m) => m.tipo === "sistema" && /Rodada 1 ·|combate espacial iniciado|Iniciar Combate/i.test(m.conteudo || ""));
       const falas = novas.filter((m) => m.tipo === "texto").length;
       const rolagens = novas.filter((m) => m.tipo === "rolagem").length;
+      if (!marcos.length && !recompensas.length && !combates.length && falas === 0 && rolagens === 0) return;  // nada que valha um resumo
       const linhas = [];
       if (marcos.length) linhas.push(`<p><b class="chrome">Momentos marcados:</b></p><ul>${marcos.map((m) => `<li>${esc((m.conteudo || "").replace(/^📖\s*/, ""))}</li>`).join("")}</ul>`);
       if (combates.length) linhas.push(`<p>⚔ ${combates.length} combate(s) começaram.</p>`);
@@ -1493,7 +1504,7 @@ async function telaMesa(id) {
       linhas.push(`<p class="regra">${falas} mensagem(ns) e ${rolagens} rolagem(ns) desde a sua última visita (${new Date(ultima).toLocaleString("pt-BR")}).</p>`);
       await modalForm({ titulo: "📼 Onde paramos", campos: [{ k: "i", label: "", tipo: "html", html: linhas.join("") }], okLabel: "Continuar a aventura" });
     };
-    setTimeout(() => recapitular().catch(() => {}), 700);
+    if (!recapFeita) { recapFeita = true; setTimeout(() => recapitular().catch(() => {}), 900); }
 
     $("#abrir-diario")?.addEventListener("click", async () => {
       const { data: todas } = await sb.from("mensagens").select("*,perfis:autor_id(apelido,avatar_url)").eq("campanha_id", id).order("criado_em", { ascending: true }).limit(2000);
@@ -1696,13 +1707,16 @@ async function telaMesa(id) {
       app.querySelectorAll("[data-atq]").forEach((b) => b.onclick = async () => {
         const a = armasEq[+b.dataset.atq]; const cat = ARMAS.find((x) => x.n === a.nome);
         const pr = propsArma(cat);
+        let precisaRender = false;
         const custo = custoTiro(cat);
         if (custo > 0) {
           const cap = (f.pentes ?? PENTES_INICIAIS) * TURNOS_POR_PENTE;
-          const usado = f.municaoUsada || 0;
-          if (usado + custo > cap) return enviar("sistema", `🔫 ${meuPers.nome} puxa o gatilho e ouve o clique: sem munição para ${a.nome}. Recarregar exige uma Ação de Movimento e um pente novo.`);
-          meuPers.dados = { ...f, municaoUsada: usado + custo };
+          const usado = (meuPers.dados?.municaoUsada) || 0;   // lê o estado real, não a cópia do render
+          if (usado + custo > cap) { await enviar("sistema", `🔫 ${meuPers.nome} puxa o gatilho e ouve o clique: sem munição para ${a.nome}. Recarregar custa uma Ação de Movimento.`); return render(); }
+          f.municaoUsada = usado + custo;                       // mantém a cópia local coerente
+          meuPers.dados = { ...meuPers.dados, municaoUsada: f.municaoUsada };
           await sb.from("personagens").update({ dados: meuPers.dados }).eq("id", meuPers.id);
+          precisaRender = true;
         }
         const furtivo = $("#atq-furtivo")?.checked;
         const assassino = f.classe === "Assassino";
@@ -1726,9 +1740,12 @@ async function telaMesa(id) {
         enviar("rolagem", null, { titulo: (privada ? "🔒 " : "") + `Ataque — ${a.nome}${furtivo ? " 🥷" : ""}`,
           detalhe: `d20 [${nat}]${detVant} ${sign(mod)} · dano ${danoBase}${sets > 1 ? `×${sets}` : ""} [${dados.join(", ")}] ${sign(danoMod)}${marcadores ? " · " + marcadores : ""}`,
           total: nat + mod, crit: nat === 20, fumble: nat === 1, ...(privada ? { privada: true } : {}), dano_total: dados.reduce((x, y) => x + y, 0) + danoMod,
-          extra: `Dano: ${dados.reduce((x, y) => x + y, 0) + danoMod}${infoArma ? "  —  " + infoArma : ""}` }); });
+          extra: `Dano: ${dados.reduce((x, y) => x + y, 0) + danoMod}${infoArma ? "  —  " + infoArma : ""}` });
+        if (precisaRender) render();      // atualiza o contador de munição na tela
+      });
       $("#recarregar")?.addEventListener("click", async () => {
-        meuPers.dados = { ...f, municaoUsada: 0 };
+        f.municaoUsada = 0;
+        meuPers.dados = { ...meuPers.dados, municaoUsada: 0 };
         await sb.from("personagens").update({ dados: meuPers.dados }).eq("id", meuPers.id);
         await enviar("sistema", `🔫 ${meuPers.nome} recarrega (Ação de Movimento).`); render();
       });
