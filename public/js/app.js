@@ -483,10 +483,17 @@ function shell(titulo, corpo, ativo = "") {
 }
 
 // ---------------- AUTH ----------------
+let CONT = null;   // módulo de conteúdo editável (carregado sob demanda)
+async function conteudoMod() { if (!CONT) { CONT = await import("./conteudo.js"); await CONT.carregarConteudo(); } return CONT; }
+const img = (nome) => (CONT ? CONT.thumb(nome) : "");
+const imgFig = (nome) => (CONT ? CONT.figura(nome) : "");
+const extras = (tipo) => (CONT ? CONT.conteudo()[tipo] || [] : []);
+
 async function iniciar() {
   const convite = sessionStorage.getItem("ps-convite");
   if (convite && location.hash.indexOf("#/entrar/") !== 0) { sessionStorage.removeItem("ps-convite"); location.hash = `#/entrar/${convite}`; }
   aplicarA11y(); montarA11y();
+  conteudoMod().catch(() => {});   // conteúdo do banco; se falhar, segue com o estático
   const { data: { session } } = await sb.auth.getSession();
   usuario = session?.user || null;
   if (usuario) { const { data } = await sb.from("perfis").select("*").eq("id", usuario.id).single(); perfil = data; }
@@ -2056,13 +2063,13 @@ async function telaMesa(id) {
 
 // ---------------- BIBLIOTECA (todas as informações detalhadas) ----------------
 function telaBiblioteca(aba = "racas") {
-  const abas = [["racas", "Raças"], ["classes", "Classes"], ["armas", "Arsenal"], ["armaduras", "Armaduras"], ["implantes", "Implantes"], ["scripts", "Scripts"], ["filosofias", "Filosofias"], ["naves", "Naves"], ["bestiario", "Bestiário"], ["npcs", "NPCs"]];
+  const abas = [["racas", "Raças"], ["classes", "Classes"], ["armas", "Arsenal"], ["armaduras", "Armaduras"], ["implantes", "Implantes"], ["scripts", "Scripts"], ["filosofias", "Filosofias"], ["naves", "Naves"], ["bestiario", "Bestiário"], ["npcs", "NPCs"], ["mecanicas", "Mecânicas"]];
   let corpo = "";
   const cardCriatura = (c) => { const nv = NIVEIS_AMEACA[c.ameaca] || { cor: "#8189a3" };
-    return `<details class="det grande best-card" style="border-left:3px solid ${nv.cor}"><summary><b>${esc(c.n)}</b>${c.apelido ? ` <i class="dim">${esc(c.apelido)}</i>` : ""} <span class="best-tag" style="color:${nv.cor};border-color:${nv.cor}">${esc(c.ameaca)}</span>${c.raca ? ` <i class="dim">${esc(c.raca)}</i>` : ""}</summary>
-      ${c.ambiental ? `<p>${esc(c.desc)}</p><p class="regra"><b class="chrome">⚠ Ameaça:</b> ${esc(c.ameaca_txt)}</p>` : `<p class="regra">❤ HP ${c.hp} · 🛡 CD ${c.cd} · 🏃 ${c.desloc}m${c.nota ? ` · <i>${esc(c.nota)}</i>` : ""}</p>`}
-      ${c.ataques.map((a) => `<p><b class="chrome">⚔ ${esc(a.n)}:</b> ${a.bonus != null ? `${sign(a.bonus)} acerto · ` : ""}${a.dano && a.dano !== "0" && a.dano !== "auto" ? `dano ${a.dano}` : ""}${a.extra ? ` <span class="dim">(${esc(a.extra)})</span>` : ""}</p>`).join("")}
-      ${c.habs.map((h) => `<p><b class="tech-c">✦ ${esc(h.n)}:</b> ${esc(h.d)}</p>`).join("")}</details>`; };
+    return `<details class="det grande best-card" style="border-left:3px solid ${nv.cor}"><summary>${img(c.n)}<b>${esc(c.n)}</b>${c.apelido ? ` <i class="dim">${esc(c.apelido)}</i>` : ""} <span class="best-tag" style="color:${nv.cor};border-color:${nv.cor}">${esc(c.ameaca)}</span>${c.raca ? ` <i class="dim">${esc(c.raca)}</i>` : ""}</summary>
+      ${imgFig(c.n)}${c.ambiental ? `<p>${esc(c.desc)}</p><p class="regra"><b class="chrome">⚠ Ameaça:</b> ${esc(c.ameaca_txt)}</p>` : `<p class="regra">❤ HP ${c.hp} · 🛡 CD ${c.cd} · 🏃 ${c.desloc}m${c.nota ? ` · <i>${esc(c.nota)}</i>` : ""}</p>`}
+      ${(c.ataques || []).map((a) => `<p><b class="chrome">⚔ ${esc(a.n)}:</b> ${a.bonus != null ? `${sign(a.bonus)} acerto · ` : ""}${a.dano && a.dano !== "0" && a.dano !== "auto" ? `dano ${a.dano}` : ""}${a.extra ? ` <span class="dim">(${esc(a.extra)})</span>` : ""}</p>`).join("")}
+      ${(c.habs || []).map((h) => `<p><b class="tech-c">✦ ${esc(h.n)}:</b> ${esc(h.d)}</p>`).join("")}</details>`; };
   if (aba === "racas") corpo = RACAS.map((r) => `<details class="det grande"><summary><b>${esc(r.nome)}</b> (${r.planeta}) — ${esc(r.titulo)}</summary>
     <p>${esc(r.lore)}</p>
     <p class="regra">Vida 4d6 (tira o menor) ${sign(r.vidaMod)} · ${["For","Des","Con","Int","Sab","Car"].map((a) => `${a} ${sign(r.attrs[a])}`).join(" · ")}</p>
@@ -2073,8 +2080,8 @@ function telaBiblioteca(aba = "racas") {
     ${c.hab.map((h) => `<p><b class="tech-c">${h.tipo} — ${esc(h.n)}:</b> ${esc(h.d)}</p>`).join("")}
     <p><b class="chrome">★ Veterana (NV5) — ${esc(c.vet.n)}:</b> ${esc(c.vet.d)}</p></details>`).join("");
   if (aba === "armas") corpo = ["branca", "fogo"].map((t) => `<h3 class="sub">${t === "branca" ? "⚔ Armas Brancas (1d20 + For + Armas Brancas)" : "🔫 Armas de Fogo (1d20 + Des + Armas de Fogo)"}</h3>` +
-    ARMAS.filter((a) => a.tipo === t).map((a) => `<details class="det"><summary><b>${esc(a.n)}</b> · ${a.dano}${a.kw ? ` · <i>${esc(a.kw)}</i>` : ""}</summary><p>${esc(a.desc)}${a.attr === "Des" && a.tipo === "branca" ? "<br><b>Ágil:</b> usa Destreza." : ""}</p></details>`).join("")).join("");
-  if (aba === "armaduras") corpo = ARMADURAS.map((a) => `<details class="det grande"><summary><b>${esc(a.n)}</b> · CD +${a.cd} <span class="dim">(${a.t})</span>${a.preco ? ` · <b class="chrome">${a.preco} CG</b>` : ""}</summary>${a.e ? `<p class="regra"><b>Efeito:</b> ${esc(a.e)}</p>` : ""}${a.desc ? `<p>${esc(a.desc)}</p>` : ""}</details>`).join("");
+    [...ARMAS, ...extras("armas")].filter((a) => a.tipo === t).map((a) => `<details class="det"><summary>${img(a.n)}<b>${esc(a.n)}</b> · ${a.dano}${a.kw ? ` · <i>${esc(a.kw)}</i>` : ""}</summary>${imgFig(a.n)}<p>${esc(a.desc || "")}${a.attr === "Des" && a.tipo === "branca" ? "<br><b>Ágil:</b> usa Destreza." : ""}</p></details>`).join("")).join("");
+  if (aba === "armaduras") corpo = ARMADURAS.map((a) => `<details class="det grande"><summary>${img(a.n)}<b>${esc(a.n)}</b> · CD +${a.cd} <span class="dim">(${a.t})</span>${a.preco ? ` · <b class="chrome">${a.preco} CG</b>` : ""}</summary>${a.e ? `<p class="regra"><b>Efeito:</b> ${esc(a.e)}</p>` : ""}${a.desc ? `<p>${esc(a.desc)}</p>` : ""}</details>`).join("");
   if (aba === "implantes") corpo = IMPLANTES.map((i) => `<div class="det"><b>${esc(i.n)}</b> · <b class="chrome">${i.p} CG</b> <span class="dim">(${i.g})</span> — ${esc(i.e)}</div>`).join("");
   if (aba === "scripts") corpo = SCRIPTS.map((s) => `<details class="det grande"><summary><b>${esc(s.n)}</b> <i class="sombra-c">${s.c}◈ ${esc(s.a)}</i></summary><p class="regra"><b>Efeito:</b> ${esc(s.d)}</p>${s.lore ? `<p>${esc(s.lore)}</p>` : ""}</details>`).join("");
   if (aba === "filosofias") corpo = Object.entries(FILOSOFIAS).map(([n, x]) => `<details class="det grande"><summary><b>${esc(n)}</b>${x.apelido ? ` <i class="dim">${esc(x.apelido)}</i>` : ""}${x.freq ? ` <span class="best-tag">1x/desc. ${esc(x.freq)}</span>` : ""}</summary>${x.lore ? `<p>${esc(x.lore)}</p>` : ""}<p class="regra"><b class="tech-c">Mecânica:</b> ${esc(x.d)}</p></details>`).join("");
@@ -2082,9 +2089,10 @@ function telaBiblioteca(aba = "racas") {
     NAVES.map((n) => `<details class="det grande"><summary><b>${esc(n.n)}</b> · Casco ${n.casco} · Escudos ${n.escudos} · Manobra ${sign(n.manobra)} · Dano ${n.dano}</summary>
     <p>${esc(n.desc)}</p><p class="regra">Tripulação: ${esc(n.trip)}</p></details>`).join("") +
     `<h3 class="sub">Estações de Batalha</h3>` + Object.values(ESTACOES).map((e) => `<div class="det"><b>${esc(e.n)}</b>${e.acoes.map((a) => `<p><b class="tech-c">${esc(a.n)}${a.rola ? ` (${a.rola.join("+")})` : ""}:</b> ${esc(a.d)}</p>`).join("")}</div>`).join("");
-  if (aba === "bestiario") { const cats = ["Crias do Vazio", "Inimigos das Raças", "Heranças das Estrelas"];
+  if (aba === "bestiario") { const base = ["Crias do Vazio", "Inimigos das Raças", "Heranças das Estrelas"];
+    const cats = [...base, ...[...new Set(extras("criaturas").map((c) => c.categoria))].filter((c) => c && !base.includes(c))];
     const legenda = `<p class="regra">Ordene as fichas por ameaça: ${Object.entries(NIVEIS_AMEACA).map(([n, v]) => `<span class="best-tag" style="color:${v.cor};border-color:${v.cor}">${n}</span>`).join(" ")}</p>`;
-    corpo = legenda + cats.map((cat) => { const lista = BESTIARIO.filter((c) => c.categoria === cat).sort((a, b) => (NIVEIS_AMEACA[a.ameaca]?.ordem || 0) - (NIVEIS_AMEACA[b.ameaca]?.ordem || 0));
+    corpo = legenda + cats.map((cat) => { const lista = [...BESTIARIO, ...extras("criaturas")].filter((c) => c.categoria === cat).sort((a, b) => (NIVEIS_AMEACA[a.ameaca]?.ordem || 0) - (NIVEIS_AMEACA[b.ameaca]?.ordem || 0));
       const desc = { "Crias do Vazio": "Os invasores de fora da realidade — escalonados de lacaios a chefes.", "Inimigos das Raças": "Adversários de cada povo do sistema, em três níveis de dificuldade.", "Heranças das Estrelas": "Fauna exoplanetária e quimeras do mercado negro do Caminho da Espiral." }[cat];
       return `<h3 class="sub">${esc(cat)} <span class="dim">(${lista.length})</span></h3><p class="regra">${esc(desc)}</p>${lista.map(cardCriatura).join("")}`; }).join(""); }
   if (aba === "npcs") {
@@ -2103,11 +2111,156 @@ function telaBiblioteca(aba = "racas") {
             <p><b style="color:var(--sombra)">Segredo (só o Mestre):</b> ${esc(n.segredo)}</p>
           </details>`).join(""); }).join("");
   }
+  if (aba === "mecanicas") {
+    const ms = extras("mecanicas");
+    corpo = `<p class="regra">Regras, mecânicas e conteúdo acrescentados pela administração da mesa — sempre em dia com a última versão do livro.</p>`
+      + (ms.length ? ms.map((m) => `<details class="det grande" open><summary>${img(m.titulo)}<b>${esc(m.titulo)}</b>${m.cat ? ` <span class="best-tag">${esc(m.cat)}</span>` : ""}</summary>${imgFig(m.titulo)}<div class="mec-corpo">${(m.texto || "").split("\n").filter(Boolean).map((p) => `<p>${esc(p)}</p>`).join("")}</div></details>`).join("")
+        : `<p class="regra"><i>Nenhuma mecânica adicional cadastrada ainda.</i></p>`);
+  }
+  const podeAdmin = !!perfil?.admin;
   shell("biblioteca", `
     <header class="masthead"><h1>BIBLIOTECA<span> DO SISTEMA</span></h1>
-      <div class="mast-sub">Tudo do livro Passagem Sombria v1.3, pesquisável e completo</div></header>
+      <div class="mast-sub">Tudo do livro Passagem Sombria, pesquisável e completo${podeAdmin ? ` · <button id="abrir-admin" class="mini">🛠 Administrar conteúdo</button>` : ""}</div></header>
     <div class="filtros">${abas.map(([id2, l]) => `<a href="#/biblioteca/${id2}" class="${aba === id2 ? "on" : ""}">${l}</a>`).join("")}</div>
     <section class="sec">${corpo}</section>`, "biblioteca");
+  document.getElementById("abrir-admin")?.addEventListener("click", () => painelAdmin(aba));
+}
+
+// ---------------------------------------------------------------------------
+//  PAINEL DE ADMINISTRAÇÃO — conteúdo global, editável sem mexer no código
+// ---------------------------------------------------------------------------
+async function painelAdmin(voltarPara = "racas") {
+  const C = await conteudoMod();
+  const ov = document.createElement("div"); ov.className = "ss-overlay ov-modal"; ov.style.zIndex = "10000";
+  let abaA = "imagens";
+  const recarregar = async () => { C.limparCache(); await C.carregarConteudo(true); };
+
+  const listarAlvos = () => {
+    const g = [];
+    g.push(["Criaturas", [...BESTIARIO, ...C.conteudo().criaturas].map((c) => c.n)]);
+    g.push(["Armas", [...ARMAS, ...C.conteudo().armas].map((a) => a.n)]);
+    g.push(["Armaduras", ARMADURAS.map((a) => a.n)]);
+    g.push(["Implantes", IMPLANTES.map((i) => i.n)]);
+    g.push(["Mecânicas", C.conteudo().mecanicas.map((m) => m.titulo)]);
+    return g;
+  };
+
+  const painelImagens = () => {
+    const imgs = C.conteudo().imagens;
+    const chaves = Object.keys(imgs).sort();
+    return `<p class="regra">Cole o endereço de uma imagem para ilustrar qualquer item do jogo. Sem imagem cadastrada, tudo aparece exatamente como hoje — nada quebra.</p>
+      <button id="adm-img-nova" class="mini eq">➕ Vincular imagem</button>
+      ${chaves.length ? `<div class="adm-grade">${chaves.map((k) => `<div class="adm-img"><img src="${esc(imgs[k])}" alt="" onerror="this.style.display='none'"/><span>${esc(k)}</span><button class="mini rm" data-img-del="${esc(k)}">✕</button></div>`).join("")}</div>`
+        : `<p class="regra"><i>Nenhuma imagem vinculada ainda.</i></p>`}`;
+  };
+  const painelCriaturas = () => {
+    const cs = C.conteudo().criaturas;
+    return `<p class="regra">Criaturas próprias, que aparecem no Bestiário e no rastreador de combate para toda a mesa.</p>
+      <button id="adm-cri-nova" class="mini eq">➕ Nova criatura</button>
+      ${cs.length ? cs.map((c) => `<div class="inv"><span><b>${esc(c.n)}</b> · ${esc(c.categoria || "—")} · ${esc(c.ameaca || "—")} · HP ${c.hp ?? "?"}</span><button class="mini rm" data-cri-del="${c._id}">✕</button></div>`).join("") : `<p class="regra"><i>Nenhuma criatura própria.</i></p>`}`;
+  };
+  const painelArmas = () => {
+    const as = C.conteudo().armas;
+    return `<p class="regra">Armas próprias, que entram no Arsenal e ficam disponíveis nas fichas.</p>
+      <button id="adm-arm-nova" class="mini eq">➕ Nova arma</button>
+      ${as.length ? as.map((a) => `<div class="inv"><span><b>${esc(a.n)}</b> · ${esc(a.dano || "?")} · ${esc(a.tipo || "?")}${a.preco ? ` · ${a.preco} CG` : ""}</span><button class="mini rm" data-arm-del="${a._id}">✕</button></div>`).join("") : `<p class="regra"><i>Nenhuma arma própria.</i></p>`}`;
+  };
+  const painelMecanicas = () => {
+    const ms = C.conteudo().mecanicas;
+    return `<p class="regra">Regras e mecânicas novas do livro. Aparecem na aba <b>Mecânicas</b> da Biblioteca para todos os jogadores.</p>
+      <button id="adm-mec-nova" class="mini eq">➕ Nova mecânica</button>
+      ${ms.length ? ms.map((m) => `<div class="inv"><span><b>${esc(m.titulo)}</b>${m.cat ? ` · ${esc(m.cat)}` : ""}</span><button class="mini" data-mec-ed="${m._id}">✎</button><button class="mini rm" data-mec-del="${m._id}">✕</button></div>`).join("") : `<p class="regra"><i>Nenhuma mecânica cadastrada.</i></p>`}`;
+  };
+
+  const salvar = async (tipo, dados, chave = null, id2 = null) => {
+    const linha = { tipo, chave, dados, criado_por: usuario.id, atualizado_em: new Date().toISOString() };
+    const q = id2 ? sb.from("conteudo").update(linha).eq("id", id2)
+      : (tipo === "imagem" ? sb.from("conteudo").upsert(linha, { onConflict: "tipo,chave" }) : sb.from("conteudo").insert(linha));
+    const { error } = await q;
+    if (error) { alert("Não consegui salvar: " + error.message); return false; }
+    await recarregar(); return true;
+  };
+  const apagar = async (id2) => { const { error } = await sb.from("conteudo").delete().eq("id", id2); if (error) return alert("Não consegui apagar: " + error.message); await recarregar(); };
+
+  const pintar = () => {
+    const abas = [["imagens", "🖼 Imagens"], ["criaturas", "🐉 Criaturas"], ["armas", "⚔ Armas"], ["mecanicas", "📜 Mecânicas"]];
+    ov.innerHTML = `<div class="ss-painel" style="width:680px;max-width:96vw;margin:auto;border:1px solid var(--line);border-radius:10px;max-height:94vh">
+      <div class="mp-topo"><b>🛠 Administrar conteúdo</b><button id="adm-x" class="mp-x" style="margin-left:auto">✕</button></div>
+      <div class="filtros" style="padding:8px 14px;border-bottom:1px solid var(--line);flex-wrap:wrap">
+        ${abas.map(([k, l]) => `<button class="mini ${abaA === k ? "on" : ""}" data-adm="${k}">${l}</button>`).join("")}</div>
+      <div class="di-corpo">${({ imagens: painelImagens, criaturas: painelCriaturas, armas: painelArmas, mecanicas: painelMecanicas }[abaA])()}</div></div>`;
+    ov.querySelector("#adm-x").onclick = fechar;
+    ov.querySelectorAll("[data-adm]").forEach((b) => b.onclick = () => { abaA = b.dataset.adm; pintar(); });
+
+    ov.querySelector("#adm-img-nova")?.addEventListener("click", async () => {
+      const grupos = listarAlvos();
+      const r = await modalForm({ titulo: "🖼 Vincular imagem", descricao: "Escolha o item e cole o endereço da imagem (Imgur, Drive público, qualquer host).",
+        campos: [
+          { k: "alvo", label: "Item", tipo: "select", opcoes: grupos.flatMap(([g, itens]) => itens.map((n) => ({ v: n, l: `${g}: ${n}` }))) },
+          { k: "url", label: "URL da imagem", tipo: "texto" },
+        ], okLabel: "Vincular" });
+      if (!r || !r.url) return;
+      if (await salvar("imagem", { url: r.url.trim() }, r.alvo.toLowerCase())) pintar();
+    });
+    ov.querySelectorAll("[data-img-del]").forEach((b) => b.onclick = async () => {
+      const { error } = await sb.from("conteudo").delete().eq("tipo", "imagem").eq("chave", b.dataset.imgDel);
+      if (error) return alert(error.message); await recarregar(); pintar();
+    });
+
+    ov.querySelector("#adm-cri-nova")?.addEventListener("click", async () => {
+      const r = await modalForm({ titulo: "🐉 Nova criatura", campos: [
+        { k: "n", label: "Nome", tipo: "texto" },
+        { k: "categoria", label: "Categoria", tipo: "texto", valor: "Crias do Vazio" },
+        { k: "ameaca", label: "Ameaça", tipo: "select", opcoes: Object.keys(NIVEIS_AMEACA) },
+        { k: "hp", label: "HP", tipo: "numero", valor: 30 }, { k: "cd", label: "CD", tipo: "numero", valor: 13 },
+        { k: "desloc", label: "Deslocamento (m)", tipo: "numero", valor: 9 },
+        { k: "atk", label: "Ataque (nome)", tipo: "texto" }, { k: "bonus", label: "Bônus de acerto", tipo: "numero", valor: 4 },
+        { k: "dano", label: "Dano", tipo: "texto", valor: "1d6" },
+        { k: "hab", label: "Habilidade (nome)", tipo: "texto" }, { k: "habd", label: "Habilidade (efeito)", tipo: "area", rows: 2 },
+      ], okLabel: "Criar" });
+      if (!r || !r.n) return;
+      const c = { n: r.n, categoria: r.categoria || "Personalizado", ameaca: r.ameaca, hp: +r.hp || 1, cd: +r.cd || 10, desloc: +r.desloc || 9, ataques: [], habs: [] };
+      if (r.atk) c.ataques.push({ n: r.atk, bonus: +r.bonus || 0, dano: r.dano || "1d4", extra: "" });
+      if (r.hab) c.habs.push({ n: r.hab, d: r.habd || "" });
+      if (await salvar("criatura", c)) pintar();
+    });
+    ov.querySelectorAll("[data-cri-del]").forEach((b) => b.onclick = async () => { await apagar(b.dataset.criDel); pintar(); });
+
+    ov.querySelector("#adm-arm-nova")?.addEventListener("click", async () => {
+      const r = await modalForm({ titulo: "⚔ Nova arma", campos: [
+        { k: "n", label: "Nome", tipo: "texto" },
+        { k: "tipo", label: "Tipo", tipo: "select", opcoes: [{ v: "branca", l: "Branca" }, { v: "fogo", l: "De fogo" }] },
+        { k: "dano", label: "Dano", tipo: "texto", valor: "1d8" },
+        { k: "attr", label: "Atributo", tipo: "select", opcoes: ["For", "Des"] },
+        { k: "kw", label: "Palavra-chave", tipo: "texto" },
+        { k: "preco", label: "Preço (CG)", tipo: "numero", valor: 100 },
+        { k: "desc", label: "Descrição", tipo: "area", rows: 3 },
+      ], okLabel: "Criar" });
+      if (!r || !r.n) return;
+      const a2 = { n: r.n, tipo: r.tipo, dano: r.dano || "1d6", attr: r.attr, per: r.tipo === "fogo" ? "Armas de Fogo" : "Armas Brancas", kw: r.kw || "", preco: +r.preco || 0, desc: r.desc || "" };
+      if (await salvar("arma", a2)) pintar();
+    });
+    ov.querySelectorAll("[data-arm-del]").forEach((b) => b.onclick = async () => { await apagar(b.dataset.armDel); pintar(); });
+
+    const formMec = async (existente) => {
+      const r = await modalForm({ titulo: existente ? "📜 Editar mecânica" : "📜 Nova mecânica",
+        descricao: "Aparece na aba Mecânicas da Biblioteca para todos os jogadores.",
+        campos: [
+          { k: "titulo", label: "Título", tipo: "texto", valor: existente?.titulo || "" },
+          { k: "cat", label: "Categoria (opcional)", tipo: "texto", valor: existente?.cat || "" },
+          { k: "texto", label: "Texto da regra", tipo: "area", rows: 10, valor: existente?.texto || "" },
+        ], okLabel: existente ? "Salvar" : "Publicar" });
+      if (!r || !r.titulo) return;
+      if (await salvar("mecanica", { titulo: r.titulo, cat: r.cat || "", texto: r.texto || "" }, null, existente?._id)) pintar();
+    };
+    ov.querySelector("#adm-mec-nova")?.addEventListener("click", () => formMec(null));
+    ov.querySelectorAll("[data-mec-ed]").forEach((b) => b.onclick = () => formMec(C.conteudo().mecanicas.find((m) => m._id === b.dataset.mecEd)));
+    ov.querySelectorAll("[data-mec-del]").forEach((b) => b.onclick = async () => { await apagar(b.dataset.mecDel); pintar(); });
+  };
+  const fechar = () => { document.body.style.overflow = ""; ov.remove(); telaBiblioteca(voltarPara); };
+  document.body.appendChild(ov); document.body.style.overflow = "hidden";
+  pintar();
+  ov.addEventListener("keydown", (e) => { if (e.key === "Escape") fechar(); });
 }
 
 iniciar();
