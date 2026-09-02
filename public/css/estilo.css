@@ -330,12 +330,14 @@ input:focus,select:focus,button:focus-visible{outline:2px solid var(--tech);outl
 /* ---------------- RASTREADOR DE INICIATIVA ---------------- */
 .combate-sec{border:1px solid var(--chrome)}
 .cb-lista{display:flex;flex-direction:column;gap:3px;margin-bottom:8px}
-.cb-linha{display:flex;align-items:center;gap:7px;padding:4px 6px;border-radius:5px;background:var(--panel2);font-size:12px}
+.cb-linha{display:flex;flex-wrap:wrap;align-items:center;gap:7px;row-gap:5px;padding:5px 7px;border-radius:5px;background:var(--panel2);font-size:12px}
 .cb-linha.cb-atual{background:rgba(240,168,96,.16);border:1px solid var(--chrome)}
 .cb-linha.cb-morto{opacity:.4;filter:grayscale(1)}
 .cb-ini{font-family:'IBM Plex Mono',monospace;font-weight:700;color:var(--chrome);min-width:20px;text-align:center}
-.cb-nome{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.cb-hp{position:relative;width:88px;height:16px;background:#1a1e2e;border-radius:3px;overflow:hidden;flex-shrink:0}
+.cb-nome{flex:1 1 calc(100% - 34px);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cb-hp{flex:1 1 0}
+.cb-acoes{flex:0 0 auto;margin-left:auto}
+.cb-hp{position:relative;min-width:80px;height:16px;background:#1a1e2e;border-radius:3px;overflow:hidden;flex-shrink:1}
 .cb-hp-barra{position:absolute;left:0;top:0;height:100%;opacity:.55}
 .cb-hp b{position:relative;font-size:10px;line-height:16px;display:block;text-align:center;font-family:'IBM Plex Mono',monospace}
 .cb-acoes{display:flex;gap:2px;align-items:center}
@@ -513,10 +515,7 @@ body.a11y-grande .regra,body.a11y-grande small,body.a11y-grande .dim{font-size:1
 .lin-ev.dim{color:var(--dim);font-size:12px}
 
 /* Naves no rastreador têm duas barras (casco + escudos): a linha quebra para caber */
-.cb-linha.cb-nave{flex-wrap:wrap;row-gap:5px}
-.cb-linha.cb-nave .cb-nome{flex:1 1 calc(100% - 34px)}
-.cb-linha.cb-nave .cb-hp{flex:1 1 0;width:auto;min-width:74px}
-.cb-linha.cb-nave .cb-acoes{flex:0 0 auto;margin-left:auto}
+.cb-linha.cb-nave .cb-hp{min-width:74px}
 @media(max-width:720px){
   .cb-linha.cb-nave .cb-hp{flex:1 1 calc(50% - 4px)}
   .cb-linha.cb-nave .cb-acoes{flex:1 1 100%;justify-content:flex-end}
@@ -549,3 +548,4 @@ body.a11y-grande .regra,body.a11y-grande small,body.a11y-grande .dim{font-size:1
 .pente{width:11px;height:15px;border-radius:2px;background:#1a1e2e;border:1px solid #303650;flex-shrink:0;position:relative}
 .pente.cheio{background:linear-gradient(180deg,var(--chrome) 0 30%,#8a6030 30% 100%);border-color:var(--chrome)}
 .municao-box .mini:disabled{opacity:.35;cursor:not-allowed}
+.cb-cond.sangra{background:rgba(240,122,122,.28);border-color:var(--perigo);font-weight:700}

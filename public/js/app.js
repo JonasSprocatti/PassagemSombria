@@ -267,6 +267,8 @@ function aplicarDescanso(f, tipo) {
     notas.push(`${nCurto} habilidade(s) de descanso curto reiniciada(s)`);
     if (f.raca === "Mercusys") { const cura = d(4); pvRec = Math.min(cura, Math.max(0, (f.pvMax || 0) - (f.pvAtual || 0))); f.pvAtual = Math.min(f.pvMax || 0, (f.pvAtual || 0) + cura); notas.push(`regeneração Mercusys +${cura} PV`); }
     else notas.push("PV: use Kits Médicos");
+    f.pentes = PENTES_MAX - 1; f.tirosPente = TURNOS_POR_PENTE;   // reorganizar equipamento
+    notas.push("pentes repostos");
   }
   return { tipo, pvRec, ramRec, habsReset, cat, notas };
 }
@@ -326,7 +328,25 @@ function sugerirEncontro(orc) {
 }
 
 // ---------------- COMBATE: rastreador de iniciativa ----------------
-const CONDICOES = ["Sangrando", "Atordoado", "Cego", "Envenenado", "Caído", "Congelado", "Marcado", "Lento", "Amedrontado", "Enfraquecido", "Em chamas", "Silenciado"];
+// Condições de combate. As que têm "dano" ferem automaticamente no início do turno
+// do afetado; "ic" é o ícone e "d" a regra resumida (usada no tooltip).
+const CONDICOES_INFO = [
+  { n: "Sangrando",    ic: "🩸", dano: "1d4", d: "Sofre 1d4 no início do seu turno até ser estabilizado." },
+  { n: "Em chamas",    ic: "🔥", dano: "1d6", d: "Sofre 1d6 de fogo no início do seu turno. Apagar custa a Ação Principal." },
+  { n: "Envenenado",   ic: "🧪", dano: "1d4", d: "Sofre 1d4 e tem Desvantagem em ataques e testes." },
+  { n: "Atordoado",    ic: "💫", dano: null,  d: "Perde a Ação Principal. Ataques contra o alvo têm Vantagem." },
+  { n: "Paralisado",   ic: "🧊", dano: null,  d: "Não age nem se move. Ataques a até 2m são Críticos automáticos." },
+  { n: "Congelado",    ic: "❄", dano: null,  d: "Deslocamento zero. Ainda pode agir." },
+  { n: "Cego",         ic: "🌑", dano: null,  d: "Desvantagem em ataques; ataques contra o alvo têm Vantagem." },
+  { n: "Caído",        ic: "⬇", dano: null,  d: "Deslocamento pela metade. Levantar custa a Ação de Movimento." },
+  { n: "Marcado",      ic: "🎯", dano: null,  d: "Aliados de quem marcou ganham +2 no acerto contra o alvo." },
+  { n: "Lento",        ic: "🐌", dano: null,  d: "Perde a Ação de Movimento no próximo turno." },
+  { n: "Amedrontado",  ic: "😨", dano: null,  d: "Desvantagem contra a fonte do medo; não pode se aproximar dela." },
+  { n: "Enfraquecido", ic: "💔", dano: null,  d: "Causa metade do dano em ataques físicos." },
+  { n: "Silenciado",   ic: "🔇", dano: null,  d: "Não conjura Scripts nem usa habilidades que exijam fala." },
+];
+const CONDICOES = CONDICOES_INFO.map((c) => c.n);
+const infoCond = (nome) => CONDICOES_INFO.find((c) => c.n.toLowerCase() === String(nome || "").toLowerCase());
 const combateVazio = () => ({ ativo: false, rodada: 1, turno: 0, ordem: [], avarias: [], agiram: [] });
 // Um participante pode ser pessoa/criatura (hp) ou nave (casco). Estes helpers unificam os dois.
 const ehNave = (c) => c?.tipo === "nave";
@@ -959,7 +979,7 @@ async function telaMesa(id) {
             <div class="cb-lista">${camp.combate.ordem.map((c, i) => `
               <div class="cb-linha ${i === camp.combate.turno ? "cb-atual" : ""} ${foraDeCombate(c) ? "cb-morto" : ""} ${ehNave(c) ? "cb-nave" : ""}">
                 <span class="cb-ini" title="Iniciativa">${c.ini}</span>
-                <span class="cb-nome">${i === camp.combate.turno ? "▶ " : ""}${ehNave(c) ? "🚀 " : ""}${esc(c.nome)}${c.tipo === "inimigo" ? ` <i class="dim">${esc(c.ameaca || "")}</i>` : ""}${ehNave(c) ? ` <i class="dim">Def ${10 + (c.manobra || 0)}</i>` : ""}${(c.cond && c.cond.length) ? `<span class="cb-conds">${c.cond.map((cd) => `<span class="cb-cond" title="${esc(cd.n)} · ${cd.turnos} turno(s)">${esc(cd.n)} ${cd.turnos}</span>`).join("")}</span>` : ""}</span>
+                <span class="cb-nome">${i === camp.combate.turno ? "▶ " : ""}${ehNave(c) ? "🚀 " : ""}${esc(c.nome)}${c.tipo === "inimigo" ? ` <i class="dim">${esc(c.ameaca || "")}</i>` : ""}${ehNave(c) ? ` <i class="dim">Def ${10 + (c.manobra || 0)}</i>` : ""}${(c.cond && c.cond.length) ? `<span class="cb-conds">${c.cond.map((cd) => `<span class="cb-cond ${infoCond(cd.n)?.dano ? "sangra" : ""}" title="${esc(cd.n)} · ${cd.turnos} turno(s)${infoCond(cd.n) ? " — " + esc(infoCond(cd.n).d) : ""}">${infoCond(cd.n)?.ic || "🏷"} ${esc(cd.n)} ${cd.turnos}</span>`).join("")}</span>` : ""}</span>
                 <span class="cb-hp" title="${ehNave(c) ? "Casco" : "Vida"}"><span class="cb-hp-barra" style="width:${Math.max(0, Math.min(100, vidaMax(c) ? vidaAtual(c) / vidaMax(c) * 100 : 0))}%;background:${(c.tipo === "inimigo" || c.lado === "inimiga") ? "var(--perigo)" : ehNave(c) ? "var(--chrome)" : "var(--tech)"}"></span><b>${vidaAtual(c)}/${vidaMax(c)}</b></span>${ehNave(c) ? `<span class="cb-hp" title="Escudos"><span class="cb-hp-barra" style="width:${Math.max(0, Math.min(100, c.escudos_max ? c.escudos / c.escudos_max * 100 : 0))}%;background:var(--tech)"></span><b>${c.escudos}/${c.escudos_max}</b></span>` : ""}
                 ${souMestre ? `<span class="cb-acoes">${c.tipo === "inimigo" && c.ataques ? c.ataques.map((atk, ai) => `<button class="cb-atk" data-cb="${c.id}" data-atk="${ai}" title="Rolar: ${esc(atk.n)}">⚔${c.ataques.length > 1 ? ai + 1 : ""}</button>`).join("") : ""}${(ehNave(c) && c.lado === "inimiga") ? `<button class="cb-atk" data-cb-nave="${c.id}" title="Esta nave dispara">⚔</button>` : ""}<button class="cb-dmg" data-cb="${c.id}" data-d="-5">−5</button><button class="cb-dmg" data-cb="${c.id}" data-d="5">+5</button><input class="cb-hpset" data-cb="${c.id}" type="number" value="${vidaAtual(c)}" style="width:46px" title="${ehNave(c) ? "definir Casco" : "definir HP"}"><button class="cb-hpset-lbl cb-cond-add" data-cb="${c.id}" title="Adicionar condição">🏷</button><button class="cb-rm" data-cb="${c.id}" title="remover">✕</button></span>` : ""}
               </div>`).join("")}</div>
@@ -1164,6 +1184,15 @@ async function telaMesa(id) {
       });
       // Descanso convocado pelo Mestre: cada cliente aplica no SEU personagem vinculado.
       // Só ao vivo (aoVivo) para não reaplicar ao recarregar o histórico.
+      if (aoVivo && m.tipo === "descanso" && meuPers) {
+        (async () => {
+          const dados = { ...novaFichaDados(), ...meuPers.dados };
+          const r = aplicarDescanso(dados, m.payload?.tipo === "longo" ? "longo" : "curto");
+          dados.log = [{ q: new Date().toISOString(), t: `${m.payload?.tipo === "longo" ? "🌙" : "☾"} ${r.notas.join(" · ")}` }, ...(dados.log || [])].slice(0, 60);
+          const { error } = await sb.from("personagens").update({ dados }).eq("id", meuPers.id);
+          if (!error) { meuPers.dados = dados; await enviar("sistema", `🛌 ${meuPers.nome}: ${r.notas.join(" · ")}.`); render(); }
+        })();
+      }
       if (aoVivo && m.tipo === "recompensa" && meuPers) {
         (async () => {
           const dados = { ...novaFichaDados(), ...meuPers.dados }; const p = m.payload || {}; const notas = [];
@@ -1174,7 +1203,7 @@ async function telaMesa(id) {
             notas.push(`+${dados.pentes - antes} pente(s) (${dados.pentes} na reserva)`); }
           dados.log = [{ q: new Date().toISOString(), t: `🎁 Recompensa do Mestre: ${notas.join(" · ")}` }, ...(dados.log || [])].slice(0, 60);
           const { error } = await sb.from("personagens").update({ dados }).eq("id", meuPers.id);
-          if (!error) { meuPers.dados = dados; await enviar("sistema", `🎖 ${meuPers.nome}: ${notas.join(" · ")}${dados.metodoNivel === "xp" && dados.xp >= dados.xpMeta ? " — PRONTO PARA SUBIR!" : ""}`); }
+          if (!error) { meuPers.dados = dados; await enviar("sistema", `🎖 ${meuPers.nome}: ${notas.join(" · ")}${dados.metodoNivel === "xp" && dados.xp >= dados.xpMeta ? " — PRONTO PARA SUBIR!" : ""}`); render(); }
         })();
       }
     };
@@ -1644,21 +1673,53 @@ async function telaMesa(id) {
     });
     app.querySelectorAll(".cb-cond-add").forEach((b) => b.onclick = async () => {
       const c = cbFind(b.dataset.cb); if (!c) return;
-      const r = await modalForm({ titulo: `🏷 Condição — ${c.nome}`, campos: [
-        { k: "nome", label: "Condição", tipo: "select", opcoes: CONDICOES },
-        { k: "turnos", label: "Duração (turnos)", tipo: "numero", valor: 2, min: 1 }], okLabel: "Aplicar" });
-      if (!r || !r.nome || !r.turnos || r.turnos < 1) return;
-      if (!c.cond) c.cond = []; c.cond.push({ n: r.nome, turnos: r.turnos });
-      enviar("sistema", `🏷 ${c.nome} está ${r.nome} (${r.turnos} turno${r.turnos > 1 ? "s" : ""}).`);
+      const r = await modalForm({ titulo: `🏷 Condição — ${c.nome}`,
+        descricao: "As condições com dano ferem sozinhas no início do turno do afetado e já descontam da ficha.",
+        campos: [
+          { k: "cond", label: "Condição", tipo: "select", opcoes: CONDICOES_INFO.map((x) => ({ v: x.n, l: `${x.ic} ${x.n}${x.dano ? ` (${x.dano}/turno)` : ""} — ${x.d}` })) },
+          { k: "turnos", label: "Duração (turnos)", tipo: "numero", valor: 2, min: 1, max: 20 },
+        ], okLabel: "Aplicar" });
+      if (!r || !r.cond) return;
+      snapshot("aplicar condição");
+      if (!c.cond) c.cond = [];
+      const ja = c.cond.find((x) => x.n === r.cond);
+      if (ja) ja.turnos = Math.max(ja.turnos, +r.turnos || 1); else c.cond.push({ n: r.cond, turnos: +r.turnos || 1 });
+      const inf = infoCond(r.cond);
+      await enviar("sistema", `${inf?.ic || "🏷"} ${c.nome} está ${r.cond} por ${r.turnos} turno(s).${inf?.dano ? ` Sofrerá ${inf.dano} no início de cada turno.` : ""}`);
       await salvarCombate(); render();
     });
     $("#cb-prox")?.addEventListener("click", async () => { const rodAntes = camp.combate.rodada; proximoTurno(camp.combate); if (camp.combate.rodada !== rodAntes) camp.combate.agiram = []; const atual = camp.combate.ordem[camp.combate.turno];
-      if (atual) { // condições do combatente que começa o turno decrementam; expiradas somem
+      if (atual) {
+        // 1) Condições que ferem: rolam o dano no início do turno do afetado
+        let totalDano = 0; const detalhes = [];
+        for (const cd of (atual.cond || [])) {
+          const info = infoCond(cd.n); if (!info?.dano) continue;
+          const pdc = parseDice(info.dano); const dds = rollNd(pdc.n, pdc.f);
+          const v = dds.reduce((x, y) => x + y, 0) + pdc.mod;
+          totalDano += v; detalhes.push(`${info.ic} ${cd.n} ${info.dano} [${dds.join(", ")}] = ${v}`);
+        }
+        if (totalDano > 0) {
+          if (ehNave(atual)) { danoNave(atual, totalDano); if (atual.nave_party && camp.nave) { camp.nave.casco = atual.casco; camp.nave.escudos = atual.escudos; await sb.from("campanhas").update({ nave: camp.nave }).eq("id", id); } }
+          else atual.hp = Math.max(0, (atual.hp || 0) - totalDano);
+          // sensibiliza a ficha do jogador, se for um personagem vinculado
+          if (atual.personagem_id) {
+            const alvoP = (pers || []).find((x) => x.id === atual.personagem_id);
+            if (alvoP) { const dd = { ...novaFichaDados(), ...alvoP.dados };
+              dd.pvAtual = Math.max(0, (dd.pvAtual || 0) - totalDano);
+              dd.log = [{ q: new Date().toISOString(), t: `☠ ${detalhes.join(" · ")} → −${totalDano} PV` }, ...(dd.log || [])].slice(0, 60);
+              await sb.from("personagens").update({ dados: dd }).eq("id", alvoP.id); alvoP.dados = dd;
+            }
+          }
+          await enviar("sistema", `☠ ${atual.nome} sofre ${totalDano} de dano por condição — ${detalhes.join(" · ")}. Agora ${vidaAtual(atual)}/${vidaMax(atual)}.`);
+          if (foraDeCombate(atual)) await enviar("sistema", `💀 ${atual.nome} caiu por efeito de condição.`);
+        }
+        // 2) Contadores decrementam; as que expiram somem
         if (atual.cond && atual.cond.length) { const expiradas = [];
           atual.cond = atual.cond.filter((cd) => { cd.turnos -= 1; if (cd.turnos <= 0) { expiradas.push(cd.n); return false; } return true; });
-          if (expiradas.length) enviar("sistema", `✔ ${atual.nome}: acabou ${expiradas.join(", ")}.`);
+          if (expiradas.length) await enviar("sistema", `✔ ${atual.nome}: acabou ${expiradas.join(", ")}.`);
         }
-        enviar("sistema", `⚔ Rodada ${camp.combate.rodada} · vez de ${atual.nome}${atual.cond && atual.cond.length ? ` (${atual.cond.map((x) => x.n).join(", ")})` : ""}.`);
+        const impedido = (atual.cond || []).some((cd) => /atordoado|paralisado/i.test(cd.n));
+        await enviar("sistema", `⚔ Rodada ${camp.combate.rodada} · vez de ${atual.nome}${atual.cond && atual.cond.length ? ` (${atual.cond.map((x) => `${infoCond(x.n)?.ic || ""}${x.n}`).join(", ")})` : ""}${impedido ? " — não pode agir neste turno!" : ""}.`);
       }
       await salvarCombate(); render(); });
     $("#cb-add-btn")?.addEventListener("click", async () => {
