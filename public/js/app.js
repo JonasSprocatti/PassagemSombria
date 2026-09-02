@@ -921,16 +921,23 @@ async function telaMesa(id) {
   let asCegas = false;           // rolagem às cegas: resultado só para o Mestre, fora do chat
   const pilhaUndo = [];          // snapshots para desfazer a última ação do Mestre (máx 10)
   let recapFeita = false;        // a recapitulação aparece uma vez por entrada na mesa
-  const salvarMapa = async (mapa) => { camp.mapa = mapa; const { error } = await sb.from("campanhas").update({ mapa }).eq("id", id); if (error) alert("Não consegui salvar o mapa: " + error.message); };
+  // O realtime devolve as nossas próprias gravações. Se chegarem enquanto ainda
+  // estamos no meio de uma operação, sobrescrevem o estado local e travam o turno.
+  let gravandoAte = 0;
+  const marcarGravacao = () => { gravandoAte = Date.now() + 1500; };
+  const ecoProprio = () => Date.now() < gravandoAte;
+  // Toda gravação em `campanhas` passa por aqui, para o eco do realtime ser ignorado.
+  const salvarCampanha = (campos) => { marcarGravacao(); return sb.from("campanhas").update(campos); };
+  const salvarMapa = async (mapa) => { camp.mapa = mapa; const { error } = await salvarCampanha({ mapa }).eq("id", id); if (error) alert("Não consegui salvar o mapa: " + error.message); };
   if (!camp.combate || typeof camp.combate !== "object" || !("ordem" in camp.combate)) camp.combate = combateVazio();
   const snapshot = (rotulo) => { pilhaUndo.push({ rotulo, combate: JSON.parse(JSON.stringify(camp.combate || {})), nave: JSON.parse(JSON.stringify(camp.nave || null)), combate_nave: JSON.parse(JSON.stringify(camp.combate_nave || {})) }); if (pilhaUndo.length > 10) pilhaUndo.shift(); };
-  const salvarCombate = async () => { const { error } = await sb.from("campanhas").update({ combate: camp.combate }).eq("id", id); if (error) alert("Não consegui salvar o combate: " + error.message); };
+  const salvarCombate = async () => { const { error } = await salvarCampanha({ combate: camp.combate }).eq("id", id); if (error) alert("Não consegui salvar o combate: " + error.message); };
   if (!Array.isArray(camp.bestiario)) camp.bestiario = [];
   if (!camp.combate_nave || typeof camp.combate_nave !== "object" || !("inimigas" in camp.combate_nave)) camp.combate_nave = combateNaveVazio();
   if (!camp.faccoes || typeof camp.faccoes !== "object") camp.faccoes = {};
   if (!Array.isArray(camp.contratos)) camp.contratos = [];
   if (!camp.handout || typeof camp.handout !== "object") camp.handout = {};
-  const salvarBestiario = async () => { const { error } = await sb.from("campanhas").update({ bestiario: camp.bestiario }).eq("id", id); if (error) alert("Não consegui salvar o bestiário: " + error.message); };
+  const salvarBestiario = async () => { const { error } = await salvarCampanha({ bestiario: camp.bestiario }).eq("id", id); if (error) alert("Não consegui salvar o bestiário: " + error.message); };
 
   const enviar = async (tipo, conteudo, payload = null) => {
     if (asCegas && souMestre && tipo === "rolagem") {   // às cegas: fica só na tela do Mestre
@@ -1218,7 +1225,8 @@ async function telaMesa(id) {
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "mensagens", filter: `campanha_id=eq.${id}` },
         async (pl) => { const { data: m } = await sb.from("mensagens").select("*,perfis:autor_id(apelido,avatar_url)").eq("id", pl.new.id).single(); if (m) addMsg(m, true); })
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "campanhas", filter: `id=eq.${id}` },
-        (pl) => { camp.nave = pl.new.nave; camp.mapa = pl.new.mapa; camp.combate = pl.new.combate; camp.combate_nave = pl.new.combate_nave || combateNaveVazio(); camp.handout = pl.new.handout || {}; camp.faccoes = pl.new.faccoes || {}; camp.contratos = pl.new.contratos || []; camp.bestiario = pl.new.bestiario || []; mapaCtrl?.atualizar(pl.new.mapa, pl.new.combate); render(); })
+        (pl) => { if (ecoProprio()) return;   // é a nossa própria gravação voltando
+          camp.nave = pl.new.nave; camp.mapa = pl.new.mapa; camp.combate = pl.new.combate; camp.combate_nave = pl.new.combate_nave || combateNaveVazio(); camp.handout = pl.new.handout || {}; camp.faccoes = pl.new.faccoes || {}; camp.contratos = pl.new.contratos || []; camp.bestiario = pl.new.bestiario || []; mapaCtrl?.atualizar(pl.new.mapa, pl.new.combate); render(); })
       .subscribe();
 
     // ---- binds ----
@@ -1251,14 +1259,14 @@ async function telaMesa(id) {
       ], okLabel: "Mostrar" });
       if (!r || !r.url) return;
       camp.handout = { url: r.url.trim(), titulo: (r.titulo || "").trim(), visivel: true };
-      const { error } = await sb.from("campanhas").update({ handout: camp.handout }).eq("id", id);
+      const { error } = await salvarCampanha({ handout: camp.handout }).eq("id", id);
       if (error) return alert("Não consegui compartilhar: " + error.message);
       await enviar("sistema", `🖼 O Mestre mostrou uma imagem${r.titulo ? `: ${r.titulo}` : ""}.`);
       render();
     });
     $("#handout-off")?.addEventListener("click", async () => {
       camp.handout = { ...(camp.handout || {}), visivel: false };
-      await sb.from("campanhas").update({ handout: camp.handout }).eq("id", id);
+      await salvarCampanha({ handout: camp.handout }).eq("id", id);
       render();
     });
     const fazerBackup = async () => {
@@ -1285,7 +1293,7 @@ async function telaMesa(id) {
         const ok = await confirmModal(`Restaurar o estado desta campanha a partir do backup de ${new Date(b.exportado_em).toLocaleDateString("pt-BR")}?\n\nIsso substitui a NAVE, o MAPA, o COMBATE e o BESTIÁRIO do Mestre pelos do arquivo. As mensagens e as fichas dos jogadores NÃO são tocadas.`, { okLabel: "Restaurar", perigo: true });
         if (!ok) return;
         const c = b.campanha || {};
-        const { error } = await sb.from("campanhas").update({ nave: c.nave ?? camp.nave, mapa: c.mapa ?? {}, combate: c.combate ?? combateVazio(), bestiario: c.bestiario ?? [] }).eq("id", id);
+        const { error } = await salvarCampanha({ nave: c.nave ?? camp.nave, mapa: c.mapa ?? {}, combate: c.combate ?? combateVazio(), bestiario: c.bestiario ?? [] }).eq("id", id);
         if (error) return alert("Não consegui restaurar: " + error.message);
         Object.assign(camp, { nave: c.nave ?? camp.nave, mapa: c.mapa ?? {}, combate: c.combate ?? combateVazio(), bestiario: c.bestiario ?? [] });
         await enviar("sistema", "♻ O Mestre restaurou o estado da campanha a partir de um backup.");
@@ -1306,7 +1314,7 @@ async function telaMesa(id) {
       const ov = document.createElement("div"); ov.className = "ss-overlay ov-modal"; ov.style.zIndex = "10000";
       const abas = [["mesa", "🎬 Mesa"], ["ref", "📖 Referência"], ["tab", "🎲 Tabelas"], ["enc", "⚖ Encontros"], ["fac", "🏛 Facções"], ["con", "📋 Contratos"], ["lin", "🕰 Linha do tempo"], ["not", "📝 Anotações"]];
       let abaAtiva = "mesa";
-      const salvarCamp = async (campos) => { const { error } = await sb.from("campanhas").update(campos).eq("id", id); if (error) alert("Não consegui salvar: " + error.message); };
+      const salvarCamp = async (campos) => { const { error } = await salvarCampanha(campos).eq("id", id); if (error) alert("Não consegui salvar: " + error.message); };
 
       const painelMesa = () => `
         <div class="det grande"><b>☾ Descansos</b>
@@ -1639,7 +1647,7 @@ async function telaMesa(id) {
       const snap = pilhaUndo.pop();
       if (!snap) return alert("Nada para desfazer nesta sessão.");
       camp.combate = snap.combate; camp.combate_nave = snap.combate_nave; if (snap.nave) camp.nave = snap.nave;
-      await sb.from("campanhas").update({ combate: camp.combate, combate_nave: camp.combate_nave, ...(snap.nave ? { nave: camp.nave } : {}) }).eq("id", id);
+      await salvarCampanha({ combate: camp.combate, combate_nave: camp.combate_nave, ...(snap.nave ? { nave: camp.nave } : {}) }).eq("id", id);
       await enviar("sistema", `↶ O Mestre desfez: ${snap.rotulo}.`); render();
     });
     $("#cb-fim")?.addEventListener("click", async () => { if (confirm("Encerrar o combate e limpar a ordem?")) { camp.combate = combateVazio(); await salvarCombate(); render(); } });
@@ -1657,7 +1665,7 @@ async function telaMesa(id) {
       let extra = `Escudos −${r.escudos}, Casco −${r.casco}. ${alvo.nome}: ${alvo.casco}/${alvo.casco_max}`;
       if ((nat === 20 || r.critico) && r.casco > 0) { const av = rolarAvaria(); (camp.combate.avarias = camp.combate.avarias || []).push(av); extra += `  ⚠ ${av.n}: ${av.e}`; }
       if (alvo.casco <= 0) extra += "  💀 Casco a zero!";
-      if (alvo.nave_party && camp.nave) { camp.nave.casco = alvo.casco; camp.nave.escudos = alvo.escudos; await sb.from("campanhas").update({ nave: camp.nave }).eq("id", id); }
+      if (alvo.nave_party && camp.nave) { camp.nave.casco = alvo.casco; camp.nave.escudos = alvo.escudos; await salvarCampanha({ nave: camp.nave }).eq("id", id); }
       await salvarCombate();
       await enviar("rolagem", null, { titulo: `🚀 ${atc.nome} dispara`, detalhe: `d20 [${nat}] +4 vs Def ${def} · dano ${atc.dano} [${dd.join(", ")}]${nat === 20 ? " ×2" : ""}`, total, crit: nat === 20, extra });
       render();
@@ -1683,7 +1691,7 @@ async function telaMesa(id) {
       await enviar("sistema", `${inf?.ic || "🏷"} ${c.nome} está ${r.cond} por ${r.turnos} turno(s).${inf?.dano ? ` Sofrerá ${inf.dano} no início de cada turno.` : ""}`);
       await salvarCombate(); render();
     });
-    $("#cb-prox")?.addEventListener("click", async () => { const rodAntes = camp.combate.rodada; proximoTurno(camp.combate); if (camp.combate.rodada !== rodAntes) camp.combate.agiram = []; const atual = camp.combate.ordem[camp.combate.turno];
+    $("#cb-prox")?.addEventListener("click", async () => { let salvarNaveJunto = false; const rodAntes = camp.combate.rodada; proximoTurno(camp.combate); if (camp.combate.rodada !== rodAntes) camp.combate.agiram = []; const atual = camp.combate.ordem[camp.combate.turno];
       if (atual) {
         // 1) Condições que ferem: rolam o dano no início do turno do afetado
         let totalDano = 0; const detalhes = [];
@@ -1694,7 +1702,7 @@ async function telaMesa(id) {
           totalDano += v; detalhes.push(`${info.ic} ${cd.n} ${info.dano} [${dds.join(", ")}] = ${v}`);
         }
         if (totalDano > 0) {
-          if (ehNave(atual)) { danoNave(atual, totalDano); if (atual.nave_party && camp.nave) { camp.nave.casco = atual.casco; camp.nave.escudos = atual.escudos; await sb.from("campanhas").update({ nave: camp.nave }).eq("id", id); } }
+          if (ehNave(atual)) { danoNave(atual, totalDano); if (atual.nave_party && camp.nave) { camp.nave.casco = atual.casco; camp.nave.escudos = atual.escudos; salvarNaveJunto = true; } }
           else atual.hp = Math.max(0, (atual.hp || 0) - totalDano);
           // sensibiliza a ficha do jogador, se for um personagem vinculado
           if (atual.personagem_id) {
@@ -1716,7 +1724,12 @@ async function telaMesa(id) {
         const impedido = (atual.cond || []).some((cd) => /atordoado|paralisado/i.test(cd.n));
         await enviar("sistema", `⚔ Rodada ${camp.combate.rodada} · vez de ${atual.nome}${atual.cond && atual.cond.length ? ` (${atual.cond.map((x) => `${infoCond(x.n)?.ic || ""}${x.n}`).join(", ")})` : ""}${impedido ? " — não pode agir neste turno!" : ""}.`);
       }
-      await salvarCombate(); render(); });
+      // Gravação única: escrever em campanhas no meio do handler dispara o realtime,
+      // que sobrescreveria camp.combate com o estado antigo e travaria o turno.
+      const campos = { combate: camp.combate }; if (salvarNaveJunto) campos.nave = camp.nave;
+      const { error: errProx } = await salvarCampanha(campos).eq("id", id);
+      if (errProx) alert("Não consegui salvar o turno: " + errProx.message);
+      render(); });
     $("#cb-add-btn")?.addEventListener("click", async () => {
       const v = $("#cb-quem").value; if (!v) return;
       if (v.startsWith("j:")) { const p = (pers || []).find((x) => x.id === v.slice(2)); if (!p) return;
@@ -1757,10 +1770,10 @@ async function telaMesa(id) {
       if (ehNave(c)) {
         if (delta < 0) { const r = danoNave(c, -delta); if (r.critico) { const av = rolarAvaria(); (camp.combate.avarias = camp.combate.avarias || []).push(av); await enviar("sistema", `⚠ ${c.nome}: ${av.n} — ${av.e}`); } }
         else c.escudos = Math.min(c.escudos_max, c.escudos + delta);
-        if (c.nave_party && camp.nave) { camp.nave.casco = c.casco; camp.nave.escudos = c.escudos; await sb.from("campanhas").update({ nave: camp.nave }).eq("id", id); }
+        if (c.nave_party && camp.nave) { camp.nave.casco = c.casco; camp.nave.escudos = c.escudos; await salvarCampanha({ nave: camp.nave }).eq("id", id); }
       } else c.hp = Math.max(0, Math.min(c.hp_max, c.hp + delta));
       await salvarCombate(); render(); });
-    app.querySelectorAll(".cb-hpset").forEach((i) => i.onchange = async () => { const c = cbFind(i.dataset.cb); if (!c) return; if (ehNave(c)) { c.casco = Math.max(0, Math.min(c.casco_max, +i.value || 0)); if (c.nave_party && camp.nave) { camp.nave.casco = c.casco; await sb.from("campanhas").update({ nave: camp.nave }).eq("id", id); } }
+    app.querySelectorAll(".cb-hpset").forEach((i) => i.onchange = async () => { const c = cbFind(i.dataset.cb); if (!c) return; if (ehNave(c)) { c.casco = Math.max(0, Math.min(c.casco_max, +i.value || 0)); if (c.nave_party && camp.nave) { camp.nave.casco = c.casco; await salvarCampanha({ nave: camp.nave }).eq("id", id); } }
       else c.hp = Math.max(0, Math.min(c.hp_max, +i.value || 0));
       await salvarCombate(); render(); });
     app.querySelectorAll(".cb-rm").forEach((b) => b.onclick = async () => { const idx = camp.combate.ordem.findIndex((x) => x.id === b.dataset.cb); if (idx < 0) return; snapshot("remover combatente");
@@ -1849,14 +1862,14 @@ async function telaMesa(id) {
     $("#def-nave")?.addEventListener("click", async () => {
       const n = NAVES.find((x) => x.n === $("#sel-nave").value);
       const nave = { modelo: n.n, nome_batismo: $("#nave-nome").value.trim() || n.n, casco: n.casco, casco_max: n.casco, escudos: n.escudos, escudos_max: n.escudos, manobra: n.manobra, dano: n.dano };
-      await sb.from("campanhas").update({ nave }).eq("id", id);
+      await salvarCampanha({ nave }).eq("id", id);
       enviar("nave", `A nave ${nave.nome_batismo} (${n.n}) entrou em serviço. Casco ${n.casco}, Escudos ${n.escudos}, Defesa ${10 + n.manobra}.`);
     });
     $("#sel-posto")?.addEventListener("change", async (e) => {
       await sb.from("campanha_membros").update({ posto: e.target.value || null }).eq("campanha_id", id).eq("perfil_id", usuario.id);
       location.reload();
     });
-    const salvarCbn = async () => { const { error } = await sb.from("campanhas").update({ combate_nave: camp.combate_nave }).eq("id", id); if (error) alert("Não consegui salvar o combate espacial: " + error.message); };
+    const salvarCbn = async () => { const { error } = await salvarCampanha({ combate_nave: camp.combate_nave }).eq("id", id); if (error) alert("Não consegui salvar o combate espacial: " + error.message); };
     $("#cbn-iniciar")?.addEventListener("click", async () => {
       camp.combate_nave = { ...combateNaveVazio(), ativo: true };
       await salvarCbn(); await enviar("sistema", "🚀 Alerta vermelho: combate espacial iniciado. Todos aos postos!"); render();
@@ -1870,7 +1883,7 @@ async function telaMesa(id) {
       // Núcleo de Reparo Automático
       if ((camp.nave?.upgrades || []).some((u) => u === "Núcleo de Reparo Automático") && camp.nave.casco < camp.nave.casco_max) {
         const rep = d(6); camp.nave.casco = Math.min(camp.nave.casco_max, camp.nave.casco + rep);
-        await sb.from("campanhas").update({ nave: camp.nave }).eq("id", id);
+        await salvarCampanha({ nave: camp.nave }).eq("id", id);
         await enviar("sistema", `🔧 Núcleo de Reparo: +${rep} de Casco (${camp.nave.casco}/${camp.nave.casco_max}).`);
       }
       await salvarCbn(); await enviar("sistema", `🚀 Rodada ${cb.rodada}. Postos liberados para agir.`); render();
@@ -1909,7 +1922,7 @@ async function telaMesa(id) {
         extra += `  ⚠ FALHA CRÍTICA — ${av.n}: ${av.e}`;
       }
       if (camp.nave.casco <= 0) extra += "  💀 CASCO A ZERO: a nave está destruída ou à deriva.";
-      await sb.from("campanhas").update({ nave: camp.nave }).eq("id", id);
+      await salvarCampanha({ nave: camp.nave }).eq("id", id);
       await salvarCbn();
       await enviar("rolagem", null, { titulo: `🚀 ${x.nome} dispara`, detalhe: `d20 [${nat}] +4 vs Defesa ${def} · dano ${x.dano} [${dados.join(", ")}]${nat === 20 ? " ×2" : ""}`, total, crit: nat === 20, extra });
       render();
@@ -1934,7 +1947,7 @@ async function telaMesa(id) {
       if (u.campo === "manobra") camp.nave.manobra = (camp.nave.manobra || 0) + u.v;
       if (u.penal?.manobra) camp.nave.manobra = (camp.nave.manobra || 0) + u.penal.manobra;
       if (u.campo === "dano_bonus") { const pd = parseDice(camp.nave.dano); if (pd) camp.nave.dano = `${pd.n + 1}d${pd.f}${pd.mod ? sign(pd.mod) : ""}`; }
-      await sb.from("campanhas").update({ nave: camp.nave }).eq("id", id);
+      await salvarCampanha({ nave: camp.nave }).eq("id", id);
       await enviar("sistema", `🔧 ${camp.nave.nome_batismo || camp.nave.modelo} recebeu uma melhoria: ${u.n}. ${u.e}`);
       render();
     });
@@ -1942,7 +1955,7 @@ async function telaMesa(id) {
       const v = +$("#nave-dano").value; if (!v || !camp.nave) return;
       const n = { ...camp.nave };
       const abs = Math.min(n.escudos, v); n.escudos -= abs; n.casco = Math.max(0, n.casco - (v - abs));
-      await sb.from("campanhas").update({ nave: n }).eq("id", id);
+      await salvarCampanha({ nave: n }).eq("id", id);
       enviar("nave", `A nave sofreu ${v} de dano (${abs} nos escudos). Casco ${n.casco}/${n.casco_max}, Escudos ${n.escudos}/${n.escudos_max}.${n.casco === 0 ? " ⚠ CASCO ZERO — À DERIVA!" : ""}`);
     });
     if (meuPosto && f) app.querySelectorAll("[data-est]").forEach((b) => b.onclick = async () => {
@@ -1955,7 +1968,7 @@ async function telaMesa(id) {
         const pd = parseDice(acao.dado); const val = rollNd(pd.n, pd.f).reduce((a, b) => a + b, 0) + (acao.cura === "escudos" ? f.nivel : 0);
         const n = { ...camp.nave };
         n[acao.cura] = Math.min(n[acao.cura + "_max"], n[acao.cura] + val);
-        await sb.from("campanhas").update({ nave: n }).eq("id", id);
+        await salvarCampanha({ nave: n }).eq("id", id);
         extra = `+${val} de ${acao.cura}! (${n[acao.cura]}/${n[acao.cura + "_max"]})`;
       }
       // Artilharia: se há combate espacial ativo, resolve contra uma nave inimiga
@@ -1975,11 +1988,11 @@ async function telaMesa(id) {
             if (alvo.casco <= 0) extra += "  💥 NAVE ABATIDA!";
           } else extra = `Errou — Defesa ${def} da ${alvo.nome}.`;
           camp.combate.agiram = [...new Set([...(camp.combate.agiram || []), meuPosto])];
-          await sb.from("campanhas").update({ combate: camp.combate }).eq("id", id);
+          await salvarCampanha({ combate: camp.combate }).eq("id", id);
         }
       } else if (camp.combate?.ativo) {
         camp.combate.agiram = [...new Set([...(camp.combate.agiram || []), meuPosto])];
-        await sb.from("campanhas").update({ combate: camp.combate }).eq("id", id);
+        await salvarCampanha({ combate: camp.combate }).eq("id", id);
       }
       enviar("rolagem", null, { titulo: `${ESTACOES[meuPosto].n} — ${acao.n}`, detalhe: `d20 [${nat}] ${sign(mod)} (${at}+${pn})`, total, crit: nat === 20, fumble: nat === 1, extra });
     });
