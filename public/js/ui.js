@@ -73,6 +73,9 @@ function beep(freq, dur, vol) {
 }
 export function somMensagem() { beep(620, 0.12); }
 export function somDado() { beep(880, 0.05); setTimeout(() => beep(1200, 0.07), 65); }
+// Um crítico sobe; uma falha desaba. O ouvido entende antes dos olhos.
+export function somCritico() { [660, 880, 1320].forEach((f, i) => setTimeout(() => beep(f, 0.09, 0.16), i * 70)); }
+export function somFalha() { [400, 300, 190].forEach((f, i) => setTimeout(() => beep(f, 0.11, 0.14), i * 80)); }
 export function notificar(titulo, corpo) {
   try { if (document.hidden && "Notification" in window && Notification.permission === "granted") new Notification(titulo, { body: corpo, silent: true }); } catch (e) {}
 }

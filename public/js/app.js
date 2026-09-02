@@ -8,7 +8,7 @@ import { RACAS, CLASSES, FILOSOFIAS, IMPLANTES, SCRIPTS, ARMAS, ARMADURAS, PERIC
 import { BESTIARIO, NIVEIS_AMEACA } from "./dados-bestiario.js";
 import { NPCS, PAPEIS } from "./dados-npcs.js";
 import { FACCOES, NIVEIS_REPUTACAO, TABELAS, REFERENCIA  } from "./dados-mestre.js";
-import { modalForm, confirmModal, somMensagem, somDado, notificar, pedirNotificacao, getSom, setSom } from "./ui.js";
+import { modalForm, confirmModal, somMensagem, somDado, somCritico, somFalha, notificar, pedirNotificacao, getSom, setSom } from "./ui.js";
 
 export const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const app = document.getElementById("app");
@@ -1161,7 +1161,8 @@ async function telaMesa(id) {
       if (m.payload?.privada && m.autor_id !== usuario.id && !souMestre) return; // rolagem privada: só autor + Mestre
       if (aoVivo && !historico.some((x) => x.id === m.id)) historico.push(m); // persiste entre re-renders
       if (aoVivo && m.autor_id !== usuario.id && m.tipo !== "sistema") { // alerta de mensagem de outra pessoa
-        if (m.tipo === "rolagem") somDado(); else somMensagem();
+        if (m.tipo === "rolagem") { const p = m.payload || {}; if (p.crit) somCritico(); else if (p.fumble) somFalha(); else somDado(); }
+        else somMensagem();
         notificar(`${m.perfis?.apelido || "Mesa"} · ${esc(camp.nome)}`, m.tipo === "rolagem" ? `🎲 ${m.payload?.titulo || "rolagem"}${m.payload?.total != null ? " = " + m.payload.total : ""}` : (m.conteudo || "").slice(0, 80));
       }
       const quem = esc(m.perfis?.apelido || "?");

@@ -605,3 +605,67 @@ details.det[open]>summary{margin-bottom:8px;padding-bottom:6px;border-bottom:1px
   .item-figura img{max-height:200px}
   .adm-grade{grid-template-columns:repeat(auto-fill,minmax(110px,1fr))}
 }
+
+/* ============================================================================
+   MOVIMENTO
+   Concentrado no momento que decide uma mesa de RPG: o resultado do dado.
+   No resto, movimento só quando revela o que mudou (barras, turno, painéis).
+   ============================================================================ */
+
+/* --- O dado assenta --- */
+/* O total chega com peso, como um dado parando de girar sobre a mesa. */
+.m-roll .m-total{display:inline-block;animation:assenta .34s cubic-bezier(.2,1.4,.35,1) both}
+@keyframes assenta{
+  0%{transform:scale(1.5) rotate(-7deg);opacity:0;filter:blur(3px)}
+  60%{filter:blur(0)}
+  100%{transform:scale(1) rotate(0);opacity:1}
+}
+
+/* --- Crítico: o momento em que a mesa grita --- */
+.m-roll.crit{border-color:var(--tech);position:relative;overflow:hidden;
+  background:linear-gradient(100deg,var(--panel2) 40%,rgba(89,227,200,.16),var(--panel2) 60%);
+  background-size:280% 100%;animation:varredura 1.1s ease-out both}
+@keyframes varredura{from{background-position:180% 0}to{background-position:-40% 0}}
+.m-roll.crit .m-total{color:var(--tech);font-size:26px;font-weight:700;
+  text-shadow:0 0 14px rgba(89,227,200,.75),0 0 28px rgba(89,227,200,.35);
+  animation:assenta .34s cubic-bezier(.2,1.4,.35,1) both,brilho 1.5s ease-out .34s}
+@keyframes brilho{0%{text-shadow:0 0 22px rgba(89,227,200,.95),0 0 44px rgba(89,227,200,.5)}
+  100%{text-shadow:0 0 14px rgba(89,227,200,.75),0 0 28px rgba(89,227,200,.35)}}
+.log-flag.crit{animation:selo .4s cubic-bezier(.2,1.5,.4,1) .12s both}
+@keyframes selo{from{transform:scale(0) rotate(-14deg);opacity:0}to{transform:scale(1) rotate(-3deg);opacity:1}}
+
+/* --- Falha crítica: a arma engasga --- */
+.m-roll.fumble{border-color:var(--perigo);animation:engasgo .5s cubic-bezier(.36,.07,.19,.97) both}
+@keyframes engasgo{10%,90%{transform:translateX(-1.5px)}20%,80%{transform:translateX(2.5px)}
+  30%,50%,70%{transform:translateX(-4px)}40%,60%{transform:translateX(4px)}}
+.m-roll.fumble .m-total{color:var(--perigo);filter:saturate(.5)}
+
+/* --- Barras revelam a mudança em vez de saltar --- */
+.cb-hp-barra,.nave-barras .cb-hp-barra,.pf-linha .cb-hp-barra{transition:width .55s cubic-bezier(.22,.7,.3,1),background .3s}
+.pip{transition:background .25s,border-color .25s,box-shadow .25s}
+
+/* --- É a sua vez: chamar atenção sem gritar --- */
+.cb-linha.cb-atual{animation:vez .45s ease-out both}
+@keyframes vez{from{transform:translateX(-6px);box-shadow:-3px 0 0 var(--chrome)}
+  to{transform:translateX(0);box-shadow:none}}
+
+/* --- Painéis que abrem mostram de onde vieram --- */
+.ss-painel,.mdl-box{animation:sobe .22s cubic-bezier(.2,.9,.3,1) both}
+@keyframes sobe{from{transform:translateY(10px) scale(.99);opacity:0}to{transform:none;opacity:1}}
+.mesa-painel{animation:troca .18s ease-out both}
+@keyframes troca{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+
+/* --- Resposta ao toque --- */
+.mini:active,.btn-primario:active,.btn-ghost:active{transform:translateY(1px)}
+.mini,.btn-primario,.btn-ghost{transition:transform .06s,border-color .15s,color .15s,background .15s}
+
+/* --- Aviso de munição no limite: respira, não pisca --- */
+.municao-box.vazio{animation:respira 2.4s ease-in-out infinite}
+@keyframes respira{0%,100%{background:rgba(240,122,122,.16)}50%{background:rgba(240,122,122,.06)}}
+
+/* Quem pediu menos movimento recebe menos movimento. */
+@media(prefers-reduced-motion:reduce){
+  .m-roll .m-total,.m-roll.crit,.m-roll.crit .m-total,.m-roll.fumble,.log-flag.crit,
+  .cb-linha.cb-atual,.ss-painel,.mdl-box,.mesa-painel,.municao-box.vazio{animation:none!important}
+  .cb-hp-barra{transition:none!important}
+}
