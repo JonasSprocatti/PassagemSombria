@@ -202,6 +202,14 @@ function gerarFichaHTML(nome, f, k) {
   ${implantes ? `<h2>Implantes</h2><ul>${implantes}</ul>` : ""}
   ${deck ? `<h2>Deck de Scripts (${f.deck.length}/${k.deckMax})</h2><ul>${deck}</ul>` : ""}
   ${inv ? `<h2>Inventário</h2><ul>${inv}</ul>` : ""}
+  <h2>Suprimentos</h2>
+  <p><b>Munição:</b> ${(() => { const r2 = normalizaPentes(f); const tp2 = TIPOS_PENTE[f.tipoPente || PENTE_PADRAO];
+    const carregado = `${tp2.n} — ${f.tirosPente ?? TIROS_POR_PENTE}/${TIROS_POR_PENTE} tiros no cano`;
+    const reserva = Object.entries(r2).filter(([, q]) => q > 0).map(([k2, q]) => `${TIPOS_PENTE[k2].n} ×${q}`).join(", ") || "reserva vazia";
+    return `${carregado}. Reserva: ${reserva}.`; })()}</p>
+  ${(() => { const cons = (f.inventario || []).filter((it) => ehConsumivel(it.nome) && (it.qtd || 1) > 0);
+    return cons.length ? `<p><b>Itens utilizáveis:</b></p><ul>${cons.map((it) => { const c = ehConsumivel(it.nome);
+      return `<li><b>${esc(it.nome)}</b> ×${it.qtd || 1} <span class="dim">(${esc(c.acao)})</span> — ${esc(c.d)}</li>`; }).join("")}</ul>` : ""; })()}
   <h2>Anotações</h2><div class="notas">${esc(f.notas || "")}</div>
   </body></html>`;
 }
@@ -806,11 +814,47 @@ async function telaFicha(id) {
           <div><h4>Inventário</h4>
             <div class="linha-add"><select id="add-tipo"><option value="arma">Arma</option><option value="armadura">Armadura</option></select>
             <select id="add-sel"></select><button id="add-btn" class="btn-ghost">+</button></div>
-            <div id="inv">${f.inventario.map((it, ix) => `
-              <div class="inv"><span>${esc(it.nome)}</span>
-              <span>${it.tipo !== "item" ? `<button class="mini eq ${it.equip ? "on" : ""}" data-eq="${ix}">${it.equip ? "EQUIPADO" : "equipar"}</button>` : ""}
-              <button class="mini rm" data-rm="${ix}">✕</button></span></div>`).join("")}</div></div>
+            <div id="inv">${f.inventario.map((it, ix) => { const cs = ehConsumivel(it.nome);
+              return `<div class="inv"><span>${cs ? `${cs.ic} ` : ""}${esc(it.nome)}${(it.qtd || 1) > 1 ? ` <b class="chrome">×${it.qtd}</b>` : ""}${cs ? `<br><span class="regra">${esc(cs.d)}</span>` : ""}</span>
+              <span>${(!cs && it.tipo !== "item") ? `<button class="mini eq ${it.equip ? "on" : ""}" data-eq="${ix}">${it.equip ? "EQUIPADO" : "equipar"}</button>` : ""}
+              <button class="mini rm" data-rm="${ix}">✕</button></span></div>`; }).join("") || `<p class="regra"><i>Mochila vazia.</i></p>`}</div></div>
         </div>
+      </section>
+
+      <section class="sec"><header><span class="tag">🎒</span><h2>Suprimentos</h2>
+        <span class="extra">o que você leva para o combate</span></header>
+        ${(() => {
+          const res = normalizaPentes(f);
+          const tipo = f.tipoPente || PENTE_PADRAO, tp = TIPOS_PENTE[tipo] || TIPOS_PENTE.padrao;
+          const noCano = f.tirosPente ?? TIROS_POR_PENTE;
+          const total = Object.values(res).reduce((a3, b3) => a3 + b3, 0);
+          const cano = Array.from({ length: TIROS_POR_PENTE }, (_, i2) => `<i class="pip ${i2 < noCano ? "cheio" : ""}" style="${i2 < noCano ? `background:${tp.cor};border-color:${tp.cor}` : ""}"></i>`).join("");
+          return `<h4>Munição</h4>
+            <div class="sup-mun">
+              <div class="sup-carregado" style="border-color:${tp.cor}">
+                <span class="dim">no cano</span>
+                <b style="color:${tp.cor}">${tp.ic} ${esc(tp.n)}</b>
+                <div class="pips">${cano}</div>
+                <span class="regra">${noCano}/${TIROS_POR_PENTE} tiros</span>
+              </div>
+              <div class="sup-reserva">
+                <span class="dim">reserva (${total}/${PENTES_MAX - 1})</span>
+                ${Object.entries(TIPOS_PENTE).map(([k2, t2]) => `<div class="sup-linha ${res[k2] ? "" : "zerado"}">
+                  <span style="color:${res[k2] ? t2.cor : "var(--dim)"}">${t2.ic} ${esc(t2.n)}</span>
+                  <b>×${res[k2] || 0}</b>
+                  <span class="regra">${esc(t2.d)}</span></div>`).join("")}
+              </div>
+            </div>
+            <p class="regra">Um pente leva ${TIROS_POR_PENTE} tiros. Esgotado, é preciso trocar (Ação de Movimento). Descansos repõem tudo; o Mestre também pode conceder pentes de saque.</p>`;
+        })()}
+        <h4 style="margin-top:14px">Itens utilizáveis</h4>
+        ${(() => { const cons = (f.inventario || []).filter((it) => ehConsumivel(it.nome) && (it.qtd || 1) > 0);
+          return cons.length ? `<div class="sup-itens">${cons.map((it) => { const c = ehConsumivel(it.nome);
+            return `<div class="sup-item"><span class="sup-ic">${c.ic}</span>
+              <span class="sup-nome"><b>${esc(it.nome)}</b> <b class="chrome">×${it.qtd || 1}</b>
+                <span class="regra">${esc(c.acao)} · ${esc(c.d)}</span></span></div>`; }).join("")}</div>
+            <p class="regra">Na mesa, cada um destes vira um botão próprio na barra de ações.</p>`
+          : `<p class="regra"><i>Nenhum item utilizável. Compre kits, baterias e granadas no Mercado abaixo.</i></p>`; })()}
       </section>
 
       <section class="sec"><header><span class="tag">🛒</span><h2>Mercado</h2><span class="extra" id="loja-cg">${f.creditos ?? 0} CG</span></header>

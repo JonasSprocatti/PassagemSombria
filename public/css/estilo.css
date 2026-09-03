@@ -859,3 +859,21 @@ label input,label select,label textarea{text-transform:none;letter-spacing:norma
   .card-pers .nome{font-size:15px}
   .attr .av{font-size:25px}
 }
+
+/* Suprimentos na ficha */
+.sup-mun{display:grid;grid-template-columns:auto 1fr;gap:14px;align-items:start}
+.sup-carregado{border:1px solid var(--line);border-radius:8px;padding:10px 12px;text-align:center;min-width:130px;background:var(--panel2)}
+.sup-carregado b{display:block;font-size:13px;margin:3px 0 6px;font-family:'Chakra Petch',sans-serif}
+.sup-carregado .dim{font-size:9px;text-transform:uppercase;letter-spacing:.08em}
+.sup-carregado .pips{justify-content:center;margin:0 0 5px}
+.sup-reserva>.dim{font-size:9px;text-transform:uppercase;letter-spacing:.08em;display:block;margin-bottom:5px}
+.sup-linha{display:grid;grid-template-columns:auto auto 1fr;gap:8px;align-items:baseline;padding:3px 0;font-size:12px;border-bottom:1px solid var(--panel2)}
+.sup-linha b{font-family:'IBM Plex Mono',monospace}
+.sup-linha.zerado{opacity:.4}
+.sup-linha .regra{margin:0;font-size:10px}
+.sup-itens{display:flex;flex-direction:column;gap:6px}
+.sup-item{display:flex;gap:9px;align-items:flex-start;background:var(--panel2);border-radius:6px;padding:7px 10px}
+.sup-ic{font-size:18px;line-height:1.2}
+.sup-nome{font-size:12.5px}
+.sup-nome .regra{margin:2px 0 0;font-size:10.5px}
+@media(max-width:720px){.sup-mun{grid-template-columns:1fr}}
