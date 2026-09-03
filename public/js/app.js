@@ -4,7 +4,7 @@
 // ============================================================
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./config.js";
-import { RACAS, CLASSES, FILOSOFIAS, IMPLANTES, SCRIPTS, ARMAS, ARMADURAS, PERICIAS, NAVES, ESTACOES, REGRAS_NAVE, RIQUEZA, TEMAS, CONVERTE_2D8, RENOME_PERICIAS, KEYWORDS, propsArma, AVARIAS, UPGRADES_NAVE, TURNOS_POR_PENTE, PENTES_MAX, custoTiro, PENTES_INICIAIS, CONSUMIVEIS, ehConsumivel } from "./dados-jogo.js";
+import { RACAS, CLASSES, FILOSOFIAS, IMPLANTES, SCRIPTS, ARMAS, ARMADURAS, PERICIAS, NAVES, ESTACOES, REGRAS_NAVE, RIQUEZA, TEMAS, CONVERTE_2D8, RENOME_PERICIAS, KEYWORDS, propsArma, AVARIAS, UPGRADES_NAVE, TURNOS_POR_PENTE, PENTES_MAX, custoTiro, PENTES_INICIAIS, TIROS_POR_PENTE, TIPOS_PENTE, PENTE_PADRAO, CONSUMIVEIS, ehConsumivel } from "./dados-jogo.js";
 import { BESTIARIO, NIVEIS_AMEACA } from "./dados-bestiario.js";
 import { NPCS, PAPEIS } from "./dados-npcs.js";
 import { FACCOES, NIVEIS_REPUTACAO, TABELAS, REFERENCIA  } from "./dados-mestre.js";
@@ -512,6 +512,16 @@ document.addEventListener("pointerdown", (e) => {
 
 // Conta um número até o novo valor. Usado quando créditos e XP mudam:
 // ver o número subindo diz o que aconteceu melhor do que ele simplesmente trocar.
+// A reserva de pentes virou um mapa por tipo. Fichas antigas guardavam um número:
+// esta função converte sem perder munição.
+function normalizaPentes(f) {
+  let r = f.pentes;
+  if (typeof r === "number") r = { padrao: r };
+  if (!r || typeof r !== "object") r = { padrao: PENTES_MAX - 1 };
+  const out = {};
+  for (const k of Object.keys(TIPOS_PENTE)) out[k] = Math.max(0, r[k] || 0);
+  return out;
+}
 const xpVisto = {};   // último XP visto por personagem, para animar o ganho
 function contarAte(el, de, para, ms = 700, sufixo = "") {
   if (!el || de === para || document.body.classList.contains("a11y-reduzir")) {
@@ -605,19 +615,18 @@ async function iniciar() {
 
 function telaLogin() {
   shell("login", `
-    <header class="masthead login-mast">
+    <div class="tela-login"><div class="estrelas"></div>
+    <div class="login-caixa">
       <img src="logo.svg" alt="Passagem Sombria" class="login-logo"/>
-      <div class="mast-eyebrow">CONFEDERAÇÃO SOLAR · TERMINAL DE ACESSO</div>
+      <div class="mast-eyebrow" style="text-align:center">CONFEDERAÇÃO SOLAR · TERMINAL DE ACESSO</div>
       <h1>PASSAGEM<span> SOMBRIA</span></h1>
-      <div class="mast-sub">Deck de Campo Online — fichas, campanhas e mesa em tempo real</div>
-    </header>
-    <section class="sec login-box">
+      <p class="sub">O sistema é grande, e o vazio entre os mundos é maior.</p>
       <button id="google" class="btn-primario">ENTRAR COM GOOGLE</button>
       <div class="ou">ou receba um link mágico por e-mail</div>
       <div class="linha-email"><input id="email" type="email" placeholder="voce@estacao.orbital"/>
       <button id="magic" class="btn-ghost">ENVIAR LINK</button></div>
       <p class="regra">Ao entrar, um perfil de tripulante é criado automaticamente. <a href="#/biblioteca">Explorar a Biblioteca sem login →</a></p>
-    </section>`);
+    </div></div>`);
   $("#google").onclick = () => sb.auth.signInWithOAuth({ provider: "google", options: { redirectTo: location.origin } });
   $("#magic").onclick = async () => {
     const email = $("#email").value.trim(); if (!email) return;
@@ -631,11 +640,16 @@ async function telaHangar() {
   const { data: pers } = await sb.from("personagens").select("id,nome,dados,campanha_id").eq("dono_id", usuario.id).order("atualizado_em", { ascending: false });
   const cards = (pers || []).map((p) => {
     const f = p.dados || {}, k = calc({ ...novaFichaDados(), ...f });
-    return `<article class="card" data-id="${p.id}">
-      <div class="card-top"><span class="card-nivel">NV ${f.nivel || 1}</span><button class="card-del" data-del="${p.id}">✕</button></div>
-      <div class="card-id">${f.foto ? `<img class="card-foto" src="${f.foto}"/>` : `<div class="card-foto vazia">◈</div>`}<h3>${esc(p.nome) || "— sem nome —"}</h3></div>
-      <div class="card-linha">${esc(f.raca || "raça?")} · ${esc(f.classe || "classe?")}${p.campanha_id ? " · ☄ em campanha" : ""}</div>
-      <div class="card-stats"><span>PV ${f.pvAtual || 0}/${f.pvMax || 0}</span><span>CD ${k.cd}</span><span class="tech-c">RAM ${k.ramLivre}/${k.ramMax}</span></div>
+    const tema = TEMAS[f.tema] || TEMAS["Vácuo"];
+    return `<article class="card-pers" data-id="${p.id}" style="--acento:${tema.tech}">
+      <span class="selo-nv" style="border-color:${tema.tech};color:${tema.tech}">NV ${f.nivel || 1}</span>
+      <button class="card-del" data-del="${p.id}" title="Apagar tripulante">✕</button>
+      ${f.foto ? `<img class="retrato" src="${f.foto}" alt="${esc(p.nome)}"/>` : `<div class="retrato-vazio">◈</div>`}
+      <div class="info">
+        <div class="nome">${esc(p.nome) || "— sem nome —"}</div>
+        <div class="meta">${esc(f.raca || "raça?")} · ${esc(f.classe || "classe?")}${p.campanha_id ? " · ☄ em campanha" : ""}</div>
+        <div class="card-stats"><span>PV <b>${f.pvAtual || 0}</b>/${f.pvMax || 0}</span><span>CD <b>${k.cd}</b></span><span class="sombra-c">RAM <b>${k.ramLivre}</b>/${k.ramMax}</span></div>
+      </div>
     </article>`; }).join("");
   shell("hangar", `
     <header class="masthead"><div class="mast-eyebrow">ARQUIVO DE PESSOAL · ${esc(perfil?.apelido || "")}</div>
@@ -648,7 +662,7 @@ async function telaHangar() {
     if (error) return alert(error.message);
     location.hash = `#/ficha/${data.id}`;
   };
-  app.querySelectorAll(".card").forEach((c) => c.onclick = (e) => { if (!e.target.dataset.del) location.hash = `#/ficha/${c.dataset.id}`; });
+  app.querySelectorAll(".card-pers").forEach((c) => c.onclick = (e) => { if (!e.target.dataset.del) location.hash = `#/ficha/${c.dataset.id}`; });
   app.querySelectorAll("[data-del]").forEach((b) => b.onclick = async (e) => {
     e.stopPropagation();
     if (await confirmModal("Apagar este tripulante? Esta ação é permanente.", { okLabel: "Apagar", perigo: true })) { await sb.from("personagens").delete().eq("id", b.dataset.del); telaHangar(); }
@@ -801,7 +815,7 @@ async function telaFicha(id) {
 
       <section class="sec"><header><span class="tag">🛒</span><h2>Mercado</h2><span class="extra" id="loja-cg">${f.creditos ?? 0} CG</span></header>
         <p class="regra">Compre equipamento gastando Créditos Galácticos. A tabela de riqueza sugere ~${RIQUEZA[Math.min(10, f.nivel || 1)] || 300} CG para o nível ${f.nivel}.</p>
-        <div class="filtros"><select id="loja-cat"><option value="arma">⚔ Armas</option><option value="consumivel">🎒 Consumíveis</option><option value="armadura">🛡 Armaduras</option><option value="implante">🔧 Implantes</option></select></div>
+        <div class="filtros"><select id="loja-cat"><option value="arma">⚔ Armas</option><option value="consumivel">🎒 Consumíveis</option><option value="municao">🔫 Munição</option><option value="armadura">🛡 Armaduras</option><option value="implante">🔧 Implantes</option></select></div>
         <div id="loja-lista" class="loja-lista"></div>
       </section>
 
@@ -952,6 +966,7 @@ async function telaFicha(id) {
       const cg = f.creditos ?? 0;
       let itens;
       if (cat === "consumivel") itens = CONSUMIVEIS.map((c) => ({ nome: c.n, preco: c.p, sub: `${c.ic} ${c.acao} · ${c.d}` }));
+      else if (cat === "municao") itens = Object.entries(TIPOS_PENTE).map(([k2, t2]) => ({ nome: `Pente ${t2.n}`, preco: t2.p, sub: `${t2.ic} ${t2.d}`, pente: k2 }));
       else if (cat === "arma") itens = ARMAS.filter((a) => a.preco).map((a) => ({ nome: a.n, preco: a.preco, sub: `${a.dano} · ${a.kw || a.tipo}` }));
       else if (cat === "armadura") itens = ARMADURAS.filter((a) => a.preco).map((a) => ({ nome: a.n, preco: a.preco, sub: `${a.t} · +${a.cd} CD${a.e ? " · " + a.e : ""}` }));
       else itens = Object.values(IMPLANTES).filter((i) => i.p).map((i) => ({ nome: i.n, preco: i.p, sub: `${i.g} · ${i.e}`, jaTem: f.implantes.includes(i.n) }));
@@ -966,7 +981,8 @@ async function telaFicha(id) {
         const cgAntes = f.creditos ?? 0;
         f.creditos = cgAntes - it.preco;
         contarAte($("#loja-cg"), cgAntes, f.creditos, 600, " CG");
-        if (cat === "implante") { if (!f.implantes.includes(it.nome)) f.implantes.push(it.nome); }
+        if (it.pente) { const res2 = normalizaPentes(f); res2[it.pente] = (res2[it.pente] || 0) + 1; f.pentes = res2; }
+        else if (cat === "implante") { if (!f.implantes.includes(it.nome)) f.implantes.push(it.nome); }
         else f.inventario.push({ tipo: cat, nome: it.nome, equip: false, qtd: 1 });
         registrar(`🛒 Comprou ${it.nome} por ${it.preco} CG (restam ${f.creditos} CG).`);
         setTimeout(render, 650);
@@ -990,7 +1006,7 @@ async function telaCampanhas() {
     <header class="masthead"><h1>CAMPANHAS<span> ATIVAS</span></h1></header>
     <section class="sec"><header><span class="tag">☄</span><h2>Minhas mesas</h2></header>
       ${(minhas || []).map((c) => `<div class="inv"><span><b>${esc(c.nome)}</b> · código <b class="chrome">${c.codigo}</b>${c.mestre_id === usuario.id ? " · você é o Mestre" : ""}</span>
-        <span style="display:flex;gap:6px"><a class="mini" href="#/mesa/${c.id}">ABRIR MESA</a>${c.mestre_id === usuario.id ? `<button class="mini rm" data-del-camp="${c.id}" data-nome="${esc(c.nome)}">EXCLUIR</button>` : ""}</span></div>`).join("") || `<p class="regra">Nenhuma campanha ainda.</p>`}
+        <span style="display:flex;gap:6px"><a class="mini" href="#/mesa/${c.id}">ABRIR MESA</a>${c.mestre_id === usuario.id ? `<button class="mini rm" data-del-camp="${c.id}" data-nome="${esc(c.nome)}">EXCLUIR</button>` : ""}</span></div>`).join("") || `<div class="vazio-msg"><span class="icone">☄</span><p>Nenhuma mesa ainda. O sistema é grande — crie uma campanha ou entre na de alguém com um código.</p></div>`}
     </section>
     <section class="sec"><header><span class="tag">+</span><h2>Criar ou entrar</h2></header>
       <div class="linha-add"><input id="nova-nome" placeholder="Nome da nova campanha"/><button id="criar" class="btn-primario">CRIAR</button></div>
@@ -1142,20 +1158,27 @@ async function telaMesa(id) {
             <select id="sel-pers">${meuPers ? "" : `<option value="">— vincular personagem —</option>`}
               ${(meus || []).map((m) => `<option value="${m.id}" ${meuPers?.id === m.id ? "selected" : ""}>${esc(m.nome) || "sem nome"}</option>`).join("")}</select>
             ${f ? `<p class="regra">PV ${f.pvAtual}/${f.pvMax} · CD ${k.cd} · RAM ${k.ramLivre}/${k.ramMax} · conj +${k.conj}</p>
-            ${(() => { const noCano = f.tirosPente ?? TURNOS_POR_PENTE, reserva = f.pentes ?? (PENTES_MAX - 1);
-              const seco = noCano === 0 && reserva === 0;
-              const nivel = seco ? "vazio" : noCano === 0 ? "critico" : (noCano === 1 && reserva === 0) ? "critico" : reserva === 0 ? "baixo" : "";
-              const cano = Array.from({ length: TURNOS_POR_PENTE }, (_, i2) => `<i class="pip ${i2 < noCano ? "cheio" : ""}"></i>`).join("");
-              const res = Array.from({ length: PENTES_MAX - 1 }, (_, i2) => `<i class="pente ${i2 < reserva ? "cheio" : ""}" title="pente de reserva"></i>`).join("");
+            ${(() => {
+              // Reserva por tipo de pente. Fichas antigas (reserva era um número) migram aqui.
+              const res = normalizaPentes(f);
+              const tipo = f.tipoPente || PENTE_PADRAO, tp = TIPOS_PENTE[tipo] || TIPOS_PENTE.padrao;
+              const noCano = f.tirosPente ?? TIROS_POR_PENTE;
+              const totalReserva = Object.values(res).reduce((a2, b2) => a2 + b2, 0);
+              const seco = noCano === 0 && totalReserva === 0;
+              const nivel = seco ? "vazio" : (noCano === 0 || (noCano === 1 && totalReserva === 0)) ? "critico" : totalReserva === 0 ? "baixo" : "";
+              const cano = Array.from({ length: TIROS_POR_PENTE }, (_, i2) => `<i class="pip ${i2 < noCano ? "cheio" : ""}" style="${i2 < noCano ? `background:${tp.cor};border-color:${tp.cor}` : ""}"></i>`).join("");
+              const reservaHtml = Object.entries(res).filter(([, q]) => q > 0).map(([k, q]) => { const t2 = TIPOS_PENTE[k];
+                return `<span class="pente-tipo" title="${esc(t2.n)}: ${esc(t2.d)}" style="border-color:${t2.cor};color:${t2.cor}">${t2.ic} ${q}</span>`; }).join("") || `<span class="dim" style="font-size:10px">reserva vazia</span>`;
               const msg = seco ? "⛔ SEM MUNIÇÃO — só um saque ou um descanso repõe os pentes."
-                : noCano === 0 ? `⚠ Pente vazio! Troque agora (Ação de Movimento) — ${reserva} na reserva.`
-                : reserva === 0 ? `⚠ Último pente: ${noCano} tiro${noCano > 1 ? "s" : ""} e acabou a munição.`
-                : `${noCano} tiro${noCano > 1 ? "s" : ""} no pente · ${reserva} na reserva`;
-              return `<div class="municao-box ${nivel}">
-                <div class="municao-cab"><span>🔫 Munição</span><b>${noCano}<span class="dim">/${TURNOS_POR_PENTE}</span></b>
-                  <button id="recarregar" class="mini" ${reserva <= 0 ? "disabled" : ""} title="${reserva > 0 ? "Troca o pente (Ação de Movimento)" : "Sem pentes na reserva"}">↻ Trocar pente</button></div>
-                <div class="pips" title="Tiros no pente carregado">${cano}<span class="pips-sep"></span>${res}</div>
-                <p class="municao-msg">${msg}</p>
+                : noCano === 0 ? `⚠ Pente vazio! Troque agora (Ação de Movimento).`
+                : totalReserva === 0 ? `⚠ Último pente: ${noCano} tiro${noCano > 1 ? "s" : ""} e acabou.`
+                : `${noCano} tiro${noCano > 1 ? "s" : ""} no pente · ${totalReserva} na reserva`;
+              return `<div class="municao-box ${nivel}" style="${tipo !== "padrao" ? `border-color:${tp.cor}` : ""}">
+                <div class="municao-cab"><span>🔫 ${tp.ic} ${esc(tp.n)}</span><b>${noCano}<span class="dim">/${TIROS_POR_PENTE}</span></b>
+                  <button id="recarregar" class="mini" ${totalReserva <= 0 ? "disabled" : ""} title="${totalReserva > 0 ? "Escolhe o pente e troca (Ação de Movimento)" : "Sem pentes na reserva"}">↻ Trocar</button></div>
+                <div class="pips" title="Tiros no pente carregado">${cano}</div>
+                <div class="pentes-reserva">${reservaHtml}</div>
+                <p class="municao-msg">${tipo !== "padrao" ? `<b style="color:${tp.cor}">${esc(tp.d)}</b><br>` : ""}${msg}</p>
               </div>`; })()}
             <div class="acoes-mesa">
               <select id="sel-per">${PERICIAS.map(([pn]) => `<option>${pn}</option>`).join("")}</select>
@@ -1166,8 +1189,9 @@ async function telaMesa(id) {
                 return `<button class="mini atq" data-atq="${i}" title="${esc(tip)}">⚔ ${esc(a.nome)} (${cat ? danoArma(cat, f.nivel) : "—"})${pr.area ? " ◎" : ""}${pr.agil ? " ⚡" : ""}</button>`; }).join("")}
               <select id="sel-scr">${(f.deck.length ? SCRIPTS.filter((s) => f.deck.includes(s.n)) : SCRIPTS.filter((s) => s.c === 0)).map((s) => `<option>${esc(s.n)}</option>`).join("")}</select>
               <button id="conjurar" class="mini">⚡ CONJURAR</button>
-              ${(() => { const meus = (f.inventario || []).filter((it) => ehConsumivel(it.nome) && (it.qtd || 1) > 0);
-                return meus.length ? `<button id="usar-item" class="mini">🎒 Usar item (${meus.reduce((t, i2) => t + (i2.qtd || 1), 0)})</button>` : ""; })()}
+              ${(f.inventario || []).filter((it) => ehConsumivel(it.nome) && (it.qtd || 1) > 0)
+                .map((it) => { const c = ehConsumivel(it.nome);
+                  return `<button class="mini item-usa" data-item="${esc(it.nome)}" title="${esc(c.d)} · ${esc(c.acao)}">${c.ic} ${esc(it.nome.replace(/ de Batalha| de Campo| de Nanofibra|Kit de |Granada de |Granada /i, "").slice(0, 16))} <b>×${it.qtd || 1}</b></button>`; }).join("")}
               <input id="dado-livre" placeholder="1d20+2d10" style="width:80px"/><button id="rolar-livre" class="mini">🎲</button>
             </div>
             <div class="acoes-mesa"><b class="chrome">Direcionar dano:</b>
@@ -1977,35 +2001,50 @@ async function telaMesa(id) {
         if (pr.brutal) { const d2 = rollNd(pd.n * sets, pd.f); if (d2.reduce((x, y) => x + y, 0) > dados.reduce((x, y) => x + y, 0)) dados = d2; } // Brutal: vantagem no dano
         const danoMod = k.attr[atkAttr] + (cat.tipo === "branca" && f.implantes.includes("Braço Mecânico Hidráulico") ? 2 : 0);
         const marcadores = [nat === 20 ? "CRÍTICO ×2" : "", furtivo && assassino ? "FURTIVO ×2" : furtivo ? "furtivo +2 acerto" : "", pr.agil ? `Ágil (${atkAttr})` : "", pr.brutal ? "Brutal (vantagem)" : ""].filter(Boolean).join(" · ");
+        // Munição especial: o efeito entra no resultado para o Mestre aplicar a condição.
+        let efeitoMun = "";
+        if (custo > 0 && nat !== 1) { const tpm = TIPOS_PENTE[f.tipoPente || PENTE_PADRAO];
+          if (tpm && tpm.cond) efeitoMun = `${tpm.ic} ${tpm.n}: alvo fica ${tpm.cond} por ${tpm.turnos} turno(s)${tpm.cd ? ` (Constituição CD ${tpm.cd} evita)` : ""}`;
+          else if (tpm && tpm.bonusSint) efeitoMun = `${tpm.ic} ${tpm.n}: +${tpm.bonusSint} contra sintéticos e implantes do alvo inertes por 1 turno`;
+        }
         const infoArma = [pr.area ? `◎ Área: ${pr.areaTxt}` : "", pr.alcance ? `⟿ Alcance: ${pr.alcanceTxt}` : "", cat.kw ? `🏷 ${cat.kw}: ${pr.efeito}` : ""].filter(Boolean).join("  ·  ");
         enviar("rolagem", null, { titulo: (privada ? "🔒 " : "") + `Ataque — ${a.nome}${furtivo ? " 🥷" : ""}`,
           detalhe: `d20 [${nat}]${detVant} ${sign(mod)} · dano ${danoBase}${sets > 1 ? `×${sets}` : ""} [${dados.join(", ")}] ${sign(danoMod)}${marcadores ? " · " + marcadores : ""}`,
           total: nat + mod, crit: nat === 20, fumble: nat === 1, ...(privada ? { privada: true } : {}), dano_total: dados.reduce((x, y) => x + y, 0) + danoMod,
-          extra: `Dano: ${dados.reduce((x, y) => x + y, 0) + danoMod}${infoArma ? "  —  " + infoArma : ""}` });
+          extra: `Dano: ${dados.reduce((x, y) => x + y, 0) + danoMod}${efeitoMun ? "  —  " + efeitoMun : ""}${infoArma ? "  —  " + infoArma : ""}` });
         if (precisaRender) render();      // atualiza o contador de munição na tela
       });
       $("#recarregar")?.addEventListener("click", async () => {
         const dd1 = meuPers.dados || {};
-        const res = dd1.pentes ?? (PENTES_MAX - 1);
-        if (res <= 0) { await enviar("sistema", `🔫 ${meuPers.nome} procura um pente e não acha nenhum. Sem munição na reserva.`); return render(); }
-        f.pentes = res - 1; f.tirosPente = TURNOS_POR_PENTE;
-        meuPers.dados = { ...dd1, pentes: f.pentes, tirosPente: f.tirosPente };
+        const res = normalizaPentes(dd1);
+        const disp = Object.entries(res).filter(([, q]) => q > 0);
+        if (!disp.length) { await enviar("sistema", `🔫 ${meuPers.nome} procura um pente e não acha nenhum. Sem munição na reserva.`); return render(); }
+        let escolha = disp[0][0];
+        if (disp.length > 1) {
+          const r = await modalForm({ titulo: "↻ Trocar pente", descricao: "Escolha a munição. A troca custa a Ação de Movimento.",
+            campos: [{ k: "t", label: "Pente", tipo: "select", opcoes: disp.map(([k2, q]) => { const t2 = TIPOS_PENTE[k2];
+              return { v: k2, l: `${t2.ic} ${t2.n} ×${q} — ${t2.d}` }; }) }], okLabel: "Carregar" });
+          if (!r?.t) return; escolha = r.t;
+        }
+        res[escolha] -= 1;
+        f.pentes = res; f.tirosPente = TIROS_POR_PENTE; f.tipoPente = escolha;
+        meuPers.dados = { ...dd1, pentes: res, tirosPente: f.tirosPente, tipoPente: escolha };
         await sb.from("personagens").update({ dados: meuPers.dados }).eq("id", meuPers.id);
-        await enviar("sistema", `🔫 ${meuPers.nome} troca o pente (Ação de Movimento) — restam ${f.pentes} na reserva.`); render();
+        const t3 = TIPOS_PENTE[escolha];
+        await enviar("sistema", `🔫 ${meuPers.nome} carrega um pente ${t3.ic} ${t3.n} (Ação de Movimento).`); render();
       });
-      $("#usar-item")?.addEventListener("click", async () => {
-        const meus = (f.inventario || []).filter((it) => ehConsumivel(it.nome) && (it.qtd || 1) > 0);
-        if (!meus.length) return;
-        const alvosPoss = (pers || []).map((p2) => ({ v: p2.id, l: p2.id === meuPers.id ? `${p2.nome} (você)` : p2.nome }));
-        const r = await modalForm({ titulo: "🎒 Usar item", descricao: "O item é consumido ao ser usado.",
-          campos: [
-            { k: "item", label: "Item", tipo: "select", opcoes: meus.map((it) => { const c = ehConsumivel(it.nome);
-              return { v: it.nome, l: `${c.ic} ${it.nome} ×${it.qtd || 1} — ${c.d}` }; }) },
-            { k: "alvo", label: "Em quem?", tipo: "select", opcoes: alvosPoss },
-          ], okLabel: "Usar" });
-        if (!r || !r.item) return;
-        const cfg = ehConsumivel(r.item);
-        const alvo = (pers || []).find((p2) => p2.id === r.alvo); if (!alvo) return;
+      app.querySelectorAll(".item-usa").forEach((bt) => bt.onclick = async () => {
+        const nomeItem = bt.dataset.item;
+        const cfg = ehConsumivel(nomeItem); if (!cfg) return;
+        let alvo = meuPers;
+        if (!cfg.area && cfg.efeito !== "nenhum") {          // itens de alvo único perguntam em quem
+          const r = await modalForm({ titulo: `${cfg.ic} ${nomeItem}`, descricao: `${cfg.d}  ·  ${cfg.acao}. O item é consumido ao ser usado.`,
+            campos: [{ k: "alvo", label: "Em quem?", tipo: "select",
+              opcoes: (pers || []).map((p2) => ({ v: p2.id, l: p2.id === meuPers.id ? `${p2.nome} (você)` : p2.nome })) }], okLabel: "Usar" });
+          if (!r?.alvo) return;
+          alvo = (pers || []).find((p2) => p2.id === r.alvo) || meuPers;
+        } else if (!(await confirmModal(`Usar ${nomeItem}?\n\n${cfg.d}`, { okLabel: "Usar" }))) return;
+        const r = { item: nomeItem };
 
         // consome o item da ficha de quem usou
         const inv = (f.inventario || []).map((it) => it.nome === r.item ? { ...it, qtd: (it.qtd || 1) - 1 } : it).filter((it) => (it.qtd || 0) > 0 || !ehConsumivel(it.nome));
@@ -2026,6 +2065,12 @@ async function telaMesa(id) {
           const cb = camp.combate?.ordem?.find((x) => x.personagem_id === alvo.id);
           if (cb && cb.cond) { cb.cond = cb.cond.filter((c2) => !/sangrando/i.test(c2.n)); await salvarCampanha({ combate: camp.combate }).eq("id", id); }
           await enviar("sistema", `${cfg.ic} ${meuPers.nome} usa ${cfg.n} em ${alvo.nome}: sangramento estancado.`);
+        } else if (cfg.efeito === "condicao") {
+          let txt = `${cfg.ic} ${meuPers.nome} lança ${cfg.n}!`;
+          if (cfg.dano) { const pdg = parseDice(cfg.dano); const dg = rollNd(pdg.n, pdg.f);
+            txt += ` Dano ${cfg.dano} [${dg.join(", ")}] = ${dg.reduce((x, y) => x + y, 0)}.`; }
+          txt += ` Alvos na área ficam ${cfg.cond} por ${cfg.turnos} turno(s)${cfg.cd ? ` (Constituição CD ${cfg.cd} evita)` : ""}.`;
+          await enviar("sistema", txt);
         } else {
           await enviar("sistema", `${cfg.ic} ${meuPers.nome} usa ${cfg.n}${alvo.id !== meuPers.id ? ` em ${alvo.nome}` : ""}. ${cfg.d}`);
         }

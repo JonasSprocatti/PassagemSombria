@@ -1140,6 +1140,14 @@ export const CONSUMIVEIS = [
     d: "Versão leve: estanca a condição Sangrando de um alvo tocado." },
   { n: "Bateria Fantasma", p: 30, ic: "◈", efeito: "ram", valor: 1, acao: "Ação Livre",
     d: "Recupera 1 Slot de RAM. Só funciona em Tecnomantes." },
+  { n: "Granada EMP", p: 120, ic: "⚡", efeito: "condicao", cond: "Silenciado", turnos: 2, area: true, acao: "Ação Principal",
+    d: "Pulso eletromagnético em área 3×3m: implantes, escudos e Tecnomancia ficam inertes por 2 turnos. Devasta sintéticos e apaga Tatuagens de Nano-Enxame ativas." },
+  { n: "Granada Paralisante", p: 130, ic: "🧊", efeito: "condicao", cond: "Paralisado", turnos: 1, area: true, cd: 13, acao: "Ação Principal",
+    d: "Descarga neural em área 3×3m. Cada alvo testa Constituição (CD 13) ou fica Paralisado por 1 turno." },
+  { n: "Granada Incendiária", p: 95, ic: "🔥", efeito: "condicao", cond: "Em chamas", turnos: 3, area: true, dano: "2d6", acao: "Ação Principal",
+    d: "Fósforo em área 3×3m: 2d6 imediatos e a condição Em chamas por 3 turnos em quem falhar em Acrobacia (CD 14)." },
+  { n: "Granada de Fragmentação", p: 100, ic: "💥", efeito: "condicao", cond: "Sangrando", turnos: 2, area: true, dano: "3d6", acao: "Ação Principal",
+    d: "Estilhaços em área 3×3m: 3d6 de dano e Sangrando por 2 turnos (Acrobacia CD 14 reduz à metade e evita o sangramento)." },
   { n: "Granada de Fumaça", p: 35, ic: "🌫", efeito: "nenhum", acao: "Ação Principal",
     d: "Cria cobertura visual em área e facilita fugas." },
   { n: "Granada de Luz", p: 40, ic: "💡", efeito: "condicao", cond: "Cego", turnos: 1, acao: "Ação Principal",
@@ -1161,6 +1169,23 @@ export const TIROS_POR_PENTE = 3;     // tiros que cabem num pente
 export const PENTES_MAX = 4;          // total carregado: 1 no cano + 3 na reserva
 export const PENTES_RESERVA_INICIAL = PENTES_MAX - 1;
 export const TURNOS_POR_PENTE = 3;    // compat.
+// Tipos de pente. O padrão é o que a arma cospe de fábrica; os demais são caros
+// e mudam o que acontece no alvo, não o quanto dói.
+export const TIPOS_PENTE = {
+  padrao:      { n: "Padrão",       ic: "▮", cor: "#8189a3", p: 25,
+                 d: "Munição comum de fábrica. Sem efeito adicional." },
+  emp:         { n: "EMP",          ic: "⚡", cor: "#7ad0f0", p: 90,
+                 d: "+2d6 contra androides, drones e sintéticos. Ao acertar qualquer alvo com cromo, os implantes dele ficam inertes por 1 turno.",
+                 bonusSint: "2d6", cond: null },
+  paralisante: { n: "Paralisante",  ic: "🧊", cor: "#a0e0e0", p: 110,
+                 d: "Dardo neural. Ao acertar, o alvo testa Constituição (CD 13) ou fica Paralisado por 1 turno.",
+                 cond: "Paralisado", turnos: 1, cd: 13 },
+  incendiaria: { n: "Incendiária",  ic: "🔥", cor: "#f0a860", p: 80,
+                 d: "Carga de fósforo. Ao acertar, o alvo pega fogo: condição Em chamas por 2 turnos (1d6/turno).",
+                 cond: "Em chamas", turnos: 2 },
+};
+export const PENTE_PADRAO = "padrao";
+
 export function custoTiro(cat) {
   if (!cat || cat.tipo !== "fogo") return 0;            // brancas e nano não gastam
   return /rajada|supress|artilharia/i.test(cat.kw || "") ? 2 : 1;
