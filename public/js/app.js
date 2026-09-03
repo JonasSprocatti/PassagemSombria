@@ -2288,7 +2288,7 @@ async function telaMesa(id) {
 
 // ---------------- BIBLIOTECA (todas as informações detalhadas) ----------------
 function telaBiblioteca(aba = "racas") {
-  const abas = [["racas", "Raças"], ["classes", "Classes"], ["armas", "Arsenal"], ["armaduras", "Armaduras"], ["implantes", "Implantes"], ["scripts", "Scripts"], ["filosofias", "Filosofias"], ["naves", "Naves"], ["bestiario", "Bestiário"], ["npcs", "NPCs"], ["mecanicas", "Mecânicas"]];
+  const abas = [["racas", "Raças"], ["classes", "Classes"], ["armas", "Arsenal"], ["armaduras", "Armaduras"], ["implantes", "Implantes"], ["scripts", "Scripts"], ["filosofias", "Filosofias"], ["naves", "Naves"], ["consumiveis", "Consumíveis"], ["bestiario", "Bestiário"], ["npcs", "NPCs"], ["mecanicas", "Mecânicas"]];
   let corpo = "";
   const cardCriatura = (c) => { const nv = NIVEIS_AMEACA[c.ameaca] || { cor: "#8189a3" };
     return `<details class="det grande best-card" style="border-left:3px solid ${nv.cor}"><summary>${img(c.n)}<b>${esc(c.n)}</b>${c.apelido ? ` <i class="dim">${esc(c.apelido)}</i>` : ""} <span class="best-tag" style="color:${nv.cor};border-color:${nv.cor}">${esc(c.ameaca)}</span>${c.raca ? ` <i class="dim">${esc(c.raca)}</i>` : ""}</summary>
@@ -2313,7 +2313,20 @@ function telaBiblioteca(aba = "racas") {
   if (aba === "naves") corpo = `<p class="regra">${esc(REGRAS_NAVE.defesa)}<br>${esc(REGRAS_NAVE.dobra)}<br>${esc(REGRAS_NAVE.critico)}</p>` +
     NAVES.map((n) => `<details class="det grande"><summary><b>${esc(n.n)}</b> · Casco ${n.casco} · Escudos ${n.escudos} · Manobra ${sign(n.manobra)} · Dano ${n.dano}</summary>
     <p>${esc(n.desc)}</p><p class="regra">Tripulação: ${esc(n.trip)}</p></details>`).join("") +
-    `<h3 class="sub">Estações de Batalha</h3>` + Object.values(ESTACOES).map((e) => `<div class="det"><b>${esc(e.n)}</b>${e.acoes.map((a) => `<p><b class="tech-c">${esc(a.n)}${a.rola ? ` (${a.rola.join("+")})` : ""}:</b> ${esc(a.d)}</p>`).join("")}</div>`).join("");
+    `<h3 class="sub">Estações de Batalha</h3>` + Object.values(ESTACOES).map((e) => `<div class="det"><b>${esc(e.n)}</b>${e.acoes.map((a) => `<p><b class="tech-c">${esc(a.n)}${a.rola ? ` (${a.rola.join("+")})` : ""}:</b> ${esc(a.d)}</p>`).join("")}</div>`).join("")
+    + `<h3 class="sub">🛠 Manutenção e reparo</h3>
+      <p class="regra">Uma nave avariada não se conserta sozinha. São quatro formas de recuperar o Casco, da mais imediata à mais definitiva.</p>
+      <div class="det grande"><p><b class="tech-c">Em combate — Reparos de Emergência:</b> o Engenheiro gasta a Ação Principal e testa Inteligência + Mecânica. Com sucesso, a nave recupera <b>1d4</b> de Casco.</p>
+        <p><b class="tech-c">Em combate — Reparo Estrutural em Massa:</b> Script de 4 Slots de RAM; nanites restauram <b>4d10</b> do Casco.</p>
+        <p><b class="tech-c">Descanso Longo — manutenção de bordo:</b> oito horas paradas devolvem <b>1d10+5</b> de Casco e recalibram os Escudos, sem custo.</p>
+        <p><b class="tech-c">Estaleiro — reparo definitivo:</b> Casco e Escudos ao máximo e todas as avarias reparadas. Custa <b class="chrome">8 CG por ponto de Casco</b> e <b class="chrome">150 CG por avaria</b>; alguém da tripulação paga a conta.</p>
+        <p class="regra"><i>Escudos são a exceção: recarregam sozinhos entre combates. É o Casco que cobra caro.</i></p></div>`
+    + `<h3 class="sub">⚙ Melhorias de nave</h3>
+      <p class="regra">Permanentes: alteram os atributos da nave a partir da instalação. A nave da tripulação é um personagem coletivo — acumula melhorias e cicatrizes.</p>`
+      + UPGRADES_NAVE.map((u) => `<div class="det"><b>${esc(u.n)}</b> · <b class="chrome">${u.p} CG</b> — ${esc(u.e)}</div>`).join("")
+    + `<h3 class="sub">⚠ Falhas Críticas do Casco (1d6)</h3>
+      <p class="regra">Um acerto crítico ou um dano massivo no Casco dispara uma avaria. Elas só saem com reparo.</p>`
+      + AVARIAS.map((av) => `<div class="det"><b>${av.d} — ${esc(av.n)}</b><br><span class="regra">${esc(av.e)}</span></div>`).join("");
   if (aba === "bestiario") { const base = ["Crias do Vazio", "Inimigos das Raças", "Heranças das Estrelas"];
     const cats = [...base, ...[...new Set(extras("criaturas").map((c) => c.categoria))].filter((c) => c && !base.includes(c))];
     const legenda = `<p class="regra">Ordene as fichas por ameaça: ${Object.entries(NIVEIS_AMEACA).map(([n, v]) => `<span class="best-tag" style="color:${v.cor};border-color:${v.cor}">${n}</span>`).join(" ")}</p>`;
@@ -2336,6 +2349,8 @@ function telaBiblioteca(aba = "racas") {
             <p><b style="color:var(--sombra)">Segredo (só o Mestre):</b> ${esc(n.segredo)}</p>
           </details>`).join(""); }).join("");
   }
+  if (aba === "consumiveis") corpo = `<p class="regra">Itens de uso único. Gastam-se ao serem usados e pedem um alvo quando curam — na mesa, pelo botão <b>🎒 Usar item</b>.</p>`
+    + CONSUMIVEIS.map((c) => `<details class="det grande"><summary>${img(c.n)}<b>${c.ic} ${esc(c.n)}</b> · <b class="chrome">${c.p} CG</b> <span class="dim">(${esc(c.acao)})</span></summary>${imgFig(c.n)}<p>${esc(c.d)}</p>${c.dado ? `<p class="regra"><b class="tech-c">Efeito:</b> cura ${c.dado} no alvo.</p>` : ""}</details>`).join("");
   if (aba === "mecanicas") {
     const ms = extras("mecanicas");
     corpo = `<p class="regra">Regras, mecânicas e conteúdo acrescentados pela administração da mesa — sempre em dia com a última versão do livro.</p>`
