@@ -311,7 +311,9 @@ function rolarTabela(chave) {
   return sorteia(t.itens).replace(/\{creditos\}/g, () => String((1 + Math.floor(Math.random() * 12)) * 25));
 }
 // Orçamento de encontro: "pontos de ameaça" que uma party aguenta sem TPK.
-const PESO_AMEACA = { Lacaio: 1, Comum: 2, Forte: 4, Elite: 6, Chefe: 12, Colossal: 18, "Super Chefe": 24 };
+// Peso de cada nível no orçamento de encontro, calibrado pela ameaça real:
+// uma Colossal tem 2,5× o HP de um Chefe e mecânicas de raide — vale um encontro inteiro.
+const PESO_AMEACA = { Lacaio: 1, Comum: 2, Forte: 4, Elite: 6, Chefe: 12, "Super Chefe": 24, Colossal: 40 };
 function orcamentoEncontro(nivel, jogadores, dificuldade) {
   const base = (2 + (nivel || 1) * 1.5) * (jogadores || 1);
   const mult = { facil: 0.6, medio: 1, dificil: 1.5, mortal: 2.2 }[dificuldade] || 1;

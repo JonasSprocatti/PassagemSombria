@@ -10,8 +10,8 @@ export const NIVEIS_AMEACA = {
   "Forte":    { cor: "#59e3c8", ordem: 2 },
   "Elite":    { cor: "#f0a860", ordem: 3 },
   "Chefe":    { cor: "#f07a7a", ordem: 4 },
-  "Colossal":   { cor: "#a78bfa", ordem: 5 },
-  "Super Chefe": { cor: "#ff5edb", ordem: 6 },
+  "Super Chefe": { cor: "#ff5edb", ordem: 5 },
+  "Colossal":   { cor: "#a78bfa", ordem: 6 },
   "Ambiental":   { cor: "#8be05a", ordem: -1 },
 };
 
@@ -73,6 +73,15 @@ export const BESTIARIO = [
     [{ n: "Artilharia de Bio-Ácido", bonus: null, dano: "2d8", extra: "alcance 30m em arco, área 2x2m; testam Acrobacia (CD 14), falha = dano ácido inesquivável" }],
     [{ n: "Sangue Cáustico (Passiva)", d: "Quem a atingir com Arma Branca sofre 1d4 de dano direto e a sua armadura perde 1 ponto de CD permanentemente, até um Mecânico consertá-la fora de combate." }],
     { nota: "O Morteiro Biológico. Lenta e fácil de acertar, letal se ignorada." }),
+
+  C("A Ferida do Mundo", "Crias do Vazio", "Colossal", 300, 18, 9,
+    [{ n: "Toque da Ausência", bonus: 9, dano: "4d10", extra: "não é dano de energia nem físico: é subtração. Ignora armaduras, escudos e resistências." },
+     { n: "Colapso Radial", bonus: null, dano: "6d10", extra: "Ação Principal, recarga 3 turnos. Raio de 20m: todos testam Constituição (CD 17); falha = dano total, sucesso = metade e fica Caído." }],
+    [{ n: "Corpo de Três Núcleos", d: "O dano ao corpo se fecha sozinho: no início de cada turno dela, a Ferida recupera 25 PV. Só é possível matá-la destruindo os três núcleos de vazio que flutuam ao redor (CD 16, 40 PV cada). Enquanto houver um núcleo, ela regenera." },
+     { n: "Campo de Não-Existência", d: "Num raio de 15m, aquilo que não existe não pode ser consertado: nenhuma cura funciona, Scripts de Tecnomancia falham automaticamente e implantes cibernéticos ficam inertes." },
+     { n: "Subtração (ao acertar um 20 natural)", d: "Em vez de ferir, apaga: o alvo escolhe perder permanentemente um implante, uma arma empunhada ou 1 ponto de um atributo. O item não é destruído — ele deixa de ter existido, e ninguém se lembra dele." },
+     { n: "Esquecimento", d: "Quando a Ferida reduz um personagem a 0 PV, todos os outros testam Sabedoria (CD 16). Quem falhar não consegue lembrar do nome nem do rosto do caído até o fim do combate, e não pode socorrê-lo." }],
+    { nota: "Não é uma criatura: é um rasgo na realidade que aprendeu a caminhar. Flutua a 3m do chão e o ar range perto dela." }),
 
   // ---------------- INIMIGOS DAS RAÇAS (Cap. 13) ----------------
   // TERRÁQUEOS
@@ -172,6 +181,16 @@ export const BESTIARIO = [
     [{ n: "Crescimento do Desclassificado (Fase 2)", d: "A 75 PV cresce p/ 5m: ignora ataques de oportunidade, empurra 5m e cura 20 PV." }], { raca: "Infimor" }),
 
   // ---------------- HERANÇAS DAS ESTRELAS (fauna exoplanetária) ----------------
+
+  C("Verme-Catedral de Vega", "Heranças das Estrelas", "Colossal", 380, 15, 24,
+    [{ n: "Mordida Cataclísmica", bonus: 10, dano: "5d12", extra: "atinge uma área de 6×6m; quem estiver dentro testa Acrobacia (CD 16) ou é Engolido." },
+     { n: "Varredura de Cauda", bonus: 8, dano: "3d10", extra: "linha de 15m; alvos atingidos são arremessados 10m e ficam Caídos." }],
+    [{ n: "Sentido de Vibração", d: "É completamente cego e imune a Cegueira, fumaça ou camuflagem — enxerga pelo tremor no solo. Quem passar o turno inteiro parado, ou mover-se no máximo 3m com um teste de Furtividade (CD 14), simplesmente não existe para ele." },
+     { n: "Engolido", d: "Quem é Engolido sofre 3d10 de dano ácido por turno e não pode agir a não ser cortar por dentro. Causar 30 de dano numa única rodada dentro dele o obriga a expelir todos os engolidos, e ele fica Atordoado por 1 turno." },
+     { n: "Emergir", d: "Como Ação Principal, mergulha na areia e reaparece em qualquer ponto num raio de 60m. Ao emergir, a área de 10×10m vira terreno difícil e todos ali testam Destreza (CD 15) ou ficam Caídos." },
+     { n: "Couraça de Anéis", d: "Placas sobrepostas de quilômetros: qualquer ataque que cause menos de 10 de dano numa única rolagem não o arranha. Só fogo concentrado, artilharia ou armas Despedaçadoras o ferem." },
+     { n: "Sangue de Dobra", d: "O interior do verme produz o cristal que alimenta os motores de dobra. Um verme abatido rende 1d4 Células de Matéria — motivo pelo qual há caçadores loucos o bastante para tentar." }],
+    { nota: "Escavação. Vinte quilômetros de anéis vivos sob as areias de Vega. Os nativos não dizem o nome dele em voz alta: dizem que ele escuta.", apelido: "A Montanha que Anda" }),
 
   // ---- Flora alienígena e fungos mutantes (perigos ambientais) ----
   AMB("Musgo Necrótico de Sirius", "Heranças das Estrelas",
