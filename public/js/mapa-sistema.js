@@ -52,6 +52,8 @@ export const POI_TIPOS = {
 };
 
 export function abrirMapa({ mapa, combate, souMestre, salvar, aoFechar }) {
+  let ultimaParty = null;   // posição anterior do grupo, para desenhar o trajeto
+  const reduzirMovimento = () => document.body.classList.contains("a11y-reduzir") || window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   let estado = mapa && typeof mapa === "object" ? JSON.parse(JSON.stringify(mapa)) : {};
   if (!Array.isArray(estado.pontos)) estado.pontos = [];
   if (!estado.tokens || typeof estado.tokens !== "object") estado.tokens = {};
@@ -131,11 +133,23 @@ export function abrirMapa({ mapa, combate, souMestre, salvar, aoFechar }) {
       mk.appendChild(el("text", { x: pt.x, y: pt.y - 15, fill: t.cor, "font-size": 12, "text-anchor": "middle", "font-weight": "600" }, pt.nome || t.lbl));
       g.appendChild(mk);
     }
-    // localização da party
+    // localização da party — o grupo desliza até a nova posição em vez de teleportar,
+    // e um rastro tracejado mostra o trajeto percorrido.
     if (estado.party) { const b = estado.party;
-      g.appendChild(el("circle", { cx: b.x, cy: b.y, r: 16, fill: "none", stroke: "#59e3c8", "stroke-width": 2, opacity: 0.5, class: "mp-pulso" }));
-      g.appendChild(el("text", { x: b.x, y: b.y + 6, "font-size": 18, "text-anchor": "middle" }, "🚀"));
-      g.appendChild(el("text", { x: b.x, y: b.y - 22, fill: "#59e3c8", "font-size": 12, "text-anchor": "middle", "font-weight": "700" }, b.nome || "A TRIPULAÇÃO")); }
+      const de = ultimaParty, indo = de && (de.x !== b.x || de.y !== b.y);
+      if (indo) g.appendChild(el("line", { x1: de.x, y1: de.y, x2: b.x, y2: b.y,
+        stroke: "#59e3c8", "stroke-width": 1.5, "stroke-dasharray": "5 6", opacity: 0.5, class: "mp-rota" }));
+      const gp = el("g", { class: "mp-party" + (indo ? " viajando" : "") });
+      gp.appendChild(el("circle", { cx: b.x, cy: b.y, r: 16, fill: "none", stroke: "#59e3c8", "stroke-width": 2, opacity: 0.5, class: "mp-pulso" }));
+      gp.appendChild(el("text", { x: b.x, y: b.y + 6, "font-size": 18, "text-anchor": "middle" }, "🚀"));
+      gp.appendChild(el("text", { x: b.x, y: b.y - 22, fill: "#59e3c8", "font-size": 12, "text-anchor": "middle", "font-weight": "700" }, b.nome || "A TRIPULAÇÃO"));
+      if (indo && !reduzirMovimento()) {
+        gp.style.transform = `translate(${de.x - b.x}px, ${de.y - b.y}px)`;
+        requestAnimationFrame(() => { gp.style.transition = "transform 1.4s cubic-bezier(.35,.05,.2,1)"; gp.style.transform = "translate(0,0)"; });
+      }
+      g.appendChild(gp);
+      ultimaParty = { x: b.x, y: b.y };
+    }
     // tokens dos combatentes (do rastreador de iniciativa)
     if (cbt.ativo && cbt.ordem.length) {
       const base = estado.party || { x: 0, y: 0 };

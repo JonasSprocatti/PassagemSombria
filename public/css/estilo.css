@@ -721,3 +721,49 @@ body.critico .mesa,body.critico .frame{animation:tremor-mesa .4s ease-out}
 
 body.a11y-reduzir .ondula::after,body.a11y-reduzir .pulsa-perigo,
 body.a11y-reduzir .pulsa-tech,body.a11y-reduzir.critico .mesa{animation:none!important}
+
+/* ============================================================================
+   SUBIR DE NÍVEL — acontece poucas vezes por campanha; é a segunda grande cena.
+   ============================================================================ */
+.nv-cena{position:fixed;inset:0;z-index:10050;display:flex;align-items:center;justify-content:center;
+  background:radial-gradient(ellipse at center,rgba(89,227,200,.10),rgba(5,6,12,.90) 60%);
+  animation:nv-fundo .3s ease-out both;padding:20px}
+@keyframes nv-fundo{from{opacity:0}to{opacity:1}}
+.nv-cena.saindo{animation:nv-fundo .25s ease-in reverse both}
+.nv-caixa{position:relative;text-align:center;max-width:380px;width:100%;
+  background:var(--panel);border:1px solid var(--tech);border-radius:14px;padding:30px 26px 24px;
+  box-shadow:0 0 60px rgba(89,227,200,.22);animation:nv-caixa .5s cubic-bezier(.2,1.3,.35,1) both}
+@keyframes nv-caixa{from{transform:scale(.9) translateY(14px);opacity:0}to{transform:none;opacity:1}}
+.nv-halo{position:absolute;left:50%;top:56px;width:150px;height:150px;margin-left:-75px;border-radius:50%;
+  border:2px solid var(--tech);opacity:0;animation:nv-halo 1.5s ease-out .2s 2}
+@keyframes nv-halo{from{transform:scale(.35);opacity:.85}to{transform:scale(2.1);opacity:0}}
+.nv-eyebrow{display:block;font-size:11px;color:var(--dim);font-family:'IBM Plex Mono',monospace;letter-spacing:.14em}
+.nv-num{font-family:'Chakra Petch',sans-serif;font-size:82px;line-height:1;font-weight:700;color:var(--tech);
+  text-shadow:0 0 30px rgba(89,227,200,.6);margin:2px 0 6px;
+  animation:nv-num .7s cubic-bezier(.2,1.5,.3,1) .15s both}
+@keyframes nv-num{from{transform:scale(2.6) rotate(-8deg);opacity:0;filter:blur(10px)}
+  to{transform:none;opacity:1;filter:blur(0)}}
+.nv-linha{height:1px;background:linear-gradient(90deg,transparent,var(--tech),transparent);margin:0 0 14px;
+  animation:nv-linha .6s ease-out .5s both}
+@keyframes nv-linha{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+.nv-ganhos{list-style:none;padding:0;margin:0 0 20px;text-align:left}
+.nv-ganhos li{font-size:13px;line-height:1.5;padding:6px 0 6px 22px;position:relative;
+  border-bottom:1px solid var(--line);animation:nv-item .45s ease-out both}
+.nv-ganhos li::before{content:"▸";position:absolute;left:4px;color:var(--tech)}
+.nv-ganhos li:nth-child(1){animation-delay:.6s}.nv-ganhos li:nth-child(2){animation-delay:.72s}
+.nv-ganhos li:nth-child(3){animation-delay:.84s}.nv-ganhos li:nth-child(4){animation-delay:.96s}
+.nv-ganhos li:nth-child(n+5){animation-delay:1.08s}
+@keyframes nv-item{from{opacity:0;transform:translateX(-10px)}to{opacity:1;transform:none}}
+.nv-ok{animation:nv-item .4s ease-out 1.2s both}
+
+/* Números que mudam: sobem em verde, descem em âmbar */
+.num-sobe{color:#8be05a;transition:color .4s}
+.num-desce{color:var(--chrome);transition:color .4s}
+.barra i{transition:width 1s cubic-bezier(.2,.8,.3,1)}
+
+/* Party viajando no mapa */
+.mp-rota{animation:mp-rota 1.4s ease-out both}
+@keyframes mp-rota{from{opacity:0;stroke-dashoffset:60}to{opacity:.5;stroke-dashoffset:0}}
+
+body.a11y-reduzir .nv-caixa,body.a11y-reduzir .nv-num,body.a11y-reduzir .nv-halo,
+body.a11y-reduzir .nv-ganhos li,body.a11y-reduzir .nv-linha,body.a11y-reduzir .mp-rota{animation:none!important}

@@ -508,6 +508,52 @@ document.addEventListener("pointerdown", (e) => {
     setTimeout(() => b.classList.remove(cls), 470); }
 }, { passive: true });
 
+// Conta um número até o novo valor. Usado quando créditos e XP mudam:
+// ver o número subindo diz o que aconteceu melhor do que ele simplesmente trocar.
+const xpVisto = {};   // último XP visto por personagem, para animar o ganho
+function contarAte(el, de, para, ms = 700, sufixo = "") {
+  if (!el || de === para || document.body.classList.contains("a11y-reduzir")) {
+    if (el) el.textContent = para + sufixo; return;
+  }
+  const t0 = performance.now(); const dif = para - de;
+  el.classList.add(dif > 0 ? "num-sobe" : "num-desce");
+  const passo = (t) => {
+    const p = Math.min(1, (t - t0) / ms);
+    const eased = 1 - Math.pow(1 - p, 3);              // desacelera no fim
+    el.textContent = Math.round(de + dif * eased) + sufixo;
+    if (p < 1) requestAnimationFrame(passo);
+    else setTimeout(() => el.classList.remove("num-sobe", "num-desce"), 400);
+  };
+  requestAnimationFrame(passo);
+}
+
+// A cena de subir de nível: acontece poucas vezes por campanha e merece peso.
+async function cenaNivel(nivel, ganhoPV, detalhe, extras) {
+  if (document.body.classList.contains("a11y-reduzir")) return;
+  const ov = document.createElement("div");
+  ov.className = "nv-cena";
+  ov.innerHTML = `<div class="nv-caixa">
+      <div class="nv-halo"></div>
+      <span class="nv-eyebrow">Nível alcançado</span>
+      <div class="nv-num">${nivel}</div>
+      <div class="nv-linha"></div>
+      <ul class="nv-ganhos">
+        <li><b>+${ganhoPV} PV</b> <span class="dim">${esc(detalhe)}</span></li>
+        ${extras.map((g) => `<li>${esc(g)}</li>`).join("")}
+      </ul>
+      <button class="btn-primario nv-ok">Continuar</button>
+    </div>`;
+  document.body.appendChild(ov);
+  try { somCritico(); } catch (_) {}
+  await new Promise((res) => {
+    ov.querySelector(".nv-ok").onclick = res;
+    ov.addEventListener("click", (e) => { if (e.target === ov) res(); });
+    setTimeout(res, 9000);
+  });
+  ov.classList.add("saindo");
+  setTimeout(() => ov.remove(), 260);
+}
+
 // Guarda a largura anterior de cada barra para desenhar o rastro do dano.
 const larguraAnterior = {};
 function animarBarras(raiz = document) {
@@ -627,6 +673,8 @@ async function telaFicha(id) {
     const pool = [...(f.rolagemPool || [])];
     usados.forEach((v) => { const i = pool.indexOf(v); if (i >= 0) pool.splice(i, 1); });
     const ganhos = ganhosDoNivel(f.nivel + 1, f);
+    const xpAntes = xpVisto[p.id];
+    xpVisto[p.id] = f.xp;
     shell("ficha", `
       <nav class="topo"><a class="btn-ghost" href="#/hangar">← HANGAR</a><div class="topo-status" id="st"></div><button id="imprimir" class="btn-ghost" title="Abre o diálogo de impressão — escolha 'Salvar como PDF'">🖨 PDF</button><button id="baixar" class="btn-ghost" title="Baixa a ficha como arquivo .html">💾 .html</button><button id="compartilhar" class="btn-ghost" title="Gerar link público (somente leitura)">🔗 LINK</button><button id="salvar" class="btn-primario">SALVAR</button></nav>
 
@@ -718,7 +766,7 @@ async function telaFicha(id) {
             <label>Marcos concluídos<input id="marcos" type="number" value="${f.marcos}"/></label>
             <label>&nbsp;<button id="add-marco" class="mini eq">+1 MARCO ALCANÇADO</button></label>` : ""}
         </div>
-        ${f.metodoNivel === "xp" ? `<div class="barra" style="margin-bottom:10px"><span>Progresso: ${f.xp}/${f.xpMeta} XP ${f.xp >= f.xpMeta ? "— PRONTO PARA SUBIR!" : ""}</span><div><i style="width:${Math.min(100, (100 * f.xp / Math.max(1, f.xpMeta)) | 0)}%;background:var(--tech)"></i></div></div>` : ""}
+        ${f.metodoNivel === "xp" ? `<div class="barra xp-barra" style="margin-bottom:10px"><span>Progresso: <b id="xp-num">${f.xp}</b>/${f.xpMeta} XP ${f.xp >= f.xpMeta ? "— PRONTO PARA SUBIR!" : ""}</span><div><i style="width:${Math.min(100, (100 * f.xp / Math.max(1, f.xpMeta)) | 0)}%;background:var(--tech)"></i></div></div>` : ""}
         ${f.nivel < 10 ? `
         <details class="det"><summary>O que você ganha no nível ${f.nivel + 1}</summary>${ganhos.map((g) => `<p>· ${esc(g)}</p>`).join("")}</details>
         <label class="chk" style="margin:6px 0"><input type="checkbox" id="vida-fixa" ${f.usarVidaFixa ? "checked" : ""}/> Usar média fixa da vida ao subir de nível${raca ? ` (${raca.vidaFixa} + Con, sem rolar)` : ""}</label>
@@ -766,6 +814,13 @@ async function telaFicha(id) {
       </section>`);
 
     // ---- binds ----
+    if (xpAntes != null && xpAntes !== f.xp) {
+      const el = $("#xp-num"), barra = document.querySelector(".xp-barra i");
+      if (barra) { barra.style.transition = "none"; barra.style.width = Math.min(100, 100 * xpAntes / Math.max(1, f.xpMeta)) + "%";
+        void barra.offsetWidth; barra.style.transition = "";
+        requestAnimationFrame(() => { barra.style.width = Math.min(100, 100 * f.xp / Math.max(1, f.xpMeta)) + "%"; }); }
+      contarAte(el, xpAntes, f.xp, 900);
+    }
     $("#salvar").onclick = async () => { $("#st").textContent = "Transmitindo…"; await salvar(); $("#st").textContent = "Salvo ✓"; };
     $("#compartilhar").onclick = async () => {
       const { data: atual } = await sb.from("personagens").select("publico,token_publico").eq("id", p.id).single();
@@ -879,6 +934,7 @@ async function telaFicha(id) {
       registrar(`▲ NÍVEL ${novoNv - 1} → ${novoNv}! Vida: ${detalhe} = +${ganhoPV} PV (agora ${f.pvMax}). Ganhos: ${extras.join(" · ")}`);
       await salvar(); render();
       $("#st").textContent = `Nível ${novoNv}! +${ganhoPV} PV ✓ (salvo)`;
+      cenaNivel(novoNv, ganhoPV, detalhe, extras);
     });
     app.querySelectorAll(".ck-impl").forEach((c) => c.onchange = () => {
       f.implantes = c.checked ? [...f.implantes, c.dataset.n] : f.implantes.filter((x) => x !== c.dataset.n); render(); });
@@ -905,11 +961,13 @@ async function telaFicha(id) {
       alvo.querySelectorAll(".loja-comprar").forEach((b) => b.onclick = () => {
         const it = itens[+b.dataset.ix]; if (!it) return;
         if ((f.creditos ?? 0) < it.preco) return;
-        f.creditos = (f.creditos ?? 0) - it.preco;
+        const cgAntes = f.creditos ?? 0;
+        f.creditos = cgAntes - it.preco;
+        contarAte($("#loja-cg"), cgAntes, f.creditos, 600, " CG");
         if (cat === "implante") { if (!f.implantes.includes(it.nome)) f.implantes.push(it.nome); }
         else f.inventario.push({ tipo: cat, nome: it.nome, equip: false, qtd: 1 });
         registrar(`🛒 Comprou ${it.nome} por ${it.preco} CG (restam ${f.creditos} CG).`);
-        render();
+        setTimeout(render, 650);
       });
     };
     $("#loja-cat") && ($("#loja-cat").onchange = (e) => renderLoja(e.target.value));
