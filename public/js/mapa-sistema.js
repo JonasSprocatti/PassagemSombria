@@ -10,20 +10,36 @@ const uid = () => "p" + Math.random().toString(36).slice(2, 9);
 
 // ---- Layout fixo do sistema (top-down). Unidades de mapa; Sol em (0,0). ----
 const K = 18; // escala das órbitas
+// "periodo" é o período orbital real em anos terrestres. As velocidades no mapa
+// guardam a mesma proporção do sistema solar — Mercúrio dá ~4 voltas enquanto a
+// Terra dá 1 — apenas comprimidas numa escala de tempo jogável.
 const PLANETAS = [
-  { nome: "Mercúrio", raca: "Mercusys",    r: 9,  ang: 20,  tam: 6,  cor: "#c9a15a", luas: [] },
-  { nome: "Vênus",    raca: "Ven'y",       r: 13, ang: 75,  tam: 8,  cor: "#e0b060", luas: [] },
-  { nome: "Terra",    raca: "Terráqueo",   r: 17, ang: 130, tam: 8,  cor: "#4a90d9", luas: ["Lua"] },
-  { nome: "Marte",    raca: "Marciano",    r: 21, ang: 200, tam: 7,  cor: "#c1440e", luas: ["Phobos", "Deimos"] },
-  { nome: "Júpiter",  raca: "Conjupitero", r: 28, ang: 300, tam: 16, cor: "#d8a878", luas: ["Io", "Europa", "Ganimedes", "Calisto"] },
-  { nome: "Saturno",  raca: "Sata",        r: 35, ang: 40,  tam: 14, cor: "#e3d9a8", luas: ["Titã", "Encélado", "Reia"], aneis: true },
-  { nome: "Urano",    raca: "Urak",        r: 41, ang: 160, tam: 11, cor: "#a0e0e0", luas: ["Titânia", "Oberon"], aneis: true },
-  { nome: "Netuno",   raca: "Proturno",    r: 46, ang: 250, tam: 11, cor: "#3a6ecc", luas: ["Tritão"] },
-  { nome: "Plutão",   raca: "Infimor",     r: 51, ang: 340, tam: 5,  cor: "#b0a090", luas: ["Caronte"] },
+  { nome: "Mercúrio", raca: "Mercusys",    r: 9,  ang: 20,  tam: 6,  cor: "#c9a15a", periodo: 0.241, luas: [] },
+  { nome: "Vênus",    raca: "Ven'y",       r: 13, ang: 75,  tam: 8,  cor: "#e0b060", periodo: 0.615, luas: [] },
+  { nome: "Terra",    raca: "Terráqueo",   r: 17, ang: 130, tam: 8,  cor: "#4a90d9", periodo: 1.000, luas: ["Lua"] },
+  { nome: "Marte",    raca: "Marciano",    r: 21, ang: 200, tam: 7,  cor: "#c1440e", periodo: 1.881, luas: ["Phobos", "Deimos"] },
+  { nome: "Júpiter",  raca: "Conjupitero", r: 28, ang: 300, tam: 16, cor: "#d8a878", periodo: 11.86, luas: ["Io", "Europa", "Ganimedes", "Calisto"] },
+  { nome: "Saturno",  raca: "Sata",        r: 35, ang: 40,  tam: 14, cor: "#e3d9a8", periodo: 29.46, luas: ["Titã", "Encélado", "Reia"], aneis: true },
+  { nome: "Urano",    raca: "Urak",        r: 41, ang: 160, tam: 11, cor: "#a0e0e0", periodo: 84.01, luas: ["Titânia", "Oberon"], aneis: true },
+  { nome: "Netuno",   raca: "Proturno",    r: 46, ang: 250, tam: 11, cor: "#3a6ecc", periodo: 164.8, luas: ["Tritão"] },
+  { nome: "Plutão",   raca: "Infimor",     r: 51, ang: 340, tam: 5,  cor: "#b0a090", periodo: 248.0, luas: ["Caronte"] },
 ];
 const rad = (g) => (g * Math.PI) / 180;
-const px = (p) => Math.cos(rad(p.ang)) * p.r * K;
-const py = (p) => Math.sin(rad(p.ang)) * p.r * K;
+
+// Quanto tempo real vale um "ano terrestre" no mapa. Com 15 minutos, Mercúrio
+// fecha uma volta em ~3,6min e a Terra em 15min: uma deriva perceptível ao longo
+// de uma cena, sem roubar a atenção de quem está jogando.
+const SEGUNDOS_POR_ANO = 900;
+// Época fixa: todos os clientes calculam a mesma posição a partir daqui,
+// então a mesa inteira vê os planetas no mesmo lugar sem sincronizar nada.
+const EPOCA = Date.UTC(2400, 0, 1) / 1000;
+
+let relogioMapa = () => Date.now() / 1000;      // trocável para pausar ou avançar o tempo
+const anoAtual = () => (relogioMapa() - EPOCA) / SEGUNDOS_POR_ANO;
+// Ângulo do planeta agora: posição inicial + voltas dadas desde a época.
+const angDe = (p) => p.ang + (anoAtual() / p.periodo) * 360;
+const px = (p) => Math.cos(rad(angDe(p))) * p.r * K;
+const py = (p) => Math.sin(rad(angDe(p))) * p.r * K;
 
 // ---- Catálogo de tipos de ponto de interesse ----
 export const POI_TIPOS = {
@@ -73,6 +89,7 @@ export function abrirMapa({ mapa, combate, souMestre, salvar, aoFechar }) {
         <button id="mp-add" class="mini">➕ Adicionar ponto</button>
         <button id="mp-party" class="mini">📍 Mover a party</button>
       </span>` : `<span class="mp-dim">Visão do jogador — o Mestre controla os pontos</span>`}
+      <span class="mp-data" id="mp-data" title="Data do sistema. Os planetas orbitam na mesma proporção do sistema solar real."></span>
       <span class="mp-hint" id="mp-hint">Arraste para mover · role ou pinça para zoom</span>
       <button id="mp-fechar" class="mp-x">✕</button>
     </div>
@@ -94,6 +111,30 @@ export function abrirMapa({ mapa, combate, souMestre, salvar, aoFechar }) {
   const onResize = () => { ajustarAspecto(); };
   window.addEventListener("resize", onResize);
 
+  const atualizarData = () => {
+    const el2 = ov.querySelector("#mp-data"); if (!el2) return;
+    const anos = anoAtual();
+    const ano = 2400 + Math.floor(anos);
+    const dia = Math.floor((anos % 1) * 365) + 1;
+    el2.textContent = `☀ Ano ${ano} · dia ${dia}`;
+  };
+  const grupos = [];              // {p, gp, luas} de cada planeta, para animar sem redesenhar
+  let animId = 0;
+  const posicionarPlanetas = () => {
+    for (const { p, gp, luas } of grupos) {
+      gp.setAttribute("transform", `translate(${px(p).toFixed(1)} ${py(p).toFixed(1)})`);
+      for (const l of luas) {
+        const a2 = l.fase + (anoAtual() / l.periodo) * 360;
+        l.el.setAttribute("transform", `rotate(${a2.toFixed(1)})`);
+      }
+    }
+  };
+  const animar = () => {
+    if (reduzirMovimento()) return;                 // quem pediu menos movimento vê o mapa parado
+    posicionarPlanetas();
+    animId = requestAnimationFrame(animar);
+  };
+
   // ---- desenho ----
   const el = (tag, attrs, inner) => { const e = document.createElementNS("http://www.w3.org/2000/svg", tag);
     for (const k in attrs) e.setAttribute(k, attrs[k]); if (inner != null) e.textContent = inner; return e; };
@@ -110,19 +151,29 @@ export function abrirMapa({ mapa, combate, souMestre, salvar, aoFechar }) {
     g.appendChild(el("circle", { cx: 0, cy: 0, r: 22, fill: "#ffcc44" }));
     g.appendChild(el("circle", { cx: 0, cy: 0, r: 30, fill: "#ffaa33", opacity: 0.2 }));
     g.appendChild(el("text", { x: 0, y: 44, fill: "#ffcc44", "font-size": 15, "text-anchor": "middle" }, "Sol"));
-    // planetas + luas
+    // Planetas + luas. Cada planeta é um grupo desenhado na origem e posicionado
+    // por transform — assim a animação só reposiciona o grupo, sem redesenhar o mapa.
+    grupos.length = 0;
     for (const p of PLANETAS) {
-      const x = px(p), y = py(p);
-      if (p.aneis) { const ring = el("ellipse", { cx: x, cy: y, rx: p.tam * 2, ry: p.tam * 0.8, fill: "none", stroke: p.cor, "stroke-width": 2, opacity: 0.6 }); g.appendChild(ring); }
-      g.appendChild(el("circle", { cx: x, cy: y, r: p.tam, fill: p.cor }));
-      g.appendChild(el("text", { x: x, y: y - p.tam - 6, fill: p.cor, "font-size": 14, "text-anchor": "middle", "font-weight": "600" }, `${p.nome}`));
-      g.appendChild(el("text", { x: x, y: y - p.tam - 20, fill: "#8189a3", "font-size": 10, "text-anchor": "middle" }, p.raca));
-      p.luas.forEach((lua, i) => { const la = (i / Math.max(1, p.luas.length)) * 360 + 30, lr = p.tam + 14 + i * 9;
-        const lx = x + Math.cos(rad(la)) * lr, ly = y + Math.sin(rad(la)) * lr;
-        g.appendChild(el("circle", { cx: x, cy: y, r: lr, fill: "none", stroke: "#2a2a3a", "stroke-width": 1 }));
-        g.appendChild(el("circle", { cx: lx, cy: ly, r: 3, fill: "#c8c8d8" }));
-        g.appendChild(el("text", { x: lx, y: ly - 6, fill: "#9098b0", "font-size": 9, "text-anchor": "middle" }, lua)); });
+      const gp = el("g", { class: "mp-planeta" });
+      if (p.aneis) gp.appendChild(el("ellipse", { cx: 0, cy: 0, rx: p.tam * 2, ry: p.tam * 0.8, fill: "none", stroke: p.cor, "stroke-width": 2, opacity: 0.6 }));
+      gp.appendChild(el("circle", { cx: 0, cy: 0, r: p.tam, fill: p.cor }));
+      gp.appendChild(el("text", { x: 0, y: -p.tam - 6, fill: p.cor, "font-size": 14, "text-anchor": "middle", "font-weight": "600" }, p.nome));
+      gp.appendChild(el("text", { x: 0, y: -p.tam - 20, fill: "#8189a3", "font-size": 10, "text-anchor": "middle" }, p.raca));
+      const luas = [];
+      p.luas.forEach((lua, i) => { const lr = p.tam + 14 + i * 9;
+        gp.appendChild(el("circle", { cx: 0, cy: 0, r: lr, fill: "none", stroke: "#2a2a3a", "stroke-width": 1 }));
+        const gl = el("g", {});
+        gl.appendChild(el("circle", { cx: lr, cy: 0, r: 3, fill: "#c8c8d8" }));
+        gl.appendChild(el("text", { x: lr, y: -6, fill: "#9098b0", "font-size": 9, "text-anchor": "middle" }, lua));
+        gp.appendChild(gl);
+        // Luas giram bem mais rápido que o planeta, como no sistema real.
+        luas.push({ el: gl, periodo: p.periodo / (28 + i * 14), fase: (i / Math.max(1, p.luas.length)) * 360 + 30 });
+      });
+      g.appendChild(gp);
+      grupos.push({ p, gp, luas });
     }
+    posicionarPlanetas();
     // pontos de interesse
     for (const pt of estado.pontos) {
       const t = POI_TIPOS[pt.tipo] || POI_TIPOS.generico;
@@ -272,12 +323,14 @@ export function abrirMapa({ mapa, combate, souMestre, salvar, aoFechar }) {
     ov.querySelector("#mp-add").onclick = () => setModo(modo === "add" ? null : "add");
     ov.querySelector("#mp-party").onclick = () => setModo(modo === "party" ? null : "party");
   }
-  const fechar = () => { document.body.style.overflow = ""; window.removeEventListener("resize", onResize); ov.remove(); aoFechar?.(); };
+  const fechar = () => { document.body.style.overflow = ""; window.removeEventListener("resize", onResize); cancelAnimationFrame(animId); clearInterval(relogioInt); ov.remove(); aoFechar?.(); };
   ov.querySelector("#mp-fechar").onclick = fechar;
   ov.addEventListener("keydown", (e) => { if (e.key === "Escape") { if (modo) setModo(null); else fechar(); } });
 
   desenhar();
   ajustarAspecto();
+  animar();                     // planetas passam a orbitar
+  const relogioInt = setInterval(atualizarData, 1000);
 
   // controlador para o realtime atualizar o mapa em tempo real
   return {
