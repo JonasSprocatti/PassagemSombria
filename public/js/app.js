@@ -1187,7 +1187,7 @@ async function telaMesa(id) {
                 ${Object.entries(ESTACOES).map(([pk, e]) => `<option value="${pk}" ${meuPosto === pk ? "selected" : ""}>${e.n}</option>`).join("")}</select></label>
               ${meuPosto && f ? `<div class="acoes-mesa">${ESTACOES[meuPosto].acoes.map((a, i) => `<button class="mini" data-est="${i}" title="${esc(a.d)}">${esc(a.n)}</button>`).join("")}</div>` : ""}
               ${(cbn.avarias || []).length ? `<div class="avarias">${cbn.avarias.map((av, ai) => `<div class="avaria"><b>⚠ ${esc(av.n)}</b> <span class="regra">${esc(av.e)}</span>${souMestre ? `<button class="mini rm" data-av-fix="${ai}" title="Consertar">✔</button>` : ""}</div>`).join("")}</div>` : ""}
-              ${souMestre ? `<div class="acoes-mesa"><input id="nave-dano" type="number" placeholder="dano" style="width:70px"/><button id="nave-hit" class="mini dano">💥 NAVE SOFRE</button><button id="nave-upg" class="mini">🔧 Upgrades</button></div>` : ""}
+              ${souMestre ? `<div class="acoes-mesa"><input id="nave-dano" type="number" placeholder="dano" style="width:70px"/><button id="nave-hit" class="mini dano">💥 NAVE SOFRE</button><button id="nave-upg" class="mini">🔧 Upgrades</button><button id="nave-repar" class="mini eq">🛠 Estaleiro</button></div>` : ""}
               ${(cbn.ativo && !camp.combate.ordem.some((x) => ehNave(x))) ? `
                 <div class="cbn-box">
                   <div class="cbn-cab"><b>🚀 COMBATE ESPACIAL</b><span class="regra">Rodada ${cbn.rodada}</span></div>
@@ -1387,7 +1387,6 @@ async function telaMesa(id) {
     syncTg();
     $("#msg").onkeydown = (e) => { if (e.key === "Enter") $("#enviar-msg").click(); else if (e.key === "Escape") cancelarResp(); };
     $("#mestre-curto")?.addEventListener("click", () => { if (confirm("Convocar Descanso Curto para toda a mesa? Cada jogador conectado recupera as habilidades de descanso curto no próprio personagem.")) enviar("descanso", "O Mestre convocou um Descanso Curto (1h). Habilidades de descanso curto reiniciadas; cura via Kits Médicos.", { tipo: "curto" }); });
-    $("#mestre-longo")?.addEventListener("click", () => { if (confirm("Convocar Descanso Longo para toda a mesa? Cada jogador conectado tem PV restaurados, RAM recarregada e todas as habilidades reiniciadas.")) enviar("descanso", "O Mestre convocou um Descanso Longo (8h). PV restaurados, RAM recarregada e todas as habilidades reiniciadas.", { tipo: "longo" }); });
     $("#mestre-xp")?.addEventListener("click", async () => { const r = await modalForm({ titulo: "🎖 Conceder XP", descricao: "Todos os jogadores conectados com personagem vinculado recebem.", campos: [{ k: "xp", label: "Quantidade de XP", tipo: "numero", valor: 500, min: 1 }], okLabel: "Conceder" }); if (!r || !r.xp || r.xp <= 0) return; enviar("recompensa", `O Mestre concedeu ${r.xp} XP à tripulação.`, { xp: r.xp }); });
     $("#mestre-cg")?.addEventListener("click", async () => { const r = await modalForm({ titulo: "🎁 Conceder Créditos", descricao: "Saque distribuído a toda a tripulação conectada.", campos: [{ k: "cg", label: "Créditos (CG)", tipo: "numero", valor: 1000, min: 1 }], okLabel: "Distribuir" }); if (!r || !r.cg || r.cg <= 0) return; enviar("recompensa", `O Mestre distribuiu ${r.cg} CG de saque à tripulação.`, { creditos: r.cg }); });
     $("#handout-btn")?.addEventListener("click", async () => {
@@ -1550,7 +1549,20 @@ async function telaMesa(id) {
         // então aqui delegamos para eles disparando o clique no elemento equivalente.
         const liga = (idm, fn) => { const el2 = ov.querySelector("#" + idm); if (el2) el2.onclick = fn; };
         liga("mestre-curto", async () => { if (await confirmModal("Convocar Descanso Curto para toda a mesa?", { okLabel: "Convocar" })) { enviar("descanso", "O Mestre convocou um Descanso Curto (1h). Habilidades de descanso curto reiniciadas; cura via Kits Médicos.", { tipo: "curto" }); fechar(); } });
-        liga("mestre-longo", async () => { if (await confirmModal("Convocar Descanso Longo para toda a mesa? PV restaurados, RAM recarregada e todas as habilidades reiniciadas.", { okLabel: "Convocar" })) { enviar("descanso", "O Mestre convocou um Descanso Longo (8h). PV restaurados, RAM recarregada e todas as habilidades reiniciadas.", { tipo: "longo" }); fechar(); } });
+        liga("mestre-longo", async () => {
+          if (!(await confirmModal("Convocar Descanso Longo para toda a mesa? PV restaurados, RAM recarregada, pentes repostos e todas as habilidades reiniciadas. A tripulação também aproveita para mexer no casco.", { okLabel: "Convocar" }))) return;
+          await enviar("descanso", "O Mestre convocou um Descanso Longo (8h). PV restaurados, RAM recarregada e todas as habilidades reiniciadas.", { tipo: "longo" });
+          if (camp.nave && camp.nave.casco < camp.nave.casco_max) {   // 8h dão tempo de remendar o casco
+            const rep = d(10) + 5;
+            camp.nave.casco = Math.min(camp.nave.casco_max, camp.nave.casco + rep);
+            camp.nave.escudos = camp.nave.escudos_max;
+            const cbn3 = camp.combate?.ordem?.find((x) => x.nave_party);
+            if (cbn3) { cbn3.casco = camp.nave.casco; cbn3.escudos = camp.nave.escudos; }
+            await salvarCampanha({ nave: camp.nave, ...(camp.combate ? { combate: camp.combate } : {}) }).eq("id", id);
+            await enviar("sistema", `🔧 Manutenção de bordo no descanso: +${rep} de casco (${camp.nave.casco}/${camp.nave.casco_max}) e escudos recalibrados.`);
+          }
+          fechar();
+        });
         liga("mestre-xp", async () => { const r = await modalForm({ titulo: "🎖 Conceder XP", campos: [{ k: "n", label: "XP para toda a tripulação conectada", tipo: "numero", valor: 500 }], okLabel: "Conceder" }); if (!r || !(+r.n > 0)) return; enviar("recompensa", `O Mestre concedeu ${+r.n} XP à tripulação.`, { xp: +r.n }); fechar(); });
         liga("mestre-cg", async () => { const r = await modalForm({ titulo: "🎁 Conceder Créditos", campos: [{ k: "n", label: "CG para toda a tripulação conectada", tipo: "numero", valor: 1000 }], okLabel: "Conceder" }); if (!r || !(+r.n > 0)) return; enviar("recompensa", `O Mestre distribuiu ${+r.n} CG de saque à tripulação.`, { creditos: +r.n }); fechar(); });
         liga("mestre-mun", async () => { const r = await modalForm({ titulo: "🔫 Conceder pentes", descricao: `Munição de saque. Vai para a reserva de cada tripulante conectado (máximo ${PENTES_MAX - 1}).`, campos: [{ k: "n", label: "Pentes", tipo: "numero", valor: 1, min: 1, max: PENTES_MAX - 1 }], okLabel: "Distribuir" }); if (!r || !(+r.n > 0)) return; enviar("recompensa", `O Mestre distribuiu ${+r.n} pente${+r.n > 1 ? "s" : ""} de munição à tripulação.`, { pentes: +r.n }); fechar(); });
@@ -2023,6 +2035,21 @@ async function telaMesa(id) {
         meuPers.dados = { ...f, ramGasta: (f.ramGasta || 0) + s.c };
         await sb.from("personagens").update({ dados: meuPers.dados }).eq("id", meuPers.id);
         const nat = d(20);
+        // Scripts que reparam a nave resolvem direto no casco.
+        const mNave = /(\d+d\d+)\s+do casco/i.exec(s.d || "");
+        if (mNave && camp.nave) {
+          const pdn = parseDice(mNave[1]); const dn = rollNd(pdn.n, pdn.f);
+          const val = dn.reduce((x, y) => x + y, 0);
+          const antes = camp.nave.casco;
+          camp.nave.casco = Math.min(camp.nave.casco_max, camp.nave.casco + val);
+          const cbn = camp.combate?.ordem?.find((x) => x.nave_party);
+          if (cbn) cbn.casco = camp.nave.casco;
+          await salvarCampanha({ nave: camp.nave, ...(cbn ? { combate: camp.combate } : {}) }).eq("id", id);
+          await enviar("rolagem", null, { titulo: `Script — ${s.n}`,
+            detalhe: `${mNave[1]} [${dn.join(", ")}] · ${s.c} RAM`,
+            extra: `🔧 Casco reparado em ${camp.nave.casco - antes} (${camp.nave.casco}/${camp.nave.casco_max}).` });
+          return render();
+        }
         // Scripts que curam resolvem de verdade: escolhem alvo, rolam e aplicam.
         const mCura = /Cura (\d+d\d+)(?:\s*\+\s*(\w+))?/i.exec(s.d || "");
         if (mCura) {
@@ -2124,6 +2151,39 @@ async function telaMesa(id) {
       await salvarCbn(); await enviar("sistema", `🔧 Avaria reparada: ${av?.n}.`); render();
     });
     // Upgrades da nave (ficha evolutiva)
+    // Reparo fora de combate: no estaleiro, pagando em créditos da tripulação.
+    $("#nave-repar")?.addEventListener("click", async () => {
+      if (!camp.nave) return;
+      const faltaCasco = camp.nave.casco_max - camp.nave.casco;
+      const faltaEsc = camp.nave.escudos_max - camp.nave.escudos;
+      const avarias = (camp.combate?.avarias || []).length;
+      if (!faltaCasco && !faltaEsc && !avarias) return alert("A nave está inteira: casco cheio, escudos cheios e sem avarias.");
+      // 8 CG por ponto de casco; escudos recalibram de graça; avaria custa 150 CG cada
+      const custoCasco = faltaCasco * 8, custoAvarias = avarias * 150;
+      const r = await modalForm({ titulo: "🛠 Estaleiro",
+        descricao: `Reparo completo fora de combate. Casco: ${camp.nave.casco}/${camp.nave.casco_max} · Escudos: ${camp.nave.escudos}/${camp.nave.escudos_max}${avarias ? ` · ${avarias} avaria(s)` : ""}.`,
+        campos: [
+          { k: "i", label: `Custo: ${custoCasco} CG pelo casco (${faltaCasco} pontos × 8)${custoAvarias ? ` + ${custoAvarias} CG pelas avarias` : ""}${faltaEsc ? " · recalibrar escudos é grátis" : ""}. Total: ${custoCasco + custoAvarias} CG.`, tipo: "info" },
+          { k: "quem", label: "Quem paga a conta?", tipo: "select", opcoes: [{ v: "", l: "— ninguém (cortesia do Mestre) —" }, ...(pers || []).map((p2) => ({ v: p2.id, l: `${p2.nome} (${p2.dados?.creditos ?? 0} CG)` }))] },
+        ], okLabel: "Reparar" });
+      if (!r) return;
+      const total = custoCasco + custoAvarias;
+      if (r.quem) {
+        const pagador = (pers || []).find((p2) => p2.id === r.quem);
+        const saldo = pagador?.dados?.creditos ?? 0;
+        if (saldo < total) return alert(`${pagador.nome} tem ${saldo} CG — faltam ${total - saldo} CG para o reparo.`);
+        const dd = { ...novaFichaDados(), ...pagador.dados, creditos: saldo - total };
+        dd.log = [{ q: new Date().toISOString(), t: `🛠 Pagou ${total} CG pelo reparo da nave.` }, ...(dd.log || [])].slice(0, 60);
+        await sb.from("personagens").update({ dados: dd }).eq("id", pagador.id); pagador.dados = dd;
+      }
+      camp.nave.casco = camp.nave.casco_max; camp.nave.escudos = camp.nave.escudos_max;
+      const cbn2 = camp.combate?.ordem?.find((x) => x.nave_party);
+      if (cbn2) { cbn2.casco = camp.nave.casco; cbn2.escudos = camp.nave.escudos; }
+      if (camp.combate) camp.combate.avarias = [];
+      await salvarCampanha({ nave: camp.nave, ...(camp.combate ? { combate: camp.combate } : {}) }).eq("id", id);
+      await enviar("sistema", `🛠 ${camp.nave.nome_batismo || camp.nave.modelo} sai do estaleiro: casco e escudos no máximo${avarias ? `, ${avarias} avaria(s) reparada(s)` : ""}${total ? ` — ${total} CG` : ""}.`);
+      render();
+    });
     $("#nave-upg")?.addEventListener("click", async () => {
       if (!camp.nave) return;
       camp.nave.upgrades = camp.nave.upgrades || [];
