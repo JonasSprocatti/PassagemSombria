@@ -166,7 +166,7 @@ input:focus,select:focus,button:focus-visible{outline:2px solid var(--tech);outl
 .login-box{max-width:440px;margin:0 auto;text-align:center;display:flex;flex-direction:column;gap:14px}
 .ou{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--dim);letter-spacing:.1em}
 
-@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+/* (a preferência por menos movimento é tratada no bloco de movimento, no fim do arquivo) */
 
 /* ============================================================================
    RESPONSIVO — tablets e celulares. Mantém a experiência em telas grandes.
@@ -482,7 +482,8 @@ body.a11y-grande .regra,body.a11y-grande small,body.a11y-grande .dim{font-size:1
   background:var(--void);padding:2px 0}
 .mesa-aba{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
   background:var(--panel);border:1px solid var(--line);color:var(--dim);cursor:pointer;border-radius:7px;
-  padding:8px 2px;font-size:15px;line-height:1;font-family:'Chakra Petch',sans-serif;transition:none}
+  padding:8px 2px;font-size:15px;line-height:1;font-family:'Chakra Petch',sans-serif;
+  transition:color .15s,border-color .15s,background .15s,transform .08s}
 .mesa-aba span{font-size:10px;letter-spacing:.03em}
 .mesa-aba:hover{color:var(--ink);border-color:var(--dim)}
 .mesa-aba.on{color:var(--tech);border-color:var(--tech);background:rgba(89,227,200,.1)}
@@ -641,7 +642,19 @@ details.det[open]>summary{margin-bottom:8px;padding-bottom:6px;border-bottom:1px
 .m-roll.fumble .m-total{color:var(--perigo);filter:saturate(.5)}
 
 /* --- Barras revelam a mudança em vez de saltar --- */
-.cb-hp-barra,.nave-barras .cb-hp-barra,.pf-linha .cb-hp-barra{transition:width .55s cubic-bezier(.22,.7,.3,1),background .3s}
+.cb-hp-barra,.nave-barras .cb-hp-barra,.pf-linha .cb-hp-barra{
+  transition:width 1.1s cubic-bezier(.16,.84,.3,1),background .4s}
+/* Rastro: mostra de onde a barra veio, como em jogos de luta. */
+.cb-hp{position:relative}
+.cb-hp .rastro{position:absolute;left:0;top:0;height:100%;background:rgba(255,255,255,.32);
+  transition:width 1.5s cubic-bezier(.4,0,.2,1) .35s;pointer-events:none;z-index:0}
+.cb-hp .cb-hp-barra{z-index:1}
+.cb-hp b{z-index:2;position:relative}
+/* Cura: um brilho verde percorre a barra */
+.cb-hp.curou::after{content:"";position:absolute;inset:0;pointer-events:none;z-index:3;
+  background:linear-gradient(90deg,transparent,rgba(139,224,90,.55),transparent);
+  background-size:60% 100%;background-repeat:no-repeat;animation:cura-brilho .9s ease-out}
+@keyframes cura-brilho{from{background-position:-60% 0}to{background-position:160% 0}}
 .pip{transition:background .25s,border-color .25s,box-shadow .25s}
 
 /* --- É a sua vez: chamar atenção sem gritar --- */
@@ -669,3 +682,42 @@ details.det[open]>summary{margin-bottom:8px;padding-bottom:6px;border-bottom:1px
   .cb-linha.cb-atual,.ss-painel,.mdl-box,.mesa-painel,.municao-box.vazio{animation:none!important}
   .cb-hp-barra{transition:none!important}
 }
+
+/* A opção "Reduzir animações" do painel de acessibilidade */
+body.a11y-reduzir *,body.a11y-reduzir *::before,body.a11y-reduzir *::after{
+  animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important}
+
+/* ============================================================================
+   RESPOSTA AO CLIQUE — todo botão reage; ações decisivas reagem mais.
+   ============================================================================ */
+.mini,.btn-primario,.btn-ghost,.btn-novo,.cb-dmg,.cb-atk,.cb-rm,.mp-x,.a11y-btn,.mesa-aba,.filtros a{
+  position:relative;overflow:hidden;
+  transition:transform .09s cubic-bezier(.2,.8,.3,1),border-color .15s,color .15s,background .15s,box-shadow .15s}
+.mini:hover,.btn-primario:hover,.btn-ghost:hover{transform:translateY(-1px)}
+.mini:active,.btn-primario:active,.btn-ghost:active,.btn-novo:active,
+.cb-dmg:active,.cb-atk:active,.cb-rm:active,.mesa-aba:active,.filtros a:active{transform:scale(.94)}
+
+/* Ondulação a partir do ponto tocado */
+.ondula::after{content:"";position:absolute;left:var(--ox,50%);top:var(--oy,50%);
+  width:8px;height:8px;margin:-4px 0 0 -4px;border-radius:50%;
+  background:currentColor;opacity:.34;transform:scale(0);animation:ondula .5s ease-out forwards;pointer-events:none}
+@keyframes ondula{to{transform:scale(22);opacity:0}}
+
+/* Ações decisivas: dano, ataque, encerrar — pulso que confirma o peso */
+.mini.dano:active,.cb-atk:active,.mini.rm:active,.cbn-atk:active{transform:scale(.9)}
+.pulsa-perigo{animation:pulsa-perigo .45s ease-out}
+@keyframes pulsa-perigo{0%{box-shadow:0 0 0 0 rgba(240,122,122,.6)}100%{box-shadow:0 0 0 16px rgba(240,122,122,0)}}
+.pulsa-tech{animation:pulsa-tech .45s ease-out}
+@keyframes pulsa-tech{0%{box-shadow:0 0 0 0 rgba(89,227,200,.6)}100%{box-shadow:0 0 0 16px rgba(89,227,200,0)}}
+
+/* Botão que dispara uma rolagem: leve recuo, como puxar um gatilho */
+.atq:active,#rolar-per:active,#conjurar:active,#rolar-livre:active,#enviar-msg:active{transform:scale(.9) translateY(1px)}
+
+/* Um crítico sacode a mesa inteira por um instante */
+@keyframes tremor-mesa{0%,100%{transform:none}
+  20%{transform:translate(-2px,1px)}40%{transform:translate(2px,-1px)}
+  60%{transform:translate(-1px,-1px)}80%{transform:translate(1px,1px)}}
+body.critico .mesa,body.critico .frame{animation:tremor-mesa .4s ease-out}
+
+body.a11y-reduzir .ondula::after,body.a11y-reduzir .pulsa-perigo,
+body.a11y-reduzir .pulsa-tech,body.a11y-reduzir.critico .mesa{animation:none!important}

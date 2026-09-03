@@ -1131,6 +1131,28 @@ export function propsArma(cat) {
   return { agil, oculta, brutal, area, areaTxt, alcance, alcanceTxt, efeito: KEYWORDS[kw] || kw || "" };
 }
 
+// ---------------- CONSUMÍVEIS (Cap. de equipamento) ----------------
+// Itens de uso único: gastam-se ao serem usados e pedem um alvo quando curam.
+export const CONSUMIVEIS = [
+  { n: "Kit Médico de Batalha", p: 30, ic: "✚", efeito: "cura", dado: "1d8", acao: "Ação Principal",
+    d: "Estabiliza e sela ferimentos. Cura 1d8 PV num alvo tocado (pode ser você)." },
+  { n: "Kit de Primeiros Socorros de Campo", p: 20, ic: "🩹", efeito: "sangramento", acao: "Ação Principal",
+    d: "Versão leve: estanca a condição Sangrando de um alvo tocado." },
+  { n: "Bateria Fantasma", p: 30, ic: "◈", efeito: "ram", valor: 1, acao: "Ação Livre",
+    d: "Recupera 1 Slot de RAM. Só funciona em Tecnomantes." },
+  { n: "Granada de Fumaça", p: 35, ic: "🌫", efeito: "nenhum", acao: "Ação Principal",
+    d: "Cria cobertura visual em área e facilita fugas." },
+  { n: "Granada de Luz", p: 40, ic: "💡", efeito: "condicao", cond: "Cego", turnos: 1, acao: "Ação Principal",
+    d: "Cega os inimigos numa área de 3×3m (Constituição CD 13 evita)." },
+  { n: "Corda de Escalada de Nanofibra", p: 20, ic: "🪢", efeito: "nenhum", acao: "Ação de Movimento",
+    d: "150m de corda. Equipamento de exploração." },
+  { n: "Scanner Ambiental", p: 60, ic: "📡", efeito: "nenhum", acao: "Ação de Movimento",
+    d: "Avisa sobre venenos e radiação no ambiente." },
+  { n: "Binóculos Termais", p: 80, ic: "🔭", efeito: "nenhum", acao: "Ação de Movimento",
+    d: "Detecta assinaturas de calor à distância." },
+];
+export const ehConsumivel = (nome) => CONSUMIVEIS.find((c) => c.n === nome);
+
 // ---------------- MUNIÇÃO (Cap. 12: munição abstrata) ----------------
 // Um Pente dá 3 turnos de disparo. Esvaziou, é preciso gastar a Ação de
 // Movimento para trocar por outro pente da reserva. Sem reserva, sem tiro:
