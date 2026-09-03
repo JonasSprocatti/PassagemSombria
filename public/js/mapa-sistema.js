@@ -26,13 +26,13 @@ const PLANETAS = [
 ];
 const rad = (g) => (g * Math.PI) / 180;
 
-// Quanto tempo real vale um "ano terrestre" no mapa. Com 15 minutos, Mercúrio
-// fecha uma volta em ~3,6min e a Terra em 15min: uma deriva perceptível ao longo
-// de uma cena, sem roubar a atenção de quem está jogando.
-const SEGUNDOS_POR_ANO = 900;
-// Época fixa: todos os clientes calculam a mesma posição a partir daqui,
-// então a mesa inteira vê os planetas no mesmo lugar sem sincronizar nada.
-const EPOCA = Date.UTC(2400, 0, 1) / 1000;
+// Quanto tempo real vale uma volta da Terra. Com 2 minutos, Mercúrio fecha uma
+// volta em ~29s e Marte em ~3,8min: o mapa fica visivelmente vivo enquanto a mesa
+// conversa. As proporções entre os planetas continuam as do sistema real.
+const SEGUNDOS_POR_ANO = 120;
+// Época fixa no passado: todos os clientes calculam a mesma posição a partir
+// daqui, então a mesa inteira vê os planetas no mesmo lugar sem sincronizar nada.
+const EPOCA = Date.UTC(2025, 0, 1) / 1000;
 
 let relogioMapa = () => Date.now() / 1000;      // trocável para pausar ou avançar o tempo
 const anoAtual = () => (relogioMapa() - EPOCA) / SEGUNDOS_POR_ANO;
@@ -69,7 +69,10 @@ export const POI_TIPOS = {
 
 export function abrirMapa({ mapa, combate, souMestre, salvar, aoFechar }) {
   let ultimaParty = null;   // posição anterior do grupo, para desenhar o trajeto
-  const reduzirMovimento = () => document.body.classList.contains("a11y-reduzir") || window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  // A órbita respeita o botão "Reduzir animações" do painel de acessibilidade —
+  // uma escolha consciente — e não a preferência do sistema operacional, que
+  // costuma estar ligada por outros motivos e congelava o mapa inteiro.
+  const reduzirMovimento = () => document.body.classList.contains("a11y-reduzir");
   let estado = mapa && typeof mapa === "object" ? JSON.parse(JSON.stringify(mapa)) : {};
   if (!Array.isArray(estado.pontos)) estado.pontos = [];
   if (!estado.tokens || typeof estado.tokens !== "object") estado.tokens = {};
@@ -89,7 +92,6 @@ export function abrirMapa({ mapa, combate, souMestre, salvar, aoFechar }) {
         <button id="mp-add" class="mini">➕ Adicionar ponto</button>
         <button id="mp-party" class="mini">📍 Mover a party</button>
       </span>` : `<span class="mp-dim">Visão do jogador — o Mestre controla os pontos</span>`}
-      <span class="mp-data" id="mp-data" title="Data do sistema. Os planetas orbitam na mesma proporção do sistema solar real."></span>
       <span class="mp-hint" id="mp-hint">Arraste para mover · role ou pinça para zoom</span>
       <button id="mp-fechar" class="mp-x">✕</button>
     </div>
@@ -111,13 +113,6 @@ export function abrirMapa({ mapa, combate, souMestre, salvar, aoFechar }) {
   const onResize = () => { ajustarAspecto(); };
   window.addEventListener("resize", onResize);
 
-  const atualizarData = () => {
-    const el2 = ov.querySelector("#mp-data"); if (!el2) return;
-    const anos = anoAtual();
-    const ano = 2400 + Math.floor(anos);
-    const dia = Math.floor((anos % 1) * 365) + 1;
-    el2.textContent = `☀ Ano ${ano} · dia ${dia}`;
-  };
   const grupos = [];              // {p, gp, luas} de cada planeta, para animar sem redesenhar
   let animId = 0;
   const posicionarPlanetas = () => {
@@ -323,14 +318,13 @@ export function abrirMapa({ mapa, combate, souMestre, salvar, aoFechar }) {
     ov.querySelector("#mp-add").onclick = () => setModo(modo === "add" ? null : "add");
     ov.querySelector("#mp-party").onclick = () => setModo(modo === "party" ? null : "party");
   }
-  const fechar = () => { document.body.style.overflow = ""; window.removeEventListener("resize", onResize); cancelAnimationFrame(animId); clearInterval(relogioInt); ov.remove(); aoFechar?.(); };
+  const fechar = () => { document.body.style.overflow = ""; window.removeEventListener("resize", onResize); cancelAnimationFrame(animId); ov.remove(); aoFechar?.(); };
   ov.querySelector("#mp-fechar").onclick = fechar;
   ov.addEventListener("keydown", (e) => { if (e.key === "Escape") { if (modo) setModo(null); else fechar(); } });
 
   desenhar();
   ajustarAspecto();
   animar();                     // planetas passam a orbitar
-  const relogioInt = setInterval(atualizarData, 1000);
 
   // controlador para o realtime atualizar o mapa em tempo real
   return {

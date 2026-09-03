@@ -767,6 +767,3 @@ body.a11y-reduzir .pulsa-tech,body.a11y-reduzir.critico .mesa{animation:none!imp
 
 body.a11y-reduzir .nv-caixa,body.a11y-reduzir .nv-num,body.a11y-reduzir .nv-halo,
 body.a11y-reduzir .nv-ganhos li,body.a11y-reduzir .nv-linha,body.a11y-reduzir .mp-rota{animation:none!important}
-.mp-data{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--chrome);
-  border:1px solid var(--line);border-radius:4px;padding:2px 9px;white-space:nowrap}
-@media(max-width:720px){.mp-data{font-size:10px;padding:2px 6px}}
