@@ -1666,16 +1666,21 @@ async function telaMesa(id) {
         <button id="enc-calc" class="mini eq" style="margin-top:8px">⚖ Calcular</button>
         <div id="enc-out"></div></div>`;
 
-      const painelFac = () => `<p class="regra">Ajuste a relação da tripulação com cada facção. Os jogadores veem a reputação, mas não as suas anotações.</p>`
+      const avisaFac = () => localStorage.getItem("ps-fac-aviso") !== "0";
+      const painelFac = () => `<p class="regra">Ajuste a relação da tripulação com cada facção. Os jogadores veem a reputação, mas não as suas anotações.</p>
+        <label class="fac-flag"><input type="checkbox" id="fac-aviso" ${avisaFac() ? "checked" : ""}/> <span>Anunciar mudanças no chat da mesa</span></label>`
         + FACCOES.map((f) => { const v = camp.faccoes[f.n] ?? 0; const nv = NIVEIS_REPUTACAO.find((x) => x.v === v) || NIVEIS_REPUTACAO[3];
-          return `<div class="det grande" style="border-left:3px solid ${f.cor}">
+          const pct = ((v + 3) / 6) * 100;
+          return `<div class="det grande fac-card" data-card="${esc(f.n)}" style="border-left:3px solid ${f.cor}">
             <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
-              <b>${esc(f.n)}</b><span class="best-tag" style="color:${nv.cor};border-color:${nv.cor}">${esc(nv.n)}</span></div>
+              <b>${esc(f.n)}</b><span class="best-tag fac-selo" style="color:${nv.cor};border-color:${nv.cor}">${esc(nv.n)}</span></div>
             <p class="regra">${esc(f.sede)} · ${esc(f.d)}</p>
-            <div class="filtros"><button class="mini" data-fac="${esc(f.n)}" data-d="-1">−</button>
+            <div class="fac-escala"><span class="fac-trilho"><i class="fac-fill" style="width:${pct}%;background:${nv.cor}"></i></span>
+              <span class="fac-pontas"><span>Caçado</span><span>Neutro</span><span>Irmão de Sangue</span></span></div>
+            <div class="filtros"><button class="mini" data-fac="${esc(f.n)}" data-d="-1" title="Piorar a relação">−</button>
               <input type="range" min="-3" max="3" value="${v}" data-facr="${esc(f.n)}" style="flex:1"/>
-              <button class="mini" data-fac="${esc(f.n)}" data-d="1">+</button></div>
-            <p class="regra"><i>${esc(nv.d)}</i></p></div>`; }).join("");
+              <button class="mini" data-fac="${esc(f.n)}" data-d="1" title="Melhorar a relação">+</button></div>
+            <p class="regra fac-desc"><i>${esc(nv.d)}</i></p></div>`; }).join("");
 
       const painelCon = () => `<button id="con-novo" class="mini eq">➕ Publicar contrato</button>`
         + (camp.contratos.length ? camp.contratos.map((c, i) => `<div class="det grande" style="border-left:3px solid ${c.status === "concluido" ? "var(--tech)" : c.status === "aceito" ? "var(--chrome)" : "var(--line)"}">
@@ -1786,14 +1791,47 @@ async function telaMesa(id) {
             </tbody></table><p class="regra">Misture: 1 Elite + 4 Lacaios costuma render mais que 1 Chefe sozinho. Sobras viram terreno, armadilhas ou reforços.</p>`;
         });
         // facções
-        ov.querySelectorAll("[data-fac]").forEach((b) => b.onclick = async () => {
-          const n = b.dataset.fac; const v = Math.max(-3, Math.min(3, (camp.faccoes[n] ?? 0) + (+b.dataset.d)));
-          camp.faccoes[n] = v; await salvarCamp({ faccoes: camp.faccoes });
-          const nv = NIVEIS_REPUTACAO.find((x) => x.v === v);
-          await enviar("sistema", `🏛 Reputação com ${n}: ${nv.n}.`); pintar();
+        ov.querySelector("#fac-aviso") && (ov.querySelector("#fac-aviso").onchange = (e) => {
+          localStorage.setItem("ps-fac-aviso", e.target.checked ? "1" : "0");
         });
-        ov.querySelectorAll("[data-facr]").forEach((r) => r.onchange = async () => {
-          camp.faccoes[r.dataset.facr] = +r.value; await salvarCamp({ faccoes: camp.faccoes }); pintar();
+        // Atualiza só o cartão alterado: redesenhar o painel inteiro fazia a tela
+        // piscar e voltar para o topo no meio do ajuste.
+        const aplicarFac = async (nome, valor, anterior) => {
+          const v = Math.max(-3, Math.min(3, valor));
+          camp.faccoes[nome] = v;
+          const nv = NIVEIS_REPUTACAO.find((x) => x.v === v) || NIVEIS_REPUTACAO[3];
+          const card = ov.querySelector(`[data-card="${CSS.escape(nome)}"]`);
+          if (card) {
+            const selo = card.querySelector(".fac-selo");
+            selo.textContent = nv.n; selo.style.color = nv.cor; selo.style.borderColor = nv.cor;
+            const fill = card.querySelector(".fac-fill");
+            fill.style.width = `${((v + 3) / 6) * 100}%`; fill.style.background = nv.cor;
+            card.querySelector(".fac-desc").innerHTML = `<i>${esc(nv.d)}</i>`;
+            const range = card.querySelector("[data-facr]"); if (range) range.value = v;
+            const dir = v > anterior ? "sobe" : v < anterior ? "desce" : "";
+            if (dir) { card.classList.remove("sobe", "desce"); void card.offsetWidth; card.classList.add(dir);
+              setTimeout(() => card.classList.remove(dir), 900); }
+          }
+          await salvarCamp({ faccoes: camp.faccoes });
+          if (v !== anterior && avisaFac()) {
+            const seta = v > anterior ? "▲" : "▼";
+            await enviar("sistema", `🏛 ${seta} Reputação com ${nome}: agora ${nv.n}. ${nv.d}`);
+          }
+        };
+        ov.querySelectorAll("[data-fac]").forEach((b) => b.onclick = () => {
+          const n = b.dataset.fac; const antes = camp.faccoes[n] ?? 0;
+          aplicarFac(n, antes + (+b.dataset.d), antes);
+        });
+        ov.querySelectorAll("[data-facr]").forEach((r) => {
+          r.oninput = () => {                                  // resposta imediata ao arrastar
+            const nv = NIVEIS_REPUTACAO.find((x) => x.v === +r.value) || NIVEIS_REPUTACAO[3];
+            const card = r.closest(".fac-card");
+            card.querySelector(".fac-fill").style.width = `${((+r.value + 3) / 6) * 100}%`;
+            card.querySelector(".fac-fill").style.background = nv.cor;
+            const selo = card.querySelector(".fac-selo");
+            selo.textContent = nv.n; selo.style.color = nv.cor; selo.style.borderColor = nv.cor;
+          };
+          r.onchange = () => { const n = r.dataset.facr; const antes = camp.faccoes[n] ?? 0; aplicarFac(n, +r.value, antes); };
         });
         // contratos
         ov.querySelector("#con-novo") && (ov.querySelector("#con-novo").onclick = async () => {
