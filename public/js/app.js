@@ -804,6 +804,23 @@ async function telaFicha(id) {
             ${f.rolagem[a] !== null ? `<span class="regra" style="margin:0">rolou ${f.rolagem[a]} → <b class="chrome">${sign(CONVERTE_2D8(f.rolagem[a]))}</b></span>` : ""}` : ""}
           <span class="regra" style="margin:6px 0 0;display:block;font-size:9px">pontos de nível (+1/nível a partir do NV2)</span>
           <input class="pt-attr" data-a="${a}" type="number" min="0" max="${(f.pontosAttr[a] || 0) + Math.max(0, sobra)}" value="${f.pontosAttr[a] || 0}" ${sobra <= 0 && !(f.pontosAttr[a] > 0) ? "disabled" : ""} title="Distribua aqui os pontos de atributo ganhos ao subir de nível (+1 por nível, a partir do nível 2). Sem pontos livres, o campo trava."/></div>`).join("")}</div>
+        ${(() => {
+          const pvP = f.pvMax ? Math.max(0, Math.min(100, 100 * f.pvAtual / f.pvMax)) : 0;
+          const ramP = k.ramMax ? Math.max(0, Math.min(100, 100 * k.ramLivre / k.ramMax)) : 0;
+          const est = f.pvAtual <= 0 ? "morto" : pvP <= 30 ? "critico" : pvP <= 60 ? "ferido" : "";
+          return `<div class="vitais-barras" style="margin-top:14px">
+            <div class="vb" data-barra="ficha-pv">
+              <div class="vb-topo"><span>❤ Pontos de Vida</span><b class="${est}">${f.pvAtual}<span class="dim">/${f.pvMax}</span></b></div>
+              <div class="vb-trilho"><span class="rastro"></span><span class="cb-hp-barra vb-fill ${est}" style="width:${pvP}%"></span></div>
+              ${est === "morto" ? `<span class="vb-aviso">☠ Inconsciente — role a salvaguarda de morte no seu turno.</span>`
+                : est === "critico" ? `<span class="vb-aviso">⚠ Gravemente ferido</span>` : ""}
+            </div>
+            <div class="vb" data-barra="ficha-ram">
+              <div class="vb-topo"><span>◈ RAM disponível</span><b class="sombra-c">${k.ramLivre}<span class="dim">/${k.ramMax}</span></b></div>
+              <div class="vb-trilho"><span class="rastro"></span><span class="cb-hp-barra vb-fill ram" style="width:${ramP}%"></span></div>
+              ${k.ramLivre === 0 && k.ramMax > 0 ? `<span class="vb-aviso">⚠ Sem RAM — descanse para recarregar</span>` : ""}
+            </div>
+          </div>`; })()}
         <div class="linha-4" style="margin-top:12px">
           <label>PV atual<input id="pvAtual" type="number" value="${f.pvAtual}"/></label>
           <label>PV máx<input id="pvMax" type="number" value="${f.pvMax}"/></label>
@@ -1252,7 +1269,17 @@ async function telaMesa(id) {
           <section class="sec"><header><span class="tag">◈</span><h2>Meu personagem</h2></header>
             <select id="sel-pers">${meuPers ? "" : `<option value="">— vincular personagem —</option>`}
               ${(meus || []).map((m) => `<option value="${m.id}" ${meuPers?.id === m.id ? "selected" : ""}>${esc(m.nome) || "sem nome"}</option>`).join("")}</select>
-            ${f ? `<p class="regra">PV ${f.pvAtual}/${f.pvMax} · CD ${k.cd} · RAM ${k.ramLivre}/${k.ramMax} · conj +${k.conj}</p>
+            ${f ? `${(() => {
+              const pvP = f.pvMax ? Math.max(0, Math.min(100, 100 * f.pvAtual / f.pvMax)) : 0;
+              const ramP = k.ramMax ? Math.max(0, Math.min(100, 100 * k.ramLivre / k.ramMax)) : 0;
+              const est = f.pvAtual <= 0 ? "morto" : pvP <= 30 ? "critico" : pvP <= 60 ? "ferido" : "";
+              return `<div class="vitais-barras compacto">
+                <div class="vb" data-barra="mesa-pv"><div class="vb-topo"><span>❤ PV</span><b class="${est}">${f.pvAtual}<span class="dim">/${f.pvMax}</span></b></div>
+                  <div class="vb-trilho"><span class="rastro"></span><span class="cb-hp-barra vb-fill ${est}" style="width:${pvP}%"></span></div></div>
+                <div class="vb" data-barra="mesa-ram"><div class="vb-topo"><span>◈ RAM</span><b class="sombra-c">${k.ramLivre}<span class="dim">/${k.ramMax}</span></b></div>
+                  <div class="vb-trilho"><span class="rastro"></span><span class="cb-hp-barra vb-fill ram" style="width:${ramP}%"></span></div></div>
+              </div>`; })()}
+            <p class="regra">CD ${k.cd} · conj +${k.conj}${f.pvAtual <= 0 ? ` · <b class="perigo-c">☠ inconsciente</b>` : ""}</p>
             ${(() => {
               // Reserva por tipo de pente. Fichas antigas (reserva era um número) migram aqui.
               const res = normalizaPentes(f);
@@ -1444,12 +1471,23 @@ async function telaMesa(id) {
         if (alvo) { alvo.scrollIntoView({ behavior: "smooth", block: "center" }); alvo.classList.add("piscar"); setTimeout(() => alvo.classList.remove("piscar"), 1200); }
       });
       el.querySelector("[data-aplicar]")?.addEventListener("click", async (ev) => {
+        const bt = ev.currentTarget; if (bt.disabled) return; bt.disabled = true;   // evita clique duplo
         const p = m.payload; const alvo = pers.find((x) => x.id === p.alvo_id);
-        const dados = { ...novaFichaDados(), ...alvo.dados };
-        dados.pvAtual = (dados.pvAtual || 0) + (m.tipo === "dano" ? -p.valor : p.valor);
-        await sb.from("personagens").update({ dados }).eq("id", alvo.id);
+        if (!alvo) { bt.disabled = false; return; }
+        // Lê o estado real do banco: a cópia do render fica velha entre cliques.
+        const { data: fresco } = await sb.from("personagens").select("dados").eq("id", alvo.id).single();
+        const dados = { ...novaFichaDados(), ...(fresco?.dados || alvo.dados) };
+        const antes = dados.pvAtual || 0;
+        dados.pvAtual = Math.max(0, Math.min(dados.pvMax || 0, antes + (m.tipo === "dano" ? -p.valor : p.valor)));
+        dados.log = [{ q: new Date().toISOString(), t: `${m.tipo === "dano" ? "💥" : "✚"} ${p.valor} PV — ${esc(p.origem || "mesa")}` }, ...(dados.log || [])].slice(0, 60);
+        const { error } = await sb.from("personagens").update({ dados }).eq("id", alvo.id);
+        if (error) { bt.disabled = false; return alert("Não consegui aplicar: " + error.message); }
+        alvo.dados = dados;                          // mantém o estado local coerente
+        if (meuPers && meuPers.id === alvo.id) meuPers.dados = dados;
         await sb.from("mensagens").update({ payload: { ...p, aplicado: true } }).eq("id", m.id);
-        await enviar("sistema", `${alvo.nome} agora está com ${dados.pvAtual} PV.`);
+        m.payload = { ...p, aplicado: true };
+        await enviar("sistema", `${alvo.nome}: ${antes} → ${dados.pvAtual} PV${dados.pvAtual <= 0 ? " — CAIU!" : ""}`);
+        render();                                    // a ficha e as barras acompanham
       });
       // Descanso convocado pelo Mestre: cada cliente aplica no SEU personagem vinculado.
       // Só ao vivo (aoVivo) para não reaplicar ao recarregar o histórico.
