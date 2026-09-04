@@ -917,8 +917,8 @@ async function telaFicha(id) {
               </div>
               <div class="sup-reserva">
                 <span class="dim">reserva (${total}/${PENTES_MAX - 1})</span>
-                ${Object.entries(TIPOS_PENTE).map(([k2, t2]) => `<div class="sup-linha ${res[k2] ? "" : "zerado"}">
-                  <span style="color:${res[k2] ? t2.cor : "var(--dim)"}">${t2.ic} ${esc(t2.n)}</span>
+                ${Object.entries(TIPOS_PENTE).map(([k2, t2]) => `<div class="sup-linha ${res[k2] ? "" : "zerado"} ${k2 === tipo ? "no-cano" : ""}">
+                  <span style="color:${res[k2] ? t2.cor : "var(--dim)"}">${t2.ic} ${esc(t2.n)}${k2 === tipo ? " ▸ no cano" : ""}</span>
                   <b>×${res[k2] || 0}</b>
                   <span class="regra">${esc(t2.d)}</span></div>`).join("")}
               </div>
@@ -1300,7 +1300,9 @@ async function telaMesa(id) {
               const nivel = seco ? "vazio" : (noCano === 0 || (noCano === 1 && totalReserva === 0)) ? "critico" : totalReserva === 0 ? "baixo" : "";
               const cano = Array.from({ length: TIROS_POR_PENTE }, (_, i2) => `<i class="pip ${i2 < noCano ? "cheio" : ""}" style="${i2 < noCano ? `background:${tp.cor};border-color:${tp.cor}` : ""}"></i>`).join("");
               const reservaHtml = Object.entries(res).filter(([, q]) => q > 0).map(([k, q]) => { const t2 = TIPOS_PENTE[k];
-                return `<span class="pente-tipo" title="${esc(t2.n)}: ${esc(t2.d)}" style="border-color:${t2.cor};color:${t2.cor}">${t2.ic} ${q}</span>`; }).join("") || `<span class="dim" style="font-size:10px">reserva vazia</span>`;
+                return `<button class="pente-tipo ${k === tipo ? "carregado" : ""}" data-carregar="${k}"
+                  title="${esc(t2.n)} — ${esc(t2.d)}${k === tipo ? "  (é o que está no cano)" : "  · clique para carregar (Ação de Movimento)"}"
+                  style="border-color:${t2.cor};color:${t2.cor}">${t2.ic} ${q}</button>`; }).join("") || `<span class="dim" style="font-size:10px">reserva vazia</span>`;
               const msg = seco ? "⛔ SEM MUNIÇÃO — só um saque ou um descanso repõe os pentes."
                 : noCano === 0 ? `⚠ Pente vazio! Troque agora (Ação de Movimento).`
                 : totalReserva === 0 ? `⚠ Último pente: ${noCano} tiro${noCano > 1 ? "s" : ""} e acabou.`
@@ -2190,6 +2192,24 @@ async function telaMesa(id) {
           extra: `Dano: ${dados.reduce((x, y) => x + y, 0) + danoMod}${efeitoMun ? "  —  " + efeitoMun : ""}${infoArma ? "  —  " + infoArma : ""}` });
         if (precisaRender) render();      // atualiza o contador de munição na tela
       });
+      // Trocar direto pelo pente clicado na reserva — mais rápido que abrir o menu.
+      const carregarPente = async (tipoNovo) => {
+        const dd1 = meuPers.dados || {};
+        const res = normalizaPentes(dd1);
+        if (!(res[tipoNovo] > 0)) return;
+        const noCano = dd1.tirosPente ?? TIROS_POR_PENTE;
+        const tipoAtual = dd1.tipoPente || PENTE_PADRAO;
+        // O pente que sai volta para a reserva se ainda tiver tiros.
+        if (noCano > 0 && tipoAtual !== tipoNovo) res[tipoAtual] = (res[tipoAtual] || 0) + 1;
+        res[tipoNovo] -= 1;
+        f.pentes = res; f.tirosPente = TIROS_POR_PENTE; f.tipoPente = tipoNovo;
+        meuPers.dados = { ...dd1, pentes: res, tirosPente: TIROS_POR_PENTE, tipoPente: tipoNovo };
+        await sb.from("personagens").update({ dados: meuPers.dados }).eq("id", meuPers.id);
+        const t3 = TIPOS_PENTE[tipoNovo];
+        await enviar("sistema", `🔫 ${meuPers.nome} carrega ${t3.ic} ${t3.n} (Ação de Movimento).`);
+        render();
+      };
+      app.querySelectorAll("[data-carregar]").forEach((b2) => b2.onclick = () => carregarPente(b2.dataset.carregar));
       $("#recarregar")?.addEventListener("click", async () => {
         const dd1 = meuPers.dados || {};
         const res = normalizaPentes(dd1);
