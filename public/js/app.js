@@ -42,7 +42,10 @@ const migrarPericias = (pe) => {
 };
 const parseDice = (s) => { const m = /^(\d*)d(\d+)([+-]\d+)?$/i.exec(String(s).trim()); return m ? { n: +(m[1] || 1), f: +m[2], mod: +(m[3] || 0) } : null; };
 // Rola uma expressão com vários termos: "1d20+2d10-1", "d20", "2d6 + 3". Devolve {total, detalhe} ou null.
-const rolarExpr = (expr) => {
+// vant: 1 = vantagem, -1 = desvantagem, 0 = normal.
+// Aplica-se ao primeiro d20 da expressão — que é o dado que decide o teste.
+const rolarExpr = (expr, vant = 0) => {
+  let jaAplicou = false;
   const clean = String(expr || "").replace(/\s+/g, "");
   if (!clean) return null;
   const termos = clean.match(/[+-]?[^+-]+/g);
@@ -55,7 +58,14 @@ const rolarExpr = (expr) => {
     if (md) {
       const n = +(md[1] || 1), faces = +md[2];
       if (n < 1 || n > 200 || faces < 1 || faces > 1000) return null;
-      const dados = rollNd(n, faces);
+      let dados = rollNd(n, faces);
+      if (vant !== 0 && faces === 20 && !jaAplicou) {          // vantagem incide no d20 do teste
+        const alt = rollNd(n, faces);
+        const somaA = dados.reduce((x, y) => x + y, 0), somaB = alt.reduce((x, y) => x + y, 0);
+        const usa = vant > 0 ? (somaB > somaA ? alt : dados) : (somaB < somaA ? alt : dados);
+        partes.push(`${vant > 0 ? "▲" : "▼"}[${somaA}/${somaB}]`);
+        dados = usa; jaAplicou = true;
+      }
       total += dados.reduce((a, b) => a + b, 0) * sinal;
       partes.push(`${sinal < 0 ? "−" : partes.length ? "+" : ""}${n}d${faces} [${dados.join(", ")}]`);
     } else if (/^\d+$/.test(termo)) {
@@ -1505,9 +1515,17 @@ async function telaMesa(id) {
           const dados = { ...novaFichaDados(), ...meuPers.dados }; const p = m.payload || {}; const notas = [];
           if (p.xp) { dados.xp = (dados.xp || 0) + p.xp; notas.push(`+${p.xp} XP (${dados.xp}/${dados.xpMeta})`); }
           if (p.creditos) { dados.creditos = (dados.creditos || 0) + p.creditos; notas.push(`+${p.creditos} CG (${dados.creditos})`); }
-          if (p.pentes) { const antes = dados.pentes ?? (PENTES_MAX - 1);
-            dados.pentes = Math.min(PENTES_MAX - 1, antes + p.pentes);
-            notas.push(`+${dados.pentes - antes} pente(s) (${dados.pentes} na reserva)`); }
+          if (p.pentes) {
+            const res = normalizaPentes(dados);
+            const tipo = p.tipoPente || PENTE_PADRAO;
+            const antes = Object.values(res).reduce((x, y) => x + y, 0);
+            const cabe = Math.max(0, (PENTES_MAX - 1) - antes);
+            const ganhou = Math.min(p.pentes, cabe);
+            res[tipo] = (res[tipo] || 0) + ganhou;
+            dados.pentes = res;
+            const tp = TIPOS_PENTE[tipo];
+            notas.push(ganhou > 0 ? `+${ganhou} pente ${tp.ic} ${tp.n} (${antes + ganhou}/${PENTES_MAX - 1} na reserva)` : "reserva de pentes já cheia");
+          }
           dados.log = [{ q: new Date().toISOString(), t: `🎁 Recompensa do Mestre: ${notas.join(" · ")}` }, ...(dados.log || [])].slice(0, 60);
           const { error } = await sb.from("personagens").update({ dados }).eq("id", meuPers.id);
           if (!error) { meuPers.dados = dados; await enviar("sistema", `🎖 ${meuPers.nome}: ${notas.join(" · ")}${dados.metodoNivel === "xp" && dados.xp >= dados.xpMeta ? " — PRONTO PARA SUBIR!" : ""}`); render(); }
@@ -1533,7 +1551,7 @@ async function telaMesa(id) {
     $("#enviar-msg").onclick = () => { const t = $("#msg").value.trim(); if (!t) return; $("#msg").value = "";
       const resp = respondendoA; cancelarResp();
       const rr = /^\/(?:r(?:olar)?)?\s*(.+)$/i.exec(t);
-      if (rr) { const r = rolarExpr(rr[1]); if (r) {
+      if (rr) { const r = rolarExpr(rr[1], vantagem); if (r) {
         return enviar("rolagem", null, { titulo: (privada ? "🔒 " : "") + `Rolagem ${rr[1]}`, detalhe: r.detalhe, total: r.total, ...(privada ? { privada: true } : {}), ...(resp ? { resp } : {}) }); } }
       enviar("texto", t, resp ? { resp } : null); };
     $("#resp-cancel")?.addEventListener("click", cancelarResp);
@@ -1726,7 +1744,18 @@ async function telaMesa(id) {
         });
         liga("mestre-xp", async () => { const r = await modalForm({ titulo: "🎖 Conceder XP", campos: [{ k: "n", label: "XP para toda a tripulação conectada", tipo: "numero", valor: 500 }], okLabel: "Conceder" }); if (!r || !(+r.n > 0)) return; enviar("recompensa", `O Mestre concedeu ${+r.n} XP à tripulação.`, { xp: +r.n }); fechar(); });
         liga("mestre-cg", async () => { const r = await modalForm({ titulo: "🎁 Conceder Créditos", campos: [{ k: "n", label: "CG para toda a tripulação conectada", tipo: "numero", valor: 1000 }], okLabel: "Conceder" }); if (!r || !(+r.n > 0)) return; enviar("recompensa", `O Mestre distribuiu ${+r.n} CG de saque à tripulação.`, { creditos: +r.n }); fechar(); });
-        liga("mestre-mun", async () => { const r = await modalForm({ titulo: "🔫 Conceder pentes", descricao: `Munição de saque. Vai para a reserva de cada tripulante conectado (máximo ${PENTES_MAX - 1}).`, campos: [{ k: "n", label: "Pentes", tipo: "numero", valor: 1, min: 1, max: PENTES_MAX - 1 }], okLabel: "Distribuir" }); if (!r || !(+r.n > 0)) return; enviar("recompensa", `O Mestre distribuiu ${+r.n} pente${+r.n > 1 ? "s" : ""} de munição à tripulação.`, { pentes: +r.n }); fechar(); });
+        liga("mestre-mun", async () => {
+          const r = await modalForm({ titulo: "🔫 Conceder pentes",
+            descricao: `Munição de saque. Vai para a reserva de cada tripulante conectado (teto de ${PENTES_MAX - 1} pentes).`,
+            campos: [
+              { k: "tipo", label: "Tipo de munição", tipo: "select", opcoes: Object.entries(TIPOS_PENTE).map(([k2, t2]) => ({ v: k2, l: `${t2.ic} ${t2.n} — ${t2.d}` })) },
+              { k: "n", label: "Quantos pentes", tipo: "numero", valor: 1, min: 1, max: PENTES_MAX - 1 },
+            ], okLabel: "Distribuir" });
+          if (!r || !(+r.n > 0)) return;
+          const tp = TIPOS_PENTE[r.tipo] || TIPOS_PENTE.padrao;
+          enviar("recompensa", `O Mestre distribuiu ${+r.n} pente${+r.n > 1 ? "s" : ""} ${tp.ic} ${tp.n} à tripulação.`, { pentes: +r.n, tipoPente: r.tipo });
+          fechar();
+        });
         liga("handout-btn", async () => {
           const r = await modalForm({ titulo: "🖼 Mostrar imagem para a mesa", campos: [
             { k: "i", label: "Cole o endereço de uma imagem. Ela aparece no topo do chat de todos.", tipo: "info" },
@@ -2262,7 +2291,7 @@ async function telaMesa(id) {
         }
         enviar("rolagem", null, { titulo: `Script — ${s.n}`, detalhe: `d20 [${nat}] +${k.conj} · ${s.c} RAM · ${s.a}`, total: nat + k.conj, crit: nat === 20, fumble: nat === 1, extra: s.d.slice(0, 90) });
         render(); };
-      $("#rolar-livre").onclick = () => { const v = $("#dado-livre").value.trim(); const r = rolarExpr(v.replace(/^\//, "")); if (!r) return;
+      $("#rolar-livre").onclick = () => { const v = $("#dado-livre").value.trim(); const r = rolarExpr(v.replace(/^\//, ""), vantagem); if (!r) return;
         enviar("rolagem", null, { titulo: (privada ? "🔒 " : "") + `Rolagem ${v}`, detalhe: r.detalhe, total: r.total, ...(privada ? { privada: true } : {}) }); };
       $("#enviar-dano").onclick = () => { const v = +$("#dano-val").value; if (!v) return;
         const alvo = pers.find((x) => x.id === $("#sel-alvo").value);
