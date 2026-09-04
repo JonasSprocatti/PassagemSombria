@@ -2476,6 +2476,45 @@ async function painelAdmin(voltarPara = "racas") {
     return g;
   };
 
+  let roster = null, filtroRoster = "";
+  const carregarRoster = async () => {
+    const { data, error } = await sb.from("personagens")
+      .select("id,nome,dados,campanha_id,atualizado_em,dono_id,perfis:dono_id(apelido)")
+      .order("atualizado_em", { ascending: false }).limit(500);
+    roster = error ? [] : (data || []);
+  };
+  const painelPessoas = () => {
+    if (roster === null) { carregarRoster().then(() => pintar()); return `<p class="regra">Carregando fichas…</p>`; }
+    const termo = filtroRoster.toLowerCase();
+    const lista = roster.filter((p) => !termo
+      || (p.nome || "").toLowerCase().includes(termo)
+      || (p.perfis?.apelido || "").toLowerCase().includes(termo)
+      || (p.dados?.raca || "").toLowerCase().includes(termo)
+      || (p.dados?.classe || "").toLowerCase().includes(termo));
+    const porDono = {};
+    lista.forEach((p) => (porDono[p.perfis?.apelido || "sem dono"] = porDono[p.perfis?.apelido || "sem dono"] || []).push(p));
+    const donos = Object.keys(porDono).sort((x, y) => x.localeCompare(y));
+    return `<p class="regra">Todas as fichas criadas no app — <b>${roster.length}</b> personagem(ns) de <b>${donos.length}</b> tripulante(s). Visão somente leitura, para dar suporte e acompanhar a comunidade.</p>
+      <input id="adm-busca" placeholder="Buscar por nome, jogador, raça ou classe…" value="${esc(filtroRoster)}" style="width:100%;margin-bottom:10px"/>
+      ${donos.length ? donos.map((d2) => `<h4 class="adm-dono">${esc(d2)} <span class="dim">(${porDono[d2].length})</span></h4>
+        ${porDono[d2].map((p) => { const fx = { ...novaFichaDados(), ...(p.dados || {}) }; const kx = calc(fx);
+          const pv = fx.pvMax ? Math.max(0, Math.min(100, 100 * fx.pvAtual / fx.pvMax)) : 0;
+          return `<div class="adm-pers">
+            ${fx.foto ? `<img class="adm-retrato" src="${esc(fx.foto)}" alt=""/>` : `<div class="adm-retrato vazio">◈</div>`}
+            <div class="adm-pers-info">
+              <div><b>${esc(p.nome) || "— sem nome —"}</b> <span class="best-tag">NV ${fx.nivel || 1}</span>${p.campanha_id ? ` <span class="dim">☄ em campanha</span>` : ""}</div>
+              <div class="regra">${esc(fx.raca || "raça?")} · ${esc(fx.classe || "classe?")}${fx.filosofia ? ` · ${esc(fx.filosofia)}` : ""}</div>
+              <div class="adm-barras">
+                <span class="cb-hp" title="PV"><span class="cb-hp-barra" style="width:${pv}%;background:var(--tech)"></span><b>${fx.pvAtual || 0}/${fx.pvMax || 0}</b></span>
+                <span class="regra">CD ${kx.cd} · RAM ${kx.ramLivre}/${kx.ramMax} · ${fx.creditos ?? 0} CG</span>
+              </div>
+              <div class="regra dim">atualizada em ${new Date(p.atualizado_em).toLocaleDateString("pt-BR")}</div>
+            </div>
+            <button class="mini" data-ver="${p.id}">👁 Ver ficha</button>
+          </div>`; }).join("")}`).join("")
+        : `<p class="regra"><i>Nenhuma ficha encontrada${termo ? " para essa busca" : ""}.</i></p>`}`;
+  };
+
   const painelImagens = () => {
     const imgs = C.conteudo().imagens;
     const chaves = Object.keys(imgs).sort();
@@ -2514,14 +2553,25 @@ async function painelAdmin(voltarPara = "racas") {
   const apagar = async (id2) => { const { error } = await sb.from("conteudo").delete().eq("id", id2); if (error) return alert("Não consegui apagar: " + error.message); await recarregar(); };
 
   const pintar = () => {
-    const abas = [["imagens", "🖼 Imagens"], ["criaturas", "🐉 Criaturas"], ["armas", "⚔ Armas"], ["mecanicas", "📜 Mecânicas"]];
+    const abas = [["pessoas", "👥 Personagens"], ["imagens", "🖼 Imagens"], ["criaturas", "🐉 Criaturas"], ["armas", "⚔ Armas"], ["mecanicas", "📜 Mecânicas"]];
     ov.innerHTML = `<div class="ss-painel" style="width:680px;max-width:96vw;margin:auto;border:1px solid var(--line);border-radius:10px;max-height:94vh">
       <div class="mp-topo"><b>🛠 Administrar conteúdo</b><button id="adm-x" class="mp-x" style="margin-left:auto">✕</button></div>
       <div class="filtros" style="padding:8px 14px;border-bottom:1px solid var(--line);flex-wrap:wrap">
         ${abas.map(([k, l]) => `<button class="mini ${abaA === k ? "on" : ""}" data-adm="${k}">${l}</button>`).join("")}</div>
-      <div class="di-corpo">${({ imagens: painelImagens, criaturas: painelCriaturas, armas: painelArmas, mecanicas: painelMecanicas }[abaA])()}</div></div>`;
+      <div class="di-corpo">${({ pessoas: painelPessoas, imagens: painelImagens, criaturas: painelCriaturas, armas: painelArmas, mecanicas: painelMecanicas }[abaA])()}</div></div>`;
     ov.querySelector("#adm-x").onclick = fechar;
     ov.querySelectorAll("[data-adm]").forEach((b) => b.onclick = () => { abaA = b.dataset.adm; pintar(); });
+    const busca = ov.querySelector("#adm-busca");
+    if (busca) { busca.oninput = () => { filtroRoster = busca.value; const pos = busca.selectionStart; pintar();
+      const nb = ov.querySelector("#adm-busca"); if (nb) { nb.focus(); nb.setSelectionRange(pos, pos); } }; }
+    ov.querySelectorAll("[data-ver]").forEach((b) => b.onclick = () => {
+      const p = (roster || []).find((x) => x.id === b.dataset.ver); if (!p) return;
+      const fx = { ...novaFichaDados(), ...(p.dados || {}) };
+      const html = gerarFichaHTML(p.nome, fx, calc(fx));
+      const w = window.open("", "_blank");
+      if (w) { w.document.write(html); w.document.close(); }
+      else imprimirFichaHTML(html);
+    });
 
     ov.querySelector("#adm-img-nova")?.addEventListener("click", async () => {
       const grupos = listarAlvos();
