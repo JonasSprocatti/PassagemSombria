@@ -500,6 +500,57 @@ const img = (nome) => (CONT ? CONT.thumb(nome) : "");
 const imgFig = (nome) => (CONT ? CONT.figura(nome) : "");
 const extras = (tipo) => (CONT ? CONT.conteudo()[tipo] || [] : []);
 
+// ---------------------------------------------------------------------------
+//  AVISO COM DESFAZER — confirma depois da ação em vez de perguntar antes.
+//  Some sozinho; enquanto está na tela, dá para voltar atrás.
+// ---------------------------------------------------------------------------
+let avisoTimer = null;
+function avisar(texto, aoDesfazer = null, ms = 6000) {
+  document.querySelector(".aviso")?.remove(); clearTimeout(avisoTimer);
+  const el = document.createElement("div");
+  el.className = "aviso";
+  el.innerHTML = `<span>${esc(texto)}</span>${aoDesfazer ? `<button class="aviso-undo">↶ Desfazer</button>` : ""}<button class="aviso-x" aria-label="Fechar">✕</button>`;
+  document.body.appendChild(el);
+  const fecha = () => { el.classList.add("saindo"); setTimeout(() => el.remove(), 200); clearTimeout(avisoTimer); };
+  el.querySelector(".aviso-x").onclick = fecha;
+  el.querySelector(".aviso-undo")?.addEventListener("click", async () => { fecha(); await aoDesfazer(); });
+  avisoTimer = setTimeout(fecha, ms);
+}
+
+// ---------------------------------------------------------------------------
+//  ATALHOS DE TECLADO — o Mestre repete os mesmos gestos dezenas de vezes.
+// ---------------------------------------------------------------------------
+document.addEventListener("keydown", (e) => {
+  const alvo = e.target;
+  const digitando = alvo && (alvo.tagName === "INPUT" || alvo.tagName === "TEXTAREA" || alvo.tagName === "SELECT" || alvo.isContentEditable);
+  // Esc fecha o painel mais recente (modais tratam o próprio Esc)
+  if (e.key === "Escape" && !digitando) {
+    const painel = document.querySelector(".a11y-painel"); if (painel) return painel.remove();
+  }
+  if (digitando) {
+    if (e.key === "Escape") alvo.blur();
+    return;
+  }
+  // "/" foca o campo de mensagem da mesa
+  if (e.key === "/" ) { const m = document.getElementById("msg"); if (m) { e.preventDefault(); m.focus(); } return; }
+  // Espaço avança o turno (só quando há combate e você é o Mestre)
+  if (e.key === " " || e.code === "Space") { const b = document.getElementById("cb-prox"); if (b) { e.preventDefault(); b.click(); } return; }
+  // Números 1-4 trocam as abas da mesa
+  if (/^[1-4]$/.test(e.key)) { const abas = document.querySelectorAll(".mesa-aba"); const b = abas[+e.key - 1]; if (b) { e.preventDefault(); b.click(); } return; }
+  // "?" mostra a lista de atalhos
+  if (e.key === "?") { e.preventDefault(); mostrarAtalhos(); }
+});
+function mostrarAtalhos() {
+  modalForm({ titulo: "⌨ Atalhos de teclado", campos: [{ k: "i", tipo: "html", label: "", html: `
+    <table class="stats-tab"><tbody>
+      <tr><td><kbd>/</kbd></td><td>Focar o campo de mensagem</td></tr>
+      <tr><td><kbd>Espaço</kbd></td><td>Próximo turno do combate</td></tr>
+      <tr><td><kbd>1</kbd>–<kbd>4</kbd></td><td>Trocar as abas da mesa</td></tr>
+      <tr><td><kbd>Esc</kbd></td><td>Fechar painel ou sair do campo</td></tr>
+      <tr><td><kbd>?</kbd></td><td>Mostrar esta lista</td></tr>
+    </tbody></table>` }], okLabel: "Fechar" });
+}
+
 // Ondulação a partir do ponto clicado, em qualquer botão do app.
 // Um só listener no documento: funciona também para botões criados depois.
 document.addEventListener("pointerdown", (e) => {
@@ -1150,7 +1201,7 @@ async function telaMesa(id) {
     const cbn = camp.combate_nave || combateNaveVazio();
     shell("mesa", `
       <nav class="topo"><a class="btn-ghost" href="#/campanhas">← CAMPANHAS</a>
-        <div class="topo-status">${esc(camp.nome)} · código <b class="chrome">${camp.codigo}</b></div><span style="display:flex;gap:6px"><button id="abrir-diario" class="btn-ghost" title="Diário da campanha">📔 DIÁRIO</button>${souMestre ? `<button id="abrir-mestre" class="btn-ghost" title="Tela do Mestre">🎛 MESTRE</button>` : ""}<button id="abrir-mapa" class="btn-ghost" title="Mapa do sistema (compartilhado)">🗺 MAPA</button></span></nav>
+        <div class="topo-status">${esc(camp.nome)} · código <b class="chrome">${camp.codigo}</b></div><span style="display:flex;gap:6px"><button id="atalhos" class="btn-ghost so-desktop" title="Atalhos de teclado (?)">⌨</button><button id="abrir-diario" class="btn-ghost" title="Diário da campanha">📔 DIÁRIO</button>${souMestre ? `<button id="abrir-mestre" class="btn-ghost" title="Tela do Mestre">🎛 MESTRE</button>` : ""}<button id="abrir-mapa" class="btn-ghost" title="Mapa do sistema (compartilhado)">🗺 MAPA</button></span></nav>
       <div class="mesa">
         <div class="mesa-lateral">
           <nav class="mesa-abas" role="tablist">
@@ -1310,12 +1361,14 @@ async function telaMesa(id) {
           <div id="chat" class="chat"></div>
           <div id="resp-preview" class="resp-preview" style="display:none"><span class="rp-txt"></span><button id="resp-cancel" class="rp-x" title="Cancelar resposta">✕</button></div>
           <button id="abrir-stats-oculto" class="sr-only">Estatísticas de rolagem</button>
+          <div class="barra-acao">
           <div class="rol-toggles"><span class="regra" style="margin:0">Rolagem:</span>
             <button id="tg-vant" class="mini" title="Vantagem: rola 2d20, pega o maior">▲ Vantagem</button>
             <button id="tg-desv" class="mini" title="Desvantagem: rola 2d20, pega o menor">▼ Desvantagem</button>
             <button id="tg-priv" class="mini" title="Privado: só o Mestre e você veem o resultado">🔒 Privado</button>${souMestre ? `<button id="tg-cega" class="mini" title="Às cegas: o resultado aparece só para você, e não entra no chat da mesa">🙈 Às cegas</button>` : ""}
             <button id="tg-som" class="mini" title="Ligar/desligar som e notificações" style="margin-left:auto"></button></div>
-          <div class="linha-add"><input id="msg" placeholder="Mensagem ou rolagem: /1d20 · /r2d6+1 · /1d20+2d10"/><button id="enviar-msg" class="btn-primario">▶</button></div>
+          <div class="linha-add"><input id="msg" placeholder="Mensagem ou rolagem: /1d20 · /r2d6+1"/><button id="enviar-msg" class="btn-primario">▶</button></div>
+          </div>
         </section>
       </div>`, "campanhas");
 
@@ -1772,6 +1825,7 @@ async function telaMesa(id) {
     };
     if (!recapFeita) { recapFeita = true; setTimeout(() => recapitular().catch(() => {}), 900); }
 
+    $("#atalhos")?.addEventListener("click", mostrarAtalhos);
     $("#abrir-diario")?.addEventListener("click", async () => {
       const { data: todas } = await sb.from("mensagens").select("*,perfis:autor_id(apelido,avatar_url)").eq("campanha_id", id).order("criado_em", { ascending: true }).limit(2000);
       const ov = document.createElement("div"); ov.className = "ss-overlay ov-modal"; ov.style.zIndex = "10000";
@@ -1992,12 +2046,23 @@ async function telaMesa(id) {
         else c.escudos = Math.min(c.escudos_max, c.escudos + delta);
         if (c.nave_party && camp.nave) { camp.nave.casco = c.casco; camp.nave.escudos = c.escudos; await salvarCampanha({ nave: camp.nave }).eq("id", id); }
       } else c.hp = Math.max(0, Math.min(c.hp_max, c.hp + delta));
-      await salvarCombate(); render(); });
+      await salvarCombate(); render();
+      avisar(`${c.nome}: ${delta < 0 ? `−${-delta}` : `+${delta}`} ${ehNave(c) ? "no casco/escudos" : "de PV"}`, async () => {
+        const snap = pilhaUndo.pop(); if (!snap) return;
+        camp.combate = snap.combate; camp.combate_nave = snap.combate_nave; if (snap.nave) camp.nave = snap.nave;
+        await salvarCampanha({ combate: camp.combate, ...(snap.nave ? { nave: camp.nave } : {}) }).eq("id", id); render();
+      }); });
     app.querySelectorAll(".cb-hpset").forEach((i) => i.onchange = async () => { const c = cbFind(i.dataset.cb); if (!c) return; if (ehNave(c)) { c.casco = Math.max(0, Math.min(c.casco_max, +i.value || 0)); if (c.nave_party && camp.nave) { camp.nave.casco = c.casco; await salvarCampanha({ nave: camp.nave }).eq("id", id); } }
       else c.hp = Math.max(0, Math.min(c.hp_max, +i.value || 0));
       await salvarCombate(); render(); });
     app.querySelectorAll(".cb-rm").forEach((b) => b.onclick = async () => { const idx = camp.combate.ordem.findIndex((x) => x.id === b.dataset.cb); if (idx < 0) return; snapshot("remover combatente");
-      camp.combate.ordem.splice(idx, 1); if (camp.combate.turno >= camp.combate.ordem.length) camp.combate.turno = 0; await salvarCombate(); render(); });
+      const nomeRm = camp.combate.ordem[idx]?.nome || "combatente";
+      camp.combate.ordem.splice(idx, 1); if (camp.combate.turno >= camp.combate.ordem.length) camp.combate.turno = 0;
+      await salvarCombate(); render();
+      avisar(`${nomeRm} saiu do combate`, async () => {
+        const snap = pilhaUndo.pop(); if (!snap) return;
+        camp.combate = snap.combate; await salvarCombate(); render();
+      }); });
     $("#sel-pers").onchange = async (e) => {
       const pid = e.target.value; if (!pid) return;
       await sb.from("personagens").update({ campanha_id: id }).eq("id", pid);

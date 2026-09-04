@@ -890,3 +890,48 @@ label input,label select,label textarea{text-transform:none;letter-spacing:norma
 .adm-barras{display:flex;gap:9px;align-items:center;margin-top:4px;flex-wrap:wrap}
 .adm-barras .cb-hp{width:110px;flex:0 0 auto}
 @media(max-width:720px){.adm-pers{flex-wrap:wrap}.adm-pers-info{flex:1 1 100%;order:3}}
+
+/* ============================================================================
+   BARRA DE AÇÃO — no celular ela gruda na base: durante a sessão, escrever e
+   rolar dados são as duas coisas que precisam estar sempre ao alcance do polegar.
+   ============================================================================ */
+@media(max-width:720px){
+  .barra-acao{position:sticky;bottom:0;z-index:20;background:var(--void);
+    padding:8px 0 calc(8px + env(safe-area-inset-bottom));margin:0 -10px;
+    padding-left:10px;padding-right:10px;
+    border-top:1px solid var(--line);box-shadow:0 -8px 20px rgba(5,6,12,.8)}
+  .barra-acao .rol-toggles{margin-bottom:6px;overflow-x:auto;flex-wrap:nowrap;
+    scrollbar-width:none;-webkit-overflow-scrolling:touch}
+  .barra-acao .rol-toggles::-webkit-scrollbar{display:none}
+  .barra-acao .rol-toggles .mini{flex:0 0 auto}
+  .chat{max-height:44vh}
+  /* alvos de toque no rastreador: errar o ✕ apagava um combatente */
+  .cb-acoes button{min-width:38px;min-height:38px;font-size:12px}
+  .cb-acoes .cb-hpset{min-height:38px;width:54px!important}
+  .cb-acoes{gap:6px}
+}
+
+/* ============================================================================
+   AVISO COM DESFAZER — confirma depois da ação, sem modal no caminho.
+   ============================================================================ */
+.aviso{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);z-index:10040;
+  display:flex;align-items:center;gap:12px;max-width:min(92vw,460px);
+  background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--tech);
+  border-radius:9px;padding:11px 14px;font-size:13px;
+  box-shadow:0 12px 34px rgba(0,0,0,.6);animation:aviso-entra .22s cubic-bezier(.2,.9,.3,1) both}
+@keyframes aviso-entra{from{opacity:0;transform:translate(-50%,14px)}to{opacity:1;transform:translate(-50%,0)}}
+.aviso.saindo{animation:aviso-entra .2s ease-in reverse both}
+.aviso span{flex:1;min-width:0}
+.aviso-undo{background:none;border:1px solid var(--tech);color:var(--tech);border-radius:5px;
+  padding:4px 10px;cursor:pointer;font-size:12px;white-space:nowrap}
+.aviso-undo:hover{background:rgba(89,227,200,.14)}
+.aviso-x{background:none;border:none;color:var(--dim);cursor:pointer;font-size:13px;padding:0 2px}
+.aviso-x:hover{color:var(--ink)}
+kbd{font-family:'IBM Plex Mono',monospace;font-size:11px;background:var(--panel2);
+  border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;padding:2px 7px;white-space:nowrap}
+@media(max-width:720px){
+  .aviso{bottom:calc(96px + env(safe-area-inset-bottom));left:10px;right:10px;transform:none;max-width:none}
+  @keyframes aviso-entra{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+  .aviso.saindo{animation:none;opacity:0;transition:opacity .2s}
+}
+@media(max-width:720px){.so-desktop{display:none}}
