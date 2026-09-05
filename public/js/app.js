@@ -185,28 +185,80 @@ function gerarFichaHTML(nome, f, k) {
   const implantes = (f.implantes || []).map((nm) => { const im = Object.values(IMPLANTES).find((x) => x.n === nm); return im ? `<li><b>${esc(im.n)}</b> <span class="dim">(${esc(im.g)})</span> — ${esc(im.e)}</li>` : `<li>${esc(nm)}</li>`; }).join("");
   const deck = (f.deck || []).map((nm) => { const s = SCRIPTS.find((x) => x.n === nm); return s ? `<li><b>${esc(s.n)}</b> <span class="dim">${s.c}◈ · ${esc(s.a)}</span> — ${esc(s.d)}</li>` : `<li>${esc(nm)}</li>`; }).join("");
   const inv = (f.inventario || []).map((it) => `<li>${it.equip ? "▣ " : ""}<b>${esc(it.nome)}</b> <span class="dim">(${esc(it.tipo)}${it.qtd > 1 ? ` ×${it.qtd}` : ""})</span></li>`).join("");
-  const css = `*{box-sizing:border-box}body{font-family:'Segoe UI',system-ui,sans-serif;color:#15181f;margin:0;padding:26px;background:#fff;font-size:12px;line-height:1.4}
-  h1{font-size:22px;margin:0 0 2px;letter-spacing:.02em}h2{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:#7a4bd0;border-bottom:1.5px solid #d9c9f5;padding-bottom:3px;margin:16px 0 8px}
-  .sub{color:#555;margin:0 0 10px;font-size:13px}.top{display:flex;gap:16px;align-items:flex-start}.retr{width:96px;height:96px;border:2px solid #cbb6ef;border-radius:10px;object-fit:cover;flex:0 0 auto}
-  .grid6{display:grid;grid-template-columns:repeat(6,1fr);gap:6px}.a{border:1.5px solid #d9c9f5;border-radius:8px;text-align:center;padding:7px 2px}.an{display:block;font-size:10px;color:#777;text-transform:uppercase}.av{display:block;font-size:20px;font-weight:700;color:#111}
-  .vit{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:8px}.vit div{border:1px solid #e0e0e0;border-radius:6px;padding:6px 8px}.vit b{display:block;font-size:16px}
-  .cols{display:grid;grid-template-columns:1fr 1fr;gap:14px}.per{width:100%;border-collapse:collapse}.per th{text-align:left;font-size:9px;color:#999;text-transform:uppercase;padding:2px 4px}.per td{padding:2px 4px;border-bottom:1px solid #eee}.per .tot{text-align:right;font-weight:700}.per .tr{background:#faf6ff}.dim{color:#999}
-  ul{margin:4px 0;padding-left:16px}li{margin:3px 0}.hab b{color:#0e7a68}.notas{white-space:pre-wrap;border:1px solid #e0e0e0;border-radius:6px;padding:8px;min-height:40px}
-  @page{margin:14mm}@media print{body{padding:0}h2{break-after:avoid}li,tr,.a{break-inside:avoid}}`;
+  // A cor do tema do personagem tinge a ficha inteira — cada tripulante
+  // sai com uma folha que parece dele, não um formulário genérico.
+  const tema = TEMAS[f.tema] || TEMAS["Vácuo"];
+  const ACC = tema.tech, ACC2 = tema.chrome, ACC3 = tema.sombra;
+  const css = `*{box-sizing:border-box}
+  body{font-family:'Segoe UI',system-ui,sans-serif;color:#15181f;margin:0;padding:0;background:#fff;font-size:11.5px;line-height:1.45}
+  .folha{padding:22px 26px 26px}
+  /* Faixa de topo com a cor do personagem */
+  .faixa{background:linear-gradient(115deg,${ACC}22,${ACC2}18 55%,transparent);
+    border-left:6px solid ${ACC};padding:14px 18px;margin:0 0 16px;border-radius:0 10px 10px 0}
+  h1{font-size:25px;margin:0;letter-spacing:.01em;color:#0e1118}
+  .sub{color:#4a5060;margin:3px 0 0;font-size:12.5px}
+  .etiquetas{margin-top:7px;display:flex;gap:6px;flex-wrap:wrap}
+  .etq{font-size:10px;text-transform:uppercase;letter-spacing:.07em;padding:2px 9px;border-radius:20px;
+    border:1.5px solid ${ACC};color:#2a2f3a;background:${ACC}1a;font-weight:600}
+  h2{font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:${ACC3};
+    border-bottom:2px solid ${ACC3}44;padding-bottom:4px;margin:18px 0 9px;display:flex;align-items:center;gap:7px}
+  h2::before{content:"";width:9px;height:9px;background:${ACC3};border-radius:2px;transform:rotate(45deg)}
+  .top{display:flex;gap:16px;align-items:flex-start}
+  .retr{width:104px;height:104px;border:3px solid ${ACC};border-radius:12px;object-fit:cover;flex:0 0 auto;
+    box-shadow:0 3px 10px rgba(0,0,0,.14)}
+  /* Atributos */
+  .grid6{display:grid;grid-template-columns:repeat(6,1fr);gap:7px;margin-top:10px}
+  .a{border:2px solid ${ACC}55;border-radius:9px;text-align:center;padding:8px 2px;background:${ACC}0d}
+  .an{display:block;font-size:9px;color:#6a7080;text-transform:uppercase;letter-spacing:.08em;font-weight:600}
+  .av{display:block;font-size:23px;font-weight:800;color:#0e1118;line-height:1.1}
+  /* Vitais com barras */
+  .vit{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px}
+  .vit div{border:1px solid #dde1e8;border-radius:8px;padding:7px 10px;background:#fafbfc}
+  .vit .dim{font-size:9px;color:#6a7080;text-transform:uppercase;letter-spacing:.06em;font-weight:600}
+  .vit b{display:block;font-size:17px;color:#0e1118;margin-top:1px}
+  .barra{height:5px;background:#e7eaef;border-radius:3px;overflow:hidden;margin-top:4px}
+  .barra i{display:block;height:100%;border-radius:3px}
+  /* Perícias em duas colunas */
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  .per{width:100%;border-collapse:collapse}
+  .per th{text-align:left;font-size:8.5px;color:#8a90a0;text-transform:uppercase;letter-spacing:.06em;padding:2px 4px}
+  .per td{padding:3px 4px;border-bottom:1px solid #eef0f4}
+  .per .tot{text-align:right;font-weight:700;color:#0e1118}
+  .per .tr{background:${ACC}12}
+  .per .tr td:first-child{color:${ACC3};font-weight:700}
+  .dim{color:#8a90a0}
+  /* Listas */
+  ul{margin:4px 0;padding-left:17px}li{margin:3px 0}
+  .hab b{color:${ACC3}}
+  .notas{white-space:pre-wrap;border:1px solid #dde1e8;border-radius:8px;padding:10px;min-height:44px;background:#fafbfc}
+  .rodape{margin-top:18px;padding-top:8px;border-top:1px solid #e7eaef;
+    font-size:9px;color:#9aa0ae;display:flex;justify-content:space-between}
+  @page{margin:12mm}
+  @media print{body{padding:0}.folha{padding:0}h2{break-after:avoid}li,tr,.a,.vit div{break-inside:avoid}}`;
   return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Ficha — ${esc(nome || "Personagem")}</title><style>${css}</style></head><body>
-  <div class="top">${f.foto ? `<img class="retr" src="${f.foto}"/>` : ""}<div>
-    <h1>${esc(nome || "Sem nome")}</h1>
-    <p class="sub">${[raca ? `${raca.nome} (${raca.planeta})` : "", f.classe, f.filosofia].filter(Boolean).join(" · ")} — Nível ${f.nivel}</p>
+  <div class="folha">
+  <div class="faixa">
+    <div class="top">${f.foto ? `<img class="retr" src="${f.foto}"/>` : ""}<div style="flex:1">
+      <h1>${esc(nome || "Sem nome")}</h1>
+      <p class="sub">${[raca ? `${raca.nome} — ${raca.planeta}` : "", f.classe].filter(Boolean).join(" · ")}</p>
+      <div class="etiquetas">
+        <span class="etq">Nível ${f.nivel}</span>
+        ${f.filosofia ? `<span class="etq">${esc(f.filosofia)}</span>` : ""}
+        ${raca ? `<span class="etq">Dado de vida 1d${raca.dadoVida}</span>` : ""}
+      </div>
+    </div></div>
     <div class="grid6">${ATTRS.map(attrCard).join("")}</div>
     <div class="vit">
-      <div><span class="dim">Pontos de Vida</span><b>${f.pvAtual || 0} / ${f.pvMax || 0}</b></div>
+      <div><span class="dim">Pontos de Vida</span><b>${f.pvAtual || 0} / ${f.pvMax || 0}</b>
+        <span class="barra"><i style="width:${f.pvMax ? Math.max(0, Math.min(100, 100 * f.pvAtual / f.pvMax)) : 0}%;background:${ACC}"></i></span></div>
+      <div><span class="dim">RAM</span><b>${k.ramLivre} / ${k.ramMax}</b>
+        <span class="barra"><i style="width:${k.ramMax ? Math.max(0, Math.min(100, 100 * k.ramLivre / k.ramMax)) : 0}%;background:${ACC3}"></i></span></div>
       <div><span class="dim">Defesa (CD)</span><b>${k.cd}</b></div>
-      <div><span class="dim">RAM</span><b>${k.ramLivre} / ${k.ramMax}</b></div>
       <div><span class="dim">Iniciativa</span><b>${sign(k.iniciativa)}</b></div>
       <div><span class="dim">Deslocamento</span><b>${k.deslocamento} m</b></div>
       <div><span class="dim">Créditos</span><b>${f.creditos ?? 0} CG</b></div>
     </div>
-  </div></div>
+  </div>
   <h2>Perícias</h2><div class="cols">${perTab(PERICIAS.slice(0, half))}${perTab(PERICIAS.slice(half))}</div>
   ${habs.length ? `<h2>Habilidades</h2><ul class="hab">${habs.map(([n, d]) => `<li><b>${esc(n)}:</b> ${esc(d)}</li>`).join("")}</ul>` : ""}
   ${implantes ? `<h2>Implantes</h2><ul>${implantes}</ul>` : ""}
@@ -221,7 +273,8 @@ function gerarFichaHTML(nome, f, k) {
     return cons.length ? `<p><b>Itens utilizáveis:</b></p><ul>${cons.map((it) => { const c = ehConsumivel(it.nome);
       return `<li><b>${esc(it.nome)}</b> ×${it.qtd || 1} <span class="dim">(${esc(c.acao)})</span> — ${esc(c.d)}</li>`; }).join("")}</ul>` : ""; })()}
   <h2>Anotações</h2><div class="notas">${esc(f.notas || "")}</div>
-  </body></html>`;
+  <div class="rodape"><span>Passagem Sombria — Deck de Campo</span><span>${new Date().toLocaleDateString("pt-BR")}</span></div>
+  </div></body></html>`;
 }
 function imprimirFichaHTML(html) {
   const ifr = document.createElement("iframe");
@@ -558,7 +611,7 @@ function mostrarAtalhos() {
       <tr><td><kbd>1</kbd>–<kbd>4</kbd></td><td>Trocar as abas da mesa</td></tr>
       <tr><td><kbd>Esc</kbd></td><td>Fechar painel ou sair do campo</td></tr>
       <tr><td><kbd>?</kbd></td><td>Mostrar esta lista</td></tr>
-    </tbody></table>` }], okLabel: "Fechar" });
+    </tbody></table>` }], okLabel: "Fechar", semCancelar: true });
 }
 
 // Ondulação a partir do ponto clicado, em qualquer botão do app.
@@ -747,9 +800,29 @@ async function telaFicha(id) {
   f.periciasExtra = migrarPericias(f.periciasExtra);
   aplicarTema(f);
   const registrar = (texto) => { f.log = [{ q: new Date().toISOString(), t: texto }, ...(f.log || [])].slice(0, 60); };
+  let salvando = false, pendente = false, autoTimer = null;
+  const marcaEstado = (txt, cls = "") => { const el = document.getElementById("st"); if (el) { el.textContent = txt; el.className = "topo-status " + cls; } };
   const salvar = async () => {
-    await sb.from("personagens").update({ nome: f.nomeVisivel ?? p.nome, dados: f, atualizado_em: new Date().toISOString() }).eq("id", id);
+    if (salvando) { pendente = true; return; }          // enfileira em vez de atropelar
+    salvando = true;
+    const { error } = await sb.from("personagens").update({ nome: f.nomeVisivel ?? p.nome, dados: f, atualizado_em: new Date().toISOString() }).eq("id", id);
+    salvando = false;
+    if (error) { marcaEstado("⚠ não salvou — tentando de novo", "erro"); setTimeout(salvar, 2500); return; }
+    marcaEstado("salvo ✓", "ok");
+    if (pendente) { pendente = false; salvar(); }
   };
+  // Salvamento automático: qualquer mudança na ficha grava sozinha em ~1s.
+  // Antes era preciso clicar em SALVAR, e dava para comprar um item, ir para a
+  // mesa e descobrir que nada tinha sido gravado.
+  const autoSalvar = () => {
+    marcaEstado("salvando…", "salvando");
+    clearTimeout(autoTimer);
+    autoTimer = setTimeout(() => salvar(), 900);
+  };
+  // Rede de segurança: se sair da página com algo pendente, grava na hora.
+  const aoSair = () => { if (autoTimer) { clearTimeout(autoTimer); salvar(); } };
+  window.addEventListener("beforeunload", aoSair);
+  window.addEventListener("hashchange", aoSair, { once: true });
   const render = () => {
     const k = calc(f);
     const raca = RACAS.find((r) => r.nome === f.raca), classe = CLASSES[f.classe];
@@ -959,7 +1032,7 @@ async function telaFicha(id) {
         requestAnimationFrame(() => { barra.style.width = Math.min(100, 100 * f.xp / Math.max(1, f.xpMeta)) + "%"; }); }
       contarAte(el, xpAntes, f.xp, 900);
     }
-    $("#salvar").onclick = async () => { $("#st").textContent = "Transmitindo…"; await salvar(); $("#st").textContent = "Salvo ✓"; };
+    $("#salvar").onclick = async () => { clearTimeout(autoTimer); marcaEstado("salvando…", "salvando"); await salvar(); };
     $("#compartilhar").onclick = async () => {
       const { data: atual } = await sb.from("personagens").select("publico,token_publico").eq("id", p.id).single();
       const ativo = !!atual?.publico;
@@ -979,7 +1052,7 @@ async function telaFicha(id) {
         try { await navigator.clipboard.writeText(link); } catch (_) {}
         await modalForm({ titulo: "✅ Link ativado", campos: [
           { k: "i", label: "Copiado para a área de transferência. Qualquer pessoa com ele pode ver a ficha (somente leitura).", tipo: "info" },
-          { k: "l", label: "Link", tipo: "texto", valor: link }], okLabel: "Fechar" });
+          { k: "l", label: "Link", tipo: "texto", valor: link }], okLabel: "Fechar", semCancelar: true });
         $("#st").textContent = "Link público ativo ✓";
       } else $("#st").textContent = "Link público desativado";
     };
@@ -987,23 +1060,23 @@ async function telaFicha(id) {
     $("#baixar").onclick = () => { const nome = $("#nome")?.value || p.nome; baixarFichaHTML(gerarFichaHTML(nome, f, calc(f)), nome); };
     $("#desc-curto")?.addEventListener("click", async () => { const r = aplicarDescanso(f, "curto"); registrar(`☾ Descanso Curto: ${r.notas.join(" · ")}.`); await salvar(); render(); $("#st").textContent = "Descanso curto ✓ (salvo)"; });
     $("#desc-longo")?.addEventListener("click", async () => { const r = aplicarDescanso(f, "longo"); registrar(`🌙 Descanso Longo: ${r.notas.join(" · ")}.`); await salvar(); render(); $("#st").textContent = "Descanso longo ✓ (salvo)"; });
-    app.querySelectorAll(".ck-uso").forEach((c) => c.onchange = () => { f.usos = f.usos || {}; if (c.checked) f.usos[c.dataset.uso] = true; else delete f.usos[c.dataset.uso]; render(); });
+    app.querySelectorAll(".ck-uso").forEach((c) => c.onchange = () => { f.usos = f.usos || {}; if (c.checked) f.usos[c.dataset.uso] = true; else delete f.usos[c.dataset.uso]; (autoSalvar(), render()); });
     $("#nome").oninput = (e) => { p.nome = e.target.value; f.nomeVisivel = e.target.value; };
     $("#foto-in")?.addEventListener("change", (e) => {
       const file = e.target.files?.[0]; if (!file) return;
-      comprimirFoto(file, (data) => { f.foto = data; registrar("◈ Retrato do personagem atualizado."); render(); });
+      comprimirFoto(file, (data) => { f.foto = data; registrar("◈ Retrato do personagem atualizado."); (autoSalvar(), render()); });
       e.target.value = "";
     });
-    $("#foto-rm")?.addEventListener("click", () => { f.foto = null; render(); });
-    ["raca", "classe", "filosofia"].forEach((c) => $("#" + c).onchange = (e) => { f[c] = e.target.value; render(); });
+    $("#foto-rm")?.addEventListener("click", () => { f.foto = null; (autoSalvar(), render()); });
+    ["raca", "classe", "filosofia"].forEach((c) => $("#" + c).onchange = (e) => { f[c] = e.target.value; (autoSalvar(), render()); });
     $("#abrir-sistema")?.addEventListener("click", async () => {
       try { const { abrirSeletorPlanetas } = await import("./sistema-solar.js");
-        abrirSeletorPlanetas(RACAS, (nome) => { f.raca = nome; render(); $("#st").textContent = `Raça: ${nome} ✓`; });
+        abrirSeletorPlanetas(RACAS, (nome) => { f.raca = nome; (autoSalvar(), render()); $("#st").textContent = `Raça: ${nome} ✓`; });
       } catch (err) { alert("Não consegui abrir o sistema solar: " + err.message); }
     });
-    ["creditos", "pvAtual", "pvMax"].forEach((c) => { const el = $("#" + c); if (el) el.oninput = (e) => { f[c] = +e.target.value; }; });
-    $("#modo-pontos").onclick = () => { f.modoAttr = "pontos"; render(); };
-    $("#modo-rolagem").onclick = () => { f.modoAttr = "rolagem"; render(); };
+    ["creditos", "pvAtual", "pvMax"].forEach((c) => { const el = $("#" + c); if (el) el.oninput = (e) => { f[c] = +e.target.value; autoSalvar(); }; });
+    $("#modo-pontos").onclick = () => { f.modoAttr = "pontos"; (autoSalvar(), render()); };
+    $("#modo-rolagem").onclick = () => { f.modoAttr = "rolagem"; (autoSalvar(), render()); };
     $("#rolar-pool")?.addEventListener("click", () => {
       const somas = Array.from({ length: 7 }, () => rollNd(2, 8).reduce((a, b) => a + b, 0));
       somas.sort((a, b) => a - b);
@@ -1011,12 +1084,12 @@ async function telaFicha(id) {
       f.rolagemPool = somas; // guarda as SOMAS BRUTAS; a conversão acontece ao distribuir
       f.rolagem = { For: null, Des: null, Con: null, Int: null, Sab: null, Car: null };
       registrar(`🎲 Origem rolada — 2d8 sete vezes, descartada a pior soma (${pior}). Somas guardadas: [${somas.join(", ")}]. Distribua cada soma num atributo; a conversão em modificador aparece ao lado. Raça e pontos somam por cima.`);
-      render();
+      (autoSalvar(), render());
     });
     app.querySelectorAll(".sel-pool").forEach((s) => s.onchange = () => {
       const a = s.dataset.a; f.rolagem[a] = s.value === "" ? null : +s.value;
       if (s.value !== "") registrar(`Δ ${a} recebeu ${sign(+s.value)} da rolagem.`);
-      render();
+      (autoSalvar(), render());
     });
     app.querySelectorAll(".pt-attr").forEach((i) => i.onchange = () => {
       const a = i.dataset.a;
@@ -1024,7 +1097,7 @@ async function telaFicha(id) {
       const maxEste = Math.max(0, k.pontosDireito - outros); // não pode exceder o orçamento total
       let v = Math.max(0, Math.floor(+i.value || 0));
       if (v > maxEste) { v = maxEste; $("#st").textContent = `Sem pontos de atributo livres (${k.pontosDireito} no total)`; }
-      f.pontosAttr[a] = v; render();
+      f.pontosAttr[a] = v; (autoSalvar(), render());
     });
     app.querySelectorAll(".pt-per").forEach((i) => i.onchange = () => {
       const pn = i.dataset.p;
@@ -1037,7 +1110,7 @@ async function telaFicha(id) {
       let v = Math.max(0, Math.floor(+i.value || 0));
       if (v > maxOrc) { v = maxOrc; $("#st").textContent = `Sem pontos de perícia livres (${k.perDireito} no total)`; }
       if (v > maxSkill) { v = maxSkill; $("#st").textContent = `Teto de perícia: +${teto} (classe já concede +${classGrant})`; }
-      f.periciasExtra[pn] = v; render();
+      f.periciasExtra[pn] = v; (autoSalvar(), render());
     });
     $("#pv-inicial")?.addEventListener("click", () => {
       const k2 = calc(f); const r = RACAS.find((x) => x.nome === f.raca); const c = CLASSES[f.classe];
@@ -1045,14 +1118,14 @@ async function telaFicha(id) {
       const base = Math.max(1, subtotal + k2.attr.Con + (c?.pv || 0));
       f.pvMax = base; f.pvAtual = base;
       registrar(`❤ PV do nível 1: 4d6 [${ds.join(", ")}] descarta ${menor}, soma ${soma3} ${sign(r?.vidaMod || 0)} raça ${sign(k2.attr.Con)} Con +${c?.pv || 0} classe = ${base} PV.`);
-      render();
+      (autoSalvar(), render());
     });
-    $("#vida-fixa")?.addEventListener("change", (e) => { f.usarVidaFixa = e.target.checked; render(); });
-    $("#metodo")?.addEventListener("change", (e) => { f.metodoNivel = e.target.value; render(); });
+    $("#vida-fixa")?.addEventListener("change", (e) => { f.usarVidaFixa = e.target.checked; (autoSalvar(), render()); });
+    $("#metodo")?.addEventListener("change", (e) => { f.metodoNivel = e.target.value; (autoSalvar(), render()); });
     $("#xp")?.addEventListener("input", (e) => { f.xp = +e.target.value; });
     $("#xpMeta")?.addEventListener("input", (e) => { f.xpMeta = +e.target.value; });
     $("#marcos")?.addEventListener("input", (e) => { f.marcos = +e.target.value; });
-    $("#add-marco")?.addEventListener("click", () => { f.marcos = (f.marcos || 0) + 1; registrar(`⚑ Marco da história alcançado (total: ${f.marcos}).`); render(); });
+    $("#add-marco")?.addEventListener("click", () => { f.marcos = (f.marcos || 0) + 1; registrar(`⚑ Marco da história alcançado (total: ${f.marcos}).`); (autoSalvar(), render()); });
     $("#levelup")?.addEventListener("click", async () => {
       if (f.nivel >= 10) return;
       const novoNv = f.nivel + 1;
@@ -1075,13 +1148,13 @@ async function telaFicha(id) {
       cenaNivel(novoNv, ganhoPV, detalhe, extras);
     });
     app.querySelectorAll(".ck-impl").forEach((c) => c.onchange = () => {
-      f.implantes = c.checked ? [...f.implantes, c.dataset.n] : f.implantes.filter((x) => x !== c.dataset.n); render(); });
+      f.implantes = c.checked ? [...f.implantes, c.dataset.n] : f.implantes.filter((x) => x !== c.dataset.n); (autoSalvar(), render()); });
     app.querySelectorAll(".ck-scr").forEach((c) => c.onchange = () => {
-      f.deck = c.checked ? [...f.deck, c.dataset.n] : f.deck.filter((x) => x !== c.dataset.n); render(); });
+      f.deck = c.checked ? [...f.deck, c.dataset.n] : f.deck.filter((x) => x !== c.dataset.n); (autoSalvar(), render()); });
     const fillSel = () => { const t = $("#add-tipo").value; const cat = t === "arma" ? ARMAS : ARMADURAS;
       $("#add-sel").innerHTML = cat.map((a) => `<option>${esc(a.n)}</option>`).join(""); };
     fillSel(); $("#add-tipo").onchange = fillSel;
-    $("#add-btn").onclick = () => { f.inventario.push({ tipo: $("#add-tipo").value, nome: $("#add-sel").value, equip: false, qtd: 1 }); render(); };
+    $("#add-btn").onclick = () => { f.inventario.push({ tipo: $("#add-tipo").value, nome: $("#add-sel").value, equip: false, qtd: 1 }); (autoSalvar(), render()); };
     // ---- Mercado (loja com créditos) ----
     const renderLoja = (cat) => {
       const alvo = $("#loja-lista"); if (!alvo) return;
@@ -1107,6 +1180,7 @@ async function telaFicha(id) {
         else if (cat === "implante") { if (!f.implantes.includes(it.nome)) f.implantes.push(it.nome); }
         else f.inventario.push({ tipo: cat, nome: it.nome, equip: false, qtd: 1 });
         registrar(`🛒 Comprou ${it.nome} por ${it.preco} CG (restam ${f.creditos} CG).`);
+        autoSalvar();                       // a compra precisa persistir antes de ir para a mesa
         setTimeout(render, 650);
       });
     };
@@ -1114,11 +1188,11 @@ async function telaFicha(id) {
     renderLoja($("#loja-cat")?.value || "arma");
     app.querySelectorAll("[data-eq]").forEach((b) => b.onclick = () => { const it = f.inventario[+b.dataset.eq];
       if (it.tipo === "armadura") f.inventario.forEach((x) => { if (x.tipo === "armadura") x.equip = false; });
-      it.equip = !it.equip; render(); });
-    app.querySelectorAll("[data-rm]").forEach((b) => b.onclick = () => { f.inventario.splice(+b.dataset.rm, 1); render(); });
+      it.equip = !it.equip; (autoSalvar(), render()); });
+    app.querySelectorAll("[data-rm]").forEach((b) => b.onclick = () => { f.inventario.splice(+b.dataset.rm, 1); (autoSalvar(), render()); });
     app.querySelectorAll("[data-tema]").forEach((b) => b.onclick = () => { f.tema = { ...TEMAS[b.dataset.tema] }; aplicarTema(f); });
   };
-  render();
+  (autoSalvar(), render());
 }
 
 // ---------------- CAMPANHAS ----------------
@@ -1201,7 +1275,7 @@ async function telaMesa(id) {
     if (asCegas && souMestre && tipo === "rolagem") {   // às cegas: fica só na tela do Mestre
       const p = payload || {};
       await modalForm({ titulo: "🙈 Rolagem às cegas", campos: [
-        { k: "i", label: `${p.titulo || "Rolagem"} — ${p.detalhe || ""}${p.total != null ? `  =  ${p.total}` : ""}${p.extra ? "\n" + p.extra : ""}`, tipo: "info" }], okLabel: "Fechar" });
+        { k: "i", label: `${p.titulo || "Rolagem"} — ${p.detalhe || ""}${p.total != null ? `  =  ${p.total}` : ""}${p.extra ? "\n" + p.extra : ""}`, tipo: "info" }], okLabel: "Fechar", semCancelar: true });
       return true;
     }
     const { data, error } = await sb.from("mensagens").insert({ campanha_id: id, autor_id: usuario.id, personagem_id: meuPers?.id || null, tipo, conteudo, payload }).select("*,perfis:autor_id(apelido,avatar_url)").single();
@@ -1378,7 +1452,7 @@ async function telaMesa(id) {
               const pv = fx.pvMax ? Math.max(0, Math.min(100, 100 * fx.pvAtual / fx.pvMax)) : 0;
               const ram = kx.ramMax ? Math.max(0, Math.min(100, 100 * kx.ramLivre / kx.ramMax)) : 0;
               const crit = fx.pvAtual <= 0 ? "morto" : (fx.pvMax && fx.pvAtual / fx.pvMax <= 0.3) ? "ferido" : "";
-              return `<div class="pf-linha ${crit}">
+              return `<div class="pf-linha ${crit}" data-inspect="${x.id}" title="Ver ficha completa">
                 <span class="pf-nome">${esc(x.nome) || "sem nome"}${fx.pvAtual <= 0 ? " ☠" : ""}</span>
                 <span class="cb-hp" title="Pontos de Vida"><span class="cb-hp-barra" style="width:${pv}%;background:${crit === "ferido" ? "var(--perigo)" : "var(--tech)"}"></span><b>${fx.pvAtual}/${fx.pvMax}</b></span>
                 <span class="cb-hp" title="RAM"><span class="cb-hp-barra" style="width:${ram}%;background:var(--sombra)"></span><b>${kx.ramLivre}/${kx.ramMax}</b></span>
@@ -1624,6 +1698,68 @@ async function telaMesa(id) {
       abaMesa = b.dataset.mesaAba; sessionStorage.setItem("ps-aba-mesa", abaMesa);
       app.querySelectorAll("[data-mesa-aba]").forEach((x) => x.classList.toggle("on", x.dataset.mesaAba === abaMesa));
       app.querySelectorAll(".mesa-painel").forEach((p2, i2) => { p2.hidden = ["combate", "ficha", "nave", "mesa"][i2] !== abaMesa; });
+    });
+    // Inspetor de personagem: o Mestre precisa ver vida, RAM, armas e scripts
+    // de qualquer jogador sem sair da mesa e sem pedir print.
+    app.querySelectorAll("[data-inspect]").forEach((el2) => el2.onclick = () => {
+      const alvo = (pers || []).find((x) => x.id === el2.dataset.inspect); if (!alvo) return;
+      const fx = { ...novaFichaDados(), ...(alvo.dados || {}) }; const kx = calc(fx);
+      const pvP = fx.pvMax ? Math.max(0, Math.min(100, 100 * fx.pvAtual / fx.pvMax)) : 0;
+      const ramP = kx.ramMax ? Math.max(0, Math.min(100, 100 * kx.ramLivre / kx.ramMax)) : 0;
+      const est = fx.pvAtual <= 0 ? "morto" : pvP <= 30 ? "critico" : pvP <= 60 ? "ferido" : "";
+      const res = normalizaPentes(fx); const tpm = TIPOS_PENTE[fx.tipoPente || PENTE_PADRAO];
+      const totalPentes = Object.values(res).reduce((a2, b2) => a2 + b2, 0);
+      const armas = (fx.inventario || []).filter((it) => it.equip && ARMAS.find((w) => w.n === it.nome));
+      const cons = (fx.inventario || []).filter((it) => ehConsumivel(it.nome) && (it.qtd || 1) > 0);
+      const ov = document.createElement("div"); ov.className = "ss-overlay ov-modal"; ov.style.zIndex = "10000";
+      const linhaAttr = (a3) => `<div class="ins-attr"><span>${a3}</span><b>${sign(kx.attr[a3])}</b></div>`;
+      ov.innerHTML = `<div class="ss-painel ins-painel">
+        <div class="mp-topo">${fx.foto ? `<img class="ins-foto" src="${esc(fx.foto)}" alt=""/>` : ""}
+          <b>${esc(alvo.nome) || "sem nome"}</b>
+          <span class="best-tag">NV ${fx.nivel || 1}</span>
+          <span class="dim">${esc(fx.raca || "?")} · ${esc(fx.classe || "?")}</span>
+          <button id="ins-x" class="mp-x" style="margin-left:auto">✕</button></div>
+        <div class="di-corpo">
+          <div class="vitais-barras">
+            <div class="vb"><div class="vb-topo"><span>❤ Vida</span><b class="${est}">${fx.pvAtual}<span class="dim">/${fx.pvMax}</span></b></div>
+              <div class="vb-trilho"><span class="cb-hp-barra vb-fill ${est}" style="width:${pvP}%"></span></div></div>
+            <div class="vb"><div class="vb-topo"><span>◈ RAM</span><b class="sombra-c">${kx.ramLivre}<span class="dim">/${kx.ramMax}</span></b></div>
+              <div class="vb-trilho"><span class="cb-hp-barra vb-fill ram" style="width:${ramP}%"></span></div></div>
+          </div>
+          <div class="ins-linha"><span>🛡 Defesa <b>${kx.cd}</b></span><span>🎯 Iniciativa <b>${sign(kx.iniciativa)}</b></span>
+            <span>🏃 <b>${kx.deslocamento}m</b></span><span>◈ Conjuração <b>+${kx.conj}</b></span><span>💰 <b>${fx.creditos ?? 0}</b> CG</span></div>
+          <div class="ins-attrs">${["For", "Des", "Con", "Int", "Sab", "Car"].map(linhaAttr).join("")}</div>
+
+          <h4>🔫 Munição</h4>
+          <p class="regra">No cano: <b style="color:${tpm.cor}">${tpm.ic} ${esc(tpm.n)}</b> — ${fx.tirosPente ?? TIROS_POR_PENTE}/${TIROS_POR_PENTE} tiros.
+            Reserva: ${totalPentes ? Object.entries(res).filter(([, q]) => q > 0).map(([k2, q]) => `${TIPOS_PENTE[k2].ic} ${TIPOS_PENTE[k2].n} ×${q}`).join(" · ") : "<b class='perigo-c'>vazia</b>"}</p>
+
+          <h4>⚔ Armas equipadas</h4>
+          ${armas.length ? armas.map((it) => { const w = ARMAS.find((x2) => x2.n === it.nome); const pr = propsArma(w);
+            return `<div class="ins-item"><b>${esc(w.n)}</b> <span class="chrome">${danoArma(w, fx.nivel)}</span>
+              <span class="regra">${esc(w.per)} (${w.attr}) · ${esc(w.kw || "")}${pr.efeito ? ` — ${esc(pr.efeito)}` : ""}</span></div>`; }).join("")
+            : `<p class="regra"><i>Nenhuma arma equipada.</i></p>`}
+
+          <h4>◈ Deck de Scripts (${(fx.deck || []).length}/${kx.deckMax})</h4>
+          ${(fx.deck || []).length ? (fx.deck || []).map((n2) => { const sc = SCRIPTS.find((x2) => x2.n === n2);
+            return sc ? `<div class="ins-item"><b>${esc(sc.n)}</b> <span class="sombra-c">${sc.c}◈ ${esc(sc.a)}</span><span class="regra">${esc(sc.d)}</span></div>` : ""; }).join("")
+            : `<p class="regra"><i>Deck vazio.</i></p>`}
+
+          <h4>⧉ Implantes</h4>
+          ${(fx.implantes || []).length ? (fx.implantes || []).map((n2) => { const im = IMPLANTES.find((x2) => x2.n === n2);
+            return `<div class="ins-item"><b>${esc(n2)}</b>${im ? ` <span class="regra">${esc(im.g)} — ${esc(im.e)}</span>` : ""}</div>`; }).join("")
+            : `<p class="regra"><i>Sem cromo.</i></p>`}
+
+          ${cons.length ? `<h4>🎒 Itens utilizáveis</h4>${cons.map((it) => { const c2 = ehConsumivel(it.nome);
+            return `<div class="ins-item"><b>${c2.ic} ${esc(it.nome)}</b> <span class="chrome">×${it.qtd || 1}</span><span class="regra">${esc(c2.d)}</span></div>`; }).join("")}` : ""}
+
+          ${(fx.notas || "").trim() ? `<h4>📝 Anotações do jogador</h4><p class="regra" style="white-space:pre-wrap">${esc(fx.notas)}</p>` : ""}
+        </div></div>`;
+      document.body.appendChild(ov); document.body.style.overflow = "hidden";
+      const fechar = () => { document.body.style.overflow = ""; ov.remove(); };
+      ov.querySelector("#ins-x").onclick = fechar;
+      ov.addEventListener("click", (e) => { if (e.target === ov) fechar(); });
+      ov.addEventListener("keydown", (e) => { if (e.key === "Escape") fechar(); });
     });
     $("#abrir-mestre")?.addEventListener("click", async () => {
       if (!camp.faccoes || typeof camp.faccoes !== "object") camp.faccoes = {};
@@ -1872,7 +2008,7 @@ async function telaMesa(id) {
       try { await navigator.clipboard.writeText(link); } catch (_) {}
       await modalForm({ titulo: "🔗 Convite da mesa", campos: [
         { k: "i", label: "Quem abrir este link entra direto na campanha (basta ter conta).", tipo: "info" },
-        { k: "l", label: "Link", tipo: "texto", valor: link }], okLabel: "Fechar" });
+        { k: "l", label: "Link", tipo: "texto", valor: link }], okLabel: "Fechar", semCancelar: true });
     });
     $("#ir-diario")?.addEventListener("click", () => $("#abrir-diario")?.click());
     $("#abrir-stats")?.addEventListener("click", () => $("#abrir-stats-oculto")?.click());

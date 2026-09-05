@@ -994,3 +994,19 @@ button.pente-tipo.carregado::after{content:" ▸";opacity:.7}
 @keyframes fac-desce{0%{box-shadow:0 0 0 0 rgba(240,122,122,.45);background:rgba(240,122,122,.10)}
   100%{box-shadow:0 0 0 14px rgba(240,122,122,0);background:transparent}}
 body.a11y-reduzir .fac-card.sobe,body.a11y-reduzir .fac-card.desce{animation:none!important}
+
+/* Inspetor de personagem (Mestre) */
+.pf-linha[data-inspect]{cursor:pointer;transition:background .15s,transform .09s}
+.pf-linha[data-inspect]:hover{background:var(--panel);transform:translateX(2px)}
+.ins-painel{width:620px;max-width:96vw;margin:auto;border:1px solid var(--line);border-radius:10px;max-height:92vh}
+.ins-foto{width:34px;height:34px;object-fit:cover;border-radius:6px;border:1px solid var(--line)}
+.ins-linha{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--dim);margin:12px 0 10px;
+  padding:8px 10px;background:var(--panel2);border-radius:6px}
+.ins-linha b{color:var(--ink);font-family:'Chakra Petch',sans-serif;font-size:15px}
+.ins-attrs{display:grid;grid-template-columns:repeat(6,1fr);gap:5px;margin-bottom:6px}
+.ins-attr{border:1px solid var(--line);border-radius:5px;text-align:center;padding:5px 2px}
+.ins-attr span{display:block;font-size:9px;color:var(--dim);text-transform:uppercase}
+.ins-attr b{font-size:17px;font-family:'Chakra Petch',sans-serif}
+.ins-item{background:var(--panel2);border-radius:5px;padding:6px 9px;margin-bottom:4px;font-size:12.5px}
+.ins-item .regra{margin:2px 0 0;font-size:10.5px}
+@media(max-width:720px){.ins-attrs{grid-template-columns:repeat(3,1fr)}}

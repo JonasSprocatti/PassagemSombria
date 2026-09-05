@@ -7,7 +7,8 @@ const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<
 // modalForm({ titulo, campos:[{k,label,tipo,valor,opcoes,min,max,placeholder,rows}], okLabel, cancelLabel })
 // tipos: "texto" | "numero" | "area" | "select"
 // Resolve com um objeto { k: valor } ou null se cancelado.
-export function modalForm({ titulo, descricao = "", campos = [], okLabel = "Confirmar", cancelLabel = "Cancelar" }) {
+// semCancelar: para janelas puramente informativas, onde "Cancelar" não faz sentido.
+export function modalForm({ titulo, descricao = "", campos = [], okLabel = "Confirmar", cancelLabel = "Cancelar", semCancelar = false }) {
   return new Promise((resolve) => {
     const ov = document.createElement("div");
     ov.className = "mdl-overlay";
@@ -24,7 +25,7 @@ export function modalForm({ titulo, descricao = "", campos = [], okLabel = "Conf
       <h3 class="mdl-titulo">${esc(titulo)}</h3>
       ${descricao ? `<p class="mdl-desc">${esc(descricao)}</p>` : ""}
       <div class="mdl-campos">${campos.map(campoHtml).join("")}</div>
-      <div class="mdl-acoes"><button class="mdl-cancel">${esc(cancelLabel)}</button><button class="mdl-ok btn-primario">${esc(okLabel)}</button></div>
+      <div class="mdl-acoes">${semCancelar ? "" : `<button class="mdl-cancel">${esc(cancelLabel)}</button>`}<button class="mdl-ok btn-primario">${esc(okLabel)}</button></div>
     </div>`;
     document.body.appendChild(ov);
     const prim = ov.querySelector(`#mdl-${campos[0]?.k}`); if (prim) setTimeout(() => prim.focus(), 30);
@@ -33,7 +34,7 @@ export function modalForm({ titulo, descricao = "", campos = [], okLabel = "Conf
     const coletar = () => { const out = {}; for (const c of campos) { const el = ov.querySelector(`#mdl-${c.k}`); if (!el) continue; out[c.k] = c.tipo === "numero" ? (el.value === "" ? null : +el.value) : el.value; } return out; };
     const confirmar = () => fechar(coletar());
     ov.querySelector(".mdl-ok").onclick = confirmar;
-    ov.querySelector(".mdl-cancel").onclick = () => fechar(null);
+    ov.querySelector(".mdl-cancel")?.addEventListener("click", () => fechar(null));
     ov.addEventListener("pointerdown", (e) => { if (e.target === ov) fechar(null); });
     const onKey = (e) => { if (e.key === "Escape") fechar(null); else if (e.key === "Enter" && e.target.tagName !== "TEXTAREA") confirmar(); };
     document.addEventListener("keydown", onKey);
