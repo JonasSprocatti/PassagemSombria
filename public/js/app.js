@@ -777,13 +777,32 @@ async function telaHangar() {
     <header class="masthead"><div class="mast-eyebrow">ARQUIVO DE PESSOAL · ${esc(perfil?.apelido || "")}</div>
       <h1>HANGAR<span> DE TRIPULANTES</span></h1></header>
     <div class="grid-fichas">${cards || `<div class="vazio"><p class="vazio-t">Nenhum tripulante registrado.</p></div>`}</div>
-    <button id="novo" class="btn-novo">+ REGISTRAR NOVO TRIPULANTE</button>`, "hangar");
+    <div class="hangar-acoes"><button id="novo" class="btn-novo">+ REGISTRAR NOVO TRIPULANTE</button>
+      <button id="novo-vazio" class="mini" title="Cria a ficha em branco, para preencher na mão">ficha em branco</button></div>`, "hangar");
   $("#novo").onclick = async () => {
+    const u = await sessaoAtiva(); if (!u) return;
+    const { abrirCriacao } = await import("./criacao.js");
+    abrirCriacao({
+      abrirSistemaSolar: async (escolher) => {
+        const { abrirSeletorPlanetas } = await import("./sistema-solar.js");
+        abrirSeletorPlanetas(RACAS, escolher);
+      },
+      onCriar: async (escolhas, nome) => {
+        const dados = { ...novaFichaDados(), ...escolhas };
+        const { data, error } = await sb.from("personagens")
+          .insert({ dono_id: u.id, nome, dados }).select("id").single();
+        if (error) return alert("Não consegui registrar o tripulante: " + error.message);
+        location.hash = `#/ficha/${data.id}`;
+      },
+    });
+  };
+  // Atalho para quem prefere a ficha em branco e preencher na mão.
+  $("#novo-vazio")?.addEventListener("click", async () => {
     const u = await sessaoAtiva(); if (!u) return;
     const { data, error } = await sb.from("personagens").insert({ dono_id: u.id, nome: "", dados: novaFichaDados() }).select("id").single();
     if (error) return alert(error.message);
     location.hash = `#/ficha/${data.id}`;
-  };
+  });
   app.querySelectorAll(".card-pers").forEach((c) => c.onclick = (e) => { if (!e.target.dataset.del) location.hash = `#/ficha/${c.dataset.id}`; });
   app.querySelectorAll("[data-del]").forEach((b) => b.onclick = async (e) => {
     e.stopPropagation();

@@ -1010,3 +1010,89 @@ body.a11y-reduzir .fac-card.sobe,body.a11y-reduzir .fac-card.desce{animation:non
 .ins-item{background:var(--panel2);border-radius:5px;padding:6px 9px;margin-bottom:4px;font-size:12.5px}
 .ins-item .regra{margin:2px 0 0;font-size:10.5px}
 @media(max-width:720px){.ins-attrs{grid-template-columns:repeat(3,1fr)}}
+
+/* ============================================================================
+   CRIAÇÃO GUIADA — um passo de cada vez, sem perder de vista o caminho.
+   ============================================================================ */
+.cri-overlay{position:fixed;inset:0;z-index:10030;display:flex;align-items:center;justify-content:center;
+  background:radial-gradient(ellipse at 40% 20%,rgba(89,227,200,.07),rgba(5,6,12,.93) 65%);padding:16px;
+  animation:nv-fundo .25s ease-out both;overflow-y:auto}
+.cri-caixa{width:100%;max-width:780px;background:var(--panel);border:1px solid var(--line);border-radius:14px;
+  display:flex;flex-direction:column;max-height:94vh;box-shadow:0 24px 70px rgba(0,0,0,.6);
+  animation:nv-caixa .35s cubic-bezier(.2,1.2,.35,1) both}
+.cri-topo{display:flex;gap:12px;align-items:flex-start;padding:18px 22px 12px;border-bottom:1px solid var(--line)}
+.cri-eyebrow{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim);font-family:'IBM Plex Mono',monospace}
+.cri-topo h2{font-family:'Chakra Petch',sans-serif;font-size:23px;margin:3px 0 2px}
+.cri-desc{font-size:12.5px;color:var(--dim);margin:0;font-style:italic}
+.cri-topo .mp-x{margin-left:auto;flex-shrink:0}
+/* trilha de passos */
+.cri-trilha{display:flex;gap:4px;padding:12px 22px;border-bottom:1px solid var(--line);overflow-x:auto}
+.cri-bola{flex:1;min-width:64px;background:none;border:1px solid var(--line);border-radius:8px;
+  padding:6px 4px;cursor:pointer;color:var(--dim);display:flex;flex-direction:column;align-items:center;gap:2px;
+  transition:border-color .2s,color .2s,background .2s}
+.cri-bola span{font-size:15px}
+.cri-bola i{font-size:9px;font-style:normal;letter-spacing:.04em}
+.cri-bola.feito{border-color:var(--tech);color:var(--tech);background:rgba(89,227,200,.08)}
+.cri-bola.atual{border-color:var(--chrome);color:var(--chrome);background:rgba(240,168,96,.12);box-shadow:0 0 0 1px var(--chrome)}
+.cri-bola:disabled{opacity:.35;cursor:not-allowed}
+.cri-corpo{flex:1;overflow-y:auto;padding:18px 22px}
+.cri-ajuda{font-size:13px;line-height:1.6;color:var(--dim);margin:0 0 14px}
+.cri-ajuda b{color:var(--ink)}
+/* grades de escolha */
+.cri-grade{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}
+.cri-grade.dois{grid-template-columns:repeat(auto-fill,minmax(210px,1fr))}
+.cri-grade.seis{grid-template-columns:repeat(6,1fr)}
+.cri-op{text-align:left;background:var(--panel2);border:1px solid var(--line);border-radius:9px;
+  padding:10px 12px;cursor:pointer;color:var(--ink);display:flex;flex-direction:column;gap:2px;
+  transition:transform .12s,border-color .15s,background .15s}
+.cri-op:hover{transform:translateY(-2px);border-color:var(--dim)}
+.cri-op.on{border-color:var(--tech);background:rgba(89,227,200,.12);box-shadow:0 0 0 1px var(--tech)}
+.cri-op b{font-family:'Chakra Petch',sans-serif;font-size:14px}
+.cri-sub{font-size:10.5px;color:var(--chrome)}
+.cri-attrs{font-size:10px;color:var(--dim);font-family:'IBM Plex Mono',monospace}
+.cri-detalhe{margin-top:14px;padding:13px 15px;background:var(--panel2);border-left:3px solid var(--tech);border-radius:0 8px 8px 0}
+.cri-detalhe h4{margin:0 0 6px;font-family:'Chakra Petch',sans-serif}
+.cri-detalhe p{font-size:12.5px;line-height:1.6;margin:0 0 7px}
+/* atributos */
+.cri-centro{text-align:center;padding:24px 0}
+.cri-somas{display:flex;gap:6px;flex-wrap:wrap;justify-content:center;margin-bottom:14px}
+.cri-soma{border:1px solid var(--chrome);color:var(--chrome);border-radius:6px;padding:5px 11px;
+  font-family:'IBM Plex Mono',monospace;font-size:14px;font-weight:700}
+.cri-soma i{font-style:normal;font-size:10px;opacity:.75}
+.cri-soma.usada{opacity:.3;border-color:var(--line);color:var(--dim)}
+.cri-attr{border:1px solid var(--line);border-radius:8px;padding:8px 5px;text-align:center;background:var(--panel2)}
+.cri-attr.on{border-color:var(--tech)}
+.cri-attr-n{display:block;font-size:9px;text-transform:uppercase;letter-spacing:.09em;color:var(--dim)}
+.cri-attr-v{display:block;font-size:24px;font-family:'Chakra Petch',sans-serif;line-height:1.1}
+.cri-attr select{width:100%;margin-top:5px;font-size:11px;padding:4px}
+.cri-attr .regra{margin:0;font-size:9px}
+/* perícias */
+.cri-pericias{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:5px}
+.cri-per{display:flex;justify-content:space-between;align-items:center;gap:8px;
+  background:var(--panel2);border-radius:6px;padding:6px 10px;font-size:12.5px}
+.cri-per.on{box-shadow:inset 3px 0 0 var(--tech)}
+.cri-per-ctl{display:flex;align-items:center;gap:6px;flex-shrink:0}
+.cri-per-ctl b{font-family:'IBM Plex Mono',monospace;min-width:24px;text-align:center}
+.cri-per-ctl .mini{padding:2px 8px;min-height:28px}
+/* identidade */
+.cri-ident{display:grid;grid-template-columns:2fr 1fr;gap:12px}
+.cri-tema-amostra{display:flex;gap:6px;flex-wrap:wrap;margin:12px 0}
+.cri-cor{width:34px;height:34px;border-radius:50%;border:2px solid transparent;cursor:pointer;transition:transform .12s}
+.cri-cor:hover{transform:scale(1.12)}
+.cri-cor.on{border-color:var(--ink);box-shadow:0 0 0 2px var(--void),0 0 0 4px var(--tech)}
+.cri-resumo{margin-top:14px;padding:14px 16px;background:var(--panel2);border:1px solid var(--tech);border-radius:9px}
+.cri-resumo h4{margin:0 0 8px;font-family:'Chakra Petch',sans-serif;color:var(--tech)}
+.cri-resumo-attrs{display:flex;gap:12px;flex-wrap:wrap;margin:8px 0;font-size:11px;color:var(--dim)}
+.cri-resumo-attrs b{font-family:'Chakra Petch',sans-serif;font-size:16px;color:var(--ink)}
+/* rodapé */
+.cri-rodape{display:flex;align-items:center;gap:12px;padding:14px 22px;border-top:1px solid var(--line)}
+.cri-dica{flex:1;text-align:center;font-size:11px;color:var(--chrome);font-family:'IBM Plex Mono',monospace}
+.hangar-acoes{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:14px}
+@media(max-width:720px){
+  .cri-overlay{padding:0}.cri-caixa{max-height:100vh;border-radius:0;max-width:none}
+  .cri-grade{grid-template-columns:1fr 1fr}.cri-grade.seis{grid-template-columns:repeat(3,1fr)}
+  .cri-grade.dois{grid-template-columns:1fr}
+  .cri-pericias{grid-template-columns:1fr}
+  .cri-ident{grid-template-columns:1fr}
+  .cri-bola i{display:none}.cri-bola{min-width:44px}
+}
