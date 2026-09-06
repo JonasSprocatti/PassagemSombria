@@ -576,6 +576,11 @@ function shell(titulo, corpo, ativo = "") {
 }
 
 // ---------------- AUTH ----------------
+let CRIA = null;   // motor de criaturas (efeitos automáticos)
+async function criaturaMod() { if (!CRIA) CRIA = await import("./criaturas.js"); return CRIA; }
+// Rolagem injetada no motor: ele não conhece o app, só pede um número.
+const rolarTexto = (expr) => { const pd = parseDice(String(expr)); return pd ? rollNd(pd.n, pd.f).reduce((x, y) => x + y, 0) + pd.mod : (+expr || 0); };
+
 let CONT = null;   // módulo de conteúdo editável (carregado sob demanda)
 async function conteudoMod() { if (!CONT) { CONT = await import("./conteudo.js"); await CONT.carregarConteudo(); } return CONT; }
 const img = (nome) => (CONT ? CONT.thumb(nome) : "");
@@ -655,6 +660,20 @@ document.addEventListener("pointerdown", (e) => {
 // ver o número subindo diz o que aconteceu melhor do que ele simplesmente trocar.
 // A reserva de pentes virou um mapa por tipo. Fichas antigas guardavam um número:
 // esta função converte sem perder munição.
+// A reserva de pentes é da mochila (compartilhada), mas o pente CARREGADO vive
+// em cada arma: duas armas de fogo têm contagens independentes.
+function estadoArma(f, it) {
+  const cat = ARMAS.find((w) => w.n === it.nome);
+  if (!cat || cat.tipo !== "fogo") return null;
+  // migração: fichas antigas tinham um único tirosPente global
+  if (it.tiros == null) {
+    it.tiros = (f.tirosPente != null && f.__migrouArma !== true) ? f.tirosPente : TIROS_POR_PENTE;
+    it.tipoPente = it.tipoPente || f.tipoPente || PENTE_PADRAO;
+  }
+  return { cat, tiros: it.tiros, tipo: it.tipoPente || PENTE_PADRAO };
+}
+const armasDeFogo = (f) => (f.inventario || []).filter((it) => it.equip && ARMAS.find((w) => w.n === it.nome && w.tipo === "fogo"));
+
 function normalizaPentes(f) {
   let r = f.pentes;
   if (typeof r === "number") r = { padrao: r };
@@ -1523,29 +1542,31 @@ async function telaMesa(id) {
               </div>`; })()}
             <p class="regra">CD ${k.cd} · conj +${k.conj}${f.pvAtual <= 0 ? ` · <b class="perigo-c">☠ inconsciente</b>` : ""}</p>
             ${(() => {
-              // Reserva por tipo de pente. Fichas antigas (reserva era um número) migram aqui.
               const res = normalizaPentes(f);
-              const tipo = f.tipoPente || PENTE_PADRAO, tp = TIPOS_PENTE[tipo] || TIPOS_PENTE.padrao;
-              const noCano = f.tirosPente ?? TIROS_POR_PENTE;
               const totalReserva = Object.values(res).reduce((a2, b2) => a2 + b2, 0);
-              const seco = noCano === 0 && totalReserva === 0;
-              const nivel = seco ? "vazio" : (noCano === 0 || (noCano === 1 && totalReserva === 0)) ? "critico" : totalReserva === 0 ? "baixo" : "";
-              const cano = Array.from({ length: TIROS_POR_PENTE }, (_, i2) => `<i class="pip ${i2 < noCano ? "cheio" : ""}" style="${i2 < noCano ? `background:${tp.cor};border-color:${tp.cor}` : ""}"></i>`).join("");
+              const fogo = armasDeFogo(f);
               const reservaHtml = Object.entries(res).filter(([, q]) => q > 0).map(([k, q]) => { const t2 = TIPOS_PENTE[k];
-                return `<button class="pente-tipo ${k === tipo ? "carregado" : ""}" data-carregar="${k}"
-                  title="${esc(t2.n)} — ${esc(t2.d)}${k === tipo ? "  (é o que está no cano)" : "  · clique para carregar (Ação de Movimento)"}"
-                  style="border-color:${t2.cor};color:${t2.cor}">${t2.ic} ${q}</button>`; }).join("") || `<span class="dim" style="font-size:10px">reserva vazia</span>`;
-              const msg = seco ? "⛔ SEM MUNIÇÃO — só um saque ou um descanso repõe os pentes."
-                : noCano === 0 ? `⚠ Pente vazio! Troque agora (Ação de Movimento).`
-                : totalReserva === 0 ? `⚠ Último pente: ${noCano} tiro${noCano > 1 ? "s" : ""} e acabou.`
-                : `${noCano} tiro${noCano > 1 ? "s" : ""} no pente · ${totalReserva} na reserva`;
-              return `<div class="municao-box ${nivel}" style="${tipo !== "padrao" ? `border-color:${tp.cor}` : ""}">
-                <div class="municao-cab"><span>🔫 ${tp.ic} ${esc(tp.n)}</span><b>${noCano}<span class="dim">/${TIROS_POR_PENTE}</span></b>
-                  <button id="recarregar" class="mini" ${totalReserva <= 0 ? "disabled" : ""} title="${totalReserva > 0 ? "Escolhe o pente e troca (Ação de Movimento)" : "Sem pentes na reserva"}">↻ Trocar</button></div>
-                <div class="pips" title="Tiros no pente carregado">${cano}</div>
-                <div class="pentes-reserva">${reservaHtml}</div>
-                <p class="municao-msg">${tipo !== "padrao" ? `<b style="color:${tp.cor}">${esc(tp.d)}</b><br>` : ""}${msg}</p>
-              </div>`; })()}
+                return `<span class="pente-tipo" title="${esc(t2.n)}: ${esc(t2.d)}" style="border-color:${t2.cor};color:${t2.cor}">${t2.ic} ${q}</span>`; }).join("")
+                || `<span class="dim" style="font-size:10px">mochila vazia</span>`;
+              if (!fogo.length) return "";
+              // Cada arma de fogo tem o próprio pente carregado; a mochila é compartilhada.
+              return `<div class="mun-armas">${fogo.map((it) => { const e2 = estadoArma(f, it); if (!e2) return "";
+                const tp = TIPOS_PENTE[e2.tipo] || TIPOS_PENTE.padrao;
+                const seco = e2.tiros === 0 && totalReserva === 0;
+                const nivel = seco ? "vazio" : e2.tiros === 0 ? "critico" : totalReserva === 0 ? "baixo" : "";
+                const pips = Array.from({ length: TIROS_POR_PENTE }, (_, i2) => `<i class="pip ${i2 < e2.tiros ? "cheio" : ""}" style="${i2 < e2.tiros ? `background:${tp.cor};border-color:${tp.cor}` : ""}"></i>`).join("");
+                return `<div class="municao-box ${nivel}" style="${e2.tipo !== "padrao" ? `border-color:${tp.cor}` : ""}">
+                  <div class="municao-cab"><span class="mun-arma-n" title="${esc(it.nome)}">${esc(it.nome.slice(0, 22))}</span>
+                    <b style="color:${tp.cor}">${e2.tiros}<span class="dim">/${TIROS_POR_PENTE}</span></b>
+                    <button class="mini" data-trocar="${esc(it.nome)}" ${totalReserva <= 0 ? "disabled" : ""}>↻</button></div>
+                  <div class="pips">${pips}</div>
+                  <p class="municao-msg">${tp.ic} ${esc(tp.n)}${e2.tiros === 0 ? " — <b>pente vazio, troque!</b>" : ""}</p>
+                </div>`; }).join("")}</div>
+                <div class="mun-mochila"><span class="dim">🎒 mochila (${totalReserva}/${PENTES_MAX - 1})</span>
+                  <div class="pentes-reserva">${Object.entries(res).map(([k, q]) => { const t2 = TIPOS_PENTE[k];
+                    return `<button class="pente-tipo ${q ? "" : "vazio-tipo"}" data-carregar="${k}" ${q ? "" : "disabled"}
+                      title="${esc(t2.n)} — ${esc(t2.d)}" style="border-color:${q ? t2.cor : "var(--line)"};color:${q ? t2.cor : "var(--dim)"}">${t2.ic} ${q}</button>`; }).join("")}</div></div>`;
+            })()}
             <div class="acoes-mesa">
               <select id="sel-per">${PERICIAS.map(([pn]) => `<option>${pn}</option>`).join("")}</select>
               <button id="rolar-per" class="mini">TESTE</button>
@@ -1706,8 +1727,15 @@ async function telaMesa(id) {
         const dano = +el.querySelector(".m-aplicar").dataset.dano;
         const r = await modalForm({ titulo: `🩸 Aplicar ${dano} de dano`, campos: [{ k: "alvo", label: "Alvo", tipo: "select", opcoes: camp.combate.ordem.map((c) => ({ v: c.id, l: `${c.nome} (${c.hp}/${c.hp_max})` })) }], okLabel: "Aplicar" });
         if (!r) return; const alvo = camp.combate.ordem.find((c) => c.id === r.alvo); if (!alvo) return;
-        alvo.hp = Math.max(0, alvo.hp - dano);
-        enviar("sistema", `💥 ${alvo.nome} sofreu ${dano} de dano (${alvo.hp}/${alvo.hp_max}).`);
+        if (ehNave(alvo)) { const rn = danoNave(alvo, dano);
+          if (alvo.nave_party && camp.nave) { camp.nave.casco = alvo.casco; camp.nave.escudos = alvo.escudos; }
+          enviar("sistema", `💥 ${alvo.nome}: escudos −${rn.escudos}, casco −${rn.casco} (${alvo.casco}/${alvo.casco_max}).`);
+        } else {
+          const antes = alvo.hp;
+          alvo.hp = Math.max(0, alvo.hp - dano);
+          await sincronizarFicha(alvo, alvo.hp - antes);   // a ficha do jogador acompanha
+          enviar("sistema", `💥 ${alvo.nome} sofreu ${dano} de dano (${alvo.hp}/${alvo.hp_max}).`);
+        }
         await salvarCombate(); render();
       });
       el.querySelector("[data-goto]")?.addEventListener("click", () => {
@@ -2404,7 +2432,25 @@ async function telaMesa(id) {
     $("#cb-fim")?.addEventListener("click", async () => { if (confirm("Encerrar o combate e limpar a ordem?")) { camp.combate = combateVazio(); await salvarCombate(); render(); } });
     app.querySelectorAll("[data-cb-nave]").forEach((b) => b.onclick = async () => {
       const atc = camp.combate.ordem.find((x) => x.id === b.dataset.cbNave); if (!atc) return;
-      if (!camp.nave) return alert("A campanha não tem uma nave definida.");
+      // Sem a nave da tripulação em cena, a nave inimiga atira em quem está no chão.
+      if (!camp.nave || !camp.combate.naveEmCena) {
+        const alvos = camp.combate.ordem.filter((x) => !ehNave(x) && !foraDeCombate(x));
+        if (!alvos.length) return alert("Não há alvos em campo.");
+        const r0 = await modalForm({ titulo: `🚀 ${atc.nome} dispara`, descricao: "A nossa nave não está em cena — escolha quem leva o tiro.",
+          campos: [{ k: "alvo", label: "Alvo", tipo: "select", opcoes: alvos.map((x) => ({ v: x.id, l: `${x.nome} (${x.hp}/${x.hp_max})` })) }], okLabel: "Disparar" });
+        if (!r0?.alvo) return;
+        const alvoP = camp.combate.ordem.find((x) => x.id === r0.alvo);
+        snapshot("disparo de nave em pessoa");
+        const natP = d(20), totalP = natP + 4;
+        if (natP === 1 || totalP < (alvoP.cd || 10)) return enviar("rolagem", null, { titulo: `🚀 ${atc.nome} dispara em ${alvoP.nome}`, detalhe: `d20 [${natP}] +4 vs CD ${alvoP.cd || 10}`, total: totalP, fumble: natP === 1, extra: "Errou." });
+        const pdP = parseDice(atc.dano); const ddP = rollNd(pdP.n, pdP.f);
+        const brutoP = ddP.reduce((x, y) => x + y, 0);
+        const antesP = alvoP.hp;
+        alvoP.hp = Math.max(0, alvoP.hp - brutoP);
+        await sincronizarFicha(alvoP, alvoP.hp - antesP);
+        await salvarCombate();
+        return enviar("rolagem", null, { titulo: `🚀 ${atc.nome} dispara em ${alvoP.nome}`, detalhe: `d20 [${natP}] +4 · ${atc.dano} [${ddP.join(", ")}]`, total: totalP, extra: `${alvoP.nome}: ${antesP} → ${alvoP.hp} PV.${alvoP.hp <= 0 ? " 💀 CAIU!" : ""}` });
+      }
       const alvo = { nome: camp.nave.nome_batismo || camp.nave.modelo, casco: camp.nave.casco, casco_max: camp.nave.casco_max, escudos: camp.nave.escudos, escudos_max: camp.nave.escudos_max, manobra: camp.nave.manobra, nave_party: true };
       snapshot("disparo de nave inimiga");
       const ntx = camp.combate.nave || naveTaticaVazia();
@@ -2449,6 +2495,18 @@ async function telaMesa(id) {
         if (ntv.evasiva != null && atual.personagem_id && atual.personagem_id === ntv.evasivaDe) {
           ntv.evasiva = null; ntv.evasivaDe = null;
           await enviar("sistema", `🚀 A Manobra Evasiva se esgota: a Defesa da nave volta ao normal.`);
+        }
+        // 0) Efeitos automáticos da própria criatura (regeneração, auras, invocações)
+        if (atual.habs?.some((h) => h.efeito)) {
+          const M = await criaturaMod();
+          const cr = M.criar(atual, rolarTexto);
+          for (const r of cr.disparar(M.GATILHOS.INICIO_TURNO)) {
+            if (r.tipo === "cura") { atual.hp = Math.min(atual.hp_max, (atual.hp || 0) + r.valor);
+              await enviar("sistema", `♻ ${atual.nome} — ${r.habilidade}: ${r.texto} (${atual.hp}/${atual.hp_max}).`); }
+            else if (r.tipo === "invocar") await enviar("sistema", `👹 ${atual.nome} — ${r.habilidade}: ${r.texto}. O Mestre adiciona ao rastreador.`);
+            else if (r.tipo === "dano") { atual.hp = Math.max(0, (atual.hp || 0) - r.valor);
+              await enviar("sistema", `☠ ${atual.nome} — ${r.habilidade}: ${r.texto}.`); }
+          }
         }
         // 1) Condições que ferem: rolam o dano no início do turno do afetado
         let totalDano = 0; const detalhes = [];
@@ -2521,7 +2579,15 @@ async function telaMesa(id) {
         if (delta < 0) { const r = danoNave(c, -delta); if (r.critico) { const av = rolarAvaria(); (camp.combate.avarias = camp.combate.avarias || []).push(av); await enviar("sistema", `⚠ ${c.nome}: ${av.n} — ${av.e}`); } }
         else c.escudos = Math.min(c.escudos_max, c.escudos + delta);
         if (c.nave_party && camp.nave) { camp.nave.casco = c.casco; camp.nave.escudos = c.escudos; await salvarCampanha({ nave: camp.nave }).eq("id", id); }
-      } else { c.hp = Math.max(0, Math.min(c.hp_max, c.hp + delta)); await sincronizarFicha(c, delta); }
+      } else {
+        c.hp = Math.max(0, Math.min(c.hp_max, c.hp + delta));
+        await sincronizarFicha(c, delta);
+        if (delta < 0 && c.habs?.some((h) => h.efeito)) {   // reações automáticas ao sofrer dano
+          const M = await criaturaMod(); const cr = M.criar(c, rolarTexto);
+          for (const r of [...cr.disparar(M.GATILHOS.AO_SOFRER), ...cr.disparar(M.GATILHOS.AO_SOFRER_CORPO)])
+            await enviar("sistema", `⚡ ${c.nome} — ${r.habilidade}: ${r.texto} em ${r.alvo === "atacante" ? "quem a atingiu" : "alvo"}.`);
+        }
+      }
       await salvarCombate(); render();
       avisar(`${c.nome}: ${delta < 0 ? `−${-delta}` : `+${delta}`} ${ehNave(c) ? "no casco/escudos" : "de PV"}`, async () => {
         const snap = pilhaUndo.pop(); if (!snap) return;
@@ -2554,17 +2620,28 @@ async function telaMesa(id) {
         const custo = custoTiro(cat);
         if (custo > 0) {
           const dd0 = meuPers.dados || {};
-          const noCano = dd0.tirosPente ?? TURNOS_POR_PENTE;
-          const reserva = dd0.pentes ?? (PENTES_MAX - 1);
+          const inv0 = dd0.inventario || [];
+          const idxArma = inv0.findIndex((x) => x.nome === a.nome && x.equip);
+          const itArma = idxArma >= 0 ? inv0[idxArma] : null;
+          const est = itArma ? estadoArma(dd0, itArma) : null;
+          const noCano = est ? est.tiros : (dd0.tirosPente ?? TIROS_POR_PENTE);
+          const reserva = Object.values(normalizaPentes(dd0)).reduce((x, y) => x + y, 0);
           if (noCano < custo) {
             const falta = reserva > 0
-              ? `o pente de ${a.nome} está vazio. Gaste a Ação de Movimento para recarregar (${reserva} pente${reserva > 1 ? "s" : ""} na reserva).`
-              : `${a.nome} está sem munição e não há pentes na reserva. Só um saque ou um descanso resolve.`;
+              ? `o pente de ${a.nome} está vazio. Gaste a Ação de Movimento para trocar (${reserva} pente${reserva > 1 ? "s" : ""} na mochila).`
+              : `${a.nome} está sem munição e não há pentes na mochila. Só um saque ou um descanso resolve.`;
             await enviar("sistema", `🔫 ${meuPers.nome} puxa o gatilho e ouve o clique: ${falta}`);
             return render();
           }
-          f.tirosPente = noCano - custo;
-          meuPers.dados = { ...dd0, tirosPente: f.tirosPente };
+          // O pente carregado pertence à ARMA: duas armas gastam munição em separado.
+          if (itArma) {
+            const inv = inv0.map((x, i2) => i2 === idxArma ? { ...x, tiros: noCano - custo, tipoPente: est.tipo } : x);
+            meuPers.dados = { ...dd0, inventario: inv, __migrouArma: true };
+            f.inventario = inv;
+          } else {
+            f.tirosPente = noCano - custo;
+            meuPers.dados = { ...dd0, tirosPente: f.tirosPente };
+          }
           await sb.from("personagens").update({ dados: meuPers.dados }).eq("id", meuPers.id);
           precisaRender = true;
         }
@@ -2601,7 +2678,8 @@ async function telaMesa(id) {
         const marcadores = [nat === 20 ? "CRÍTICO ×2" : "", furtivo && assassino ? "FURTIVO ×2" : furtivo ? "furtivo +2 acerto" : "", pr.agil ? `Ágil (${atkAttr})` : "", pr.brutal ? "Brutal (vantagem)" : ""].filter(Boolean).join(" · ");
         // Munição especial: o efeito entra no resultado para o Mestre aplicar a condição.
         let efeitoMun = "";
-        if (custo > 0 && nat !== 1) { const tpm = TIPOS_PENTE[f.tipoPente || PENTE_PADRAO];
+        if (custo > 0 && nat !== 1) { const itA = (meuPers.dados.inventario || []).find((x) => x.nome === a.nome && x.equip);
+          const tpm = TIPOS_PENTE[(itA && itA.tipoPente) || f.tipoPente || PENTE_PADRAO];
           if (tpm && tpm.cond) efeitoMun = `${tpm.ic} ${tpm.n}: alvo fica ${tpm.cond} por ${tpm.turnos} turno(s)${tpm.cd ? ` (Constituição CD ${tpm.cd} evita)` : ""}`;
           else if (tpm && tpm.bonusSint) efeitoMun = `${tpm.ic} ${tpm.n}: +${tpm.bonusSint} contra sintéticos e implantes do alvo inertes por 1 turno`;
         }
@@ -2644,6 +2722,50 @@ async function telaMesa(id) {
         render();
       };
       app.querySelectorAll("[data-carregar]").forEach((b2) => b2.onclick = () => carregarPente(b2.dataset.carregar));
+      // Trocar o pente de uma arma específica.
+      const trocarPenteDe = async (nomeArma, tipoNovo) => {
+        const dd1 = meuPers.dados || {};
+        const inv = dd1.inventario || [];
+        const ix = inv.findIndex((x) => x.nome === nomeArma && x.equip);
+        if (ix < 0) return;
+        const res = normalizaPentes(dd1);
+        const disp = Object.entries(res).filter(([, q]) => q > 0);
+        if (!disp.length) { await enviar("sistema", `🔫 ${meuPers.nome} procura um pente e não acha nenhum.`); return render(); }
+        let escolha = tipoNovo;
+        if (!escolha) {
+          if (disp.length === 1) escolha = disp[0][0];
+          else {
+            const r = await modalForm({ titulo: `↻ Trocar pente — ${nomeArma}`, descricao: "A troca custa a Ação de Movimento.",
+              campos: [{ k: "t", label: "Munição", tipo: "select", opcoes: disp.map(([k2, q]) => { const t2 = TIPOS_PENTE[k2];
+                return { v: k2, l: `${t2.ic} ${t2.n} ×${q} — ${t2.d}` }; }) }], okLabel: "Carregar" });
+            if (!r?.t) return; escolha = r.t;
+          }
+        }
+        if (!(res[escolha] > 0)) return;
+        const it = inv[ix]; const e2 = estadoArma(dd1, it);
+        if (e2.tiros > 0 && e2.tipo !== escolha) res[e2.tipo] = (res[e2.tipo] || 0) + 1;   // o pente cheio volta
+        res[escolha] -= 1;
+        const novoInv = inv.map((x, i2) => i2 === ix ? { ...x, tiros: TIROS_POR_PENTE, tipoPente: escolha } : x);
+        meuPers.dados = { ...dd1, inventario: novoInv, pentes: res, __migrouArma: true };
+        f.inventario = novoInv; f.pentes = res;
+        await sb.from("personagens").update({ dados: meuPers.dados }).eq("id", meuPers.id);
+        const t3 = TIPOS_PENTE[escolha];
+        await enviar("sistema", `🔫 ${meuPers.nome} carrega ${t3.ic} ${t3.n} em ${nomeArma} (Ação de Movimento).`);
+        render();
+      };
+      app.querySelectorAll("[data-trocar]").forEach((b2) => b2.onclick = () => trocarPenteDe(b2.dataset.trocar, null));
+      app.querySelectorAll("[data-carregar]").forEach((b2) => b2.onclick = async () => {
+        const fogo = armasDeFogo(f);
+        if (!fogo.length) return;
+        let alvo = fogo[0].nome;
+        if (fogo.length > 1) {
+          const r = await modalForm({ titulo: "↻ Carregar em qual arma?",
+            campos: [{ k: "a", label: "Arma", tipo: "select", opcoes: fogo.map((it) => { const e2 = estadoArma(f, it);
+              return { v: it.nome, l: `${it.nome} — ${e2.tiros}/${TIROS_POR_PENTE}` }; }) }], okLabel: "Carregar" });
+          if (!r?.a) return; alvo = r.a;
+        }
+        trocarPenteDe(alvo, b2.dataset.carregar);
+      });
       $("#recarregar")?.addEventListener("click", async () => {
         const dd1 = meuPers.dados || {};
         const res = normalizaPentes(dd1);
@@ -2971,7 +3093,8 @@ function telaBiblioteca(aba = "racas") {
     return `<details class="det grande best-card" style="border-left:3px solid ${nv.cor}"><summary>${img(c.n)}<b>${esc(c.n)}</b>${c.apelido ? ` <i class="dim">${esc(c.apelido)}</i>` : ""} <span class="best-tag" style="color:${nv.cor};border-color:${nv.cor}">${esc(c.ameaca)}</span>${c.raca ? ` <i class="dim">${esc(c.raca)}</i>` : ""}</summary>
       ${imgFig(c.n)}${c.ambiental ? `<p>${esc(c.desc)}</p><p class="regra"><b class="chrome">⚠ Ameaça:</b> ${esc(c.ameaca_txt)}</p>` : `<p class="regra">❤ HP ${c.hp} · 🛡 CD ${c.cd} · 🏃 ${c.desloc}m${c.nota ? ` · <i>${esc(c.nota)}</i>` : ""}</p>`}
       ${(c.ataques || []).map((a) => `<p><b class="chrome">⚔ ${esc(a.n)}:</b> ${a.bonus != null ? `${sign(a.bonus)} acerto · ` : ""}${a.dano && a.dano !== "0" && a.dano !== "auto" ? `dano ${a.dano}` : ""}${a.extra ? ` <span class="dim">(${esc(a.extra)})</span>` : ""}</p>`).join("")}
-      ${(c.habs || []).map((h) => `<p><b class="tech-c">✦ ${esc(h.n)}:</b> ${esc(h.d)}</p>`).join("")}</details>`; };
+      ${(c.habs || []).map((h) => h.efeito ? `<p><b class="tech-c">⚙ ${esc(h.n)}:</b> ${esc(h.d)} <span class="auto-tag" title="O app aplica sozinho no momento certo">automático</span></p>` : null).filter(Boolean).join("")}
+      ${(c.habs || []).filter((h) => !h.efeito).map((h) => `<p><b class="tech-c">✦ ${esc(h.n)}:</b> ${esc(h.d)}</p>`).join("")}</details>`; };
   if (aba === "racas") corpo = RACAS.map((r) => `<details class="det grande"><summary><b>${esc(r.nome)}</b> (${r.planeta}) — ${esc(r.titulo)}</summary>
     <p>${esc(r.lore)}</p>
     <p class="regra">Vida 4d6 (tira o menor) ${sign(r.vidaMod)} · ${["For","Des","Con","Int","Sab","Car"].map((a) => `${a} ${sign(r.attrs[a])}`).join(" · ")}</p>

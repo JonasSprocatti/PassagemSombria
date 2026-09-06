@@ -1126,7 +1126,7 @@ html,body{max-width:100%;overflow-x:hidden}
 /* Itens flex têm min-width:auto por padrão e por isso se recusam a encolher
    abaixo do conteúdo — a causa clássica de estouro horizontal. */
 .m,.m-corpo,.cb-linha,.cb-nome,.sec,.det,.filtros,.acoes-mesa,.inv,.sup-item,
-.pf-linha,.adm-pers,.loja-item,.ins-item,.linha-add,.rol-toggles{min-width:0}
+.pf-linha,.adm-pers,.loja-item,.ins-item,.linha-add{min-width:0}
 .sec,.det,.m,.m-corpo,.cb-linha,.municao-box,.nave-painel{max-width:100%}
 
 /* Mensagens do chat: quebra em qualquer ponto, inclusive dentro de palavras longas */
@@ -1155,3 +1155,29 @@ html,body{max-width:100%;overflow-x:hidden}
   .topo-status{flex:1 1 100%;order:3;font-size:11px}
   input,select,textarea{max-width:100%}
 }
+
+/* O rótulo "Rolagem:" não pode ser espremido — e os toggles rolam na horizontal
+   em vez de disputar espaço com ele. */
+.rol-toggles{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+.rol-toggles::-webkit-scrollbar{display:none}
+.rol-toggles>.regra{flex:0 0 auto;white-space:nowrap;min-width:max-content}
+.rol-toggles .mini{flex:0 0 auto;white-space:nowrap}
+@media(max-width:720px){
+  /* No celular o rótulo sai: os ícones já dizem o que cada botão faz. */
+  .rol-toggles>.regra{display:none}
+  .rol-toggles{gap:6px}
+  .rol-toggles .mini{padding:7px 11px}
+}
+/* munição por arma */
+.mun-armas{display:flex;flex-direction:column;gap:6px}
+.mun-armas .municao-box{margin:0;padding:6px 9px}
+.mun-arma-n{font-size:11.5px;font-family:'Chakra Petch',sans-serif;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+.mun-armas .municao-cab b{font-size:14px;margin-left:6px}
+.mun-armas .municao-cab .mini{padding:2px 8px;min-height:26px}
+.mun-armas .pips{margin:4px 0 2px}
+.mun-armas .municao-msg{font-size:9.5px}
+.mun-mochila{margin-top:7px;padding-top:6px;border-top:1px solid var(--line)}
+.mun-mochila>.dim{font-size:9px;text-transform:uppercase;letter-spacing:.07em;display:block;margin-bottom:4px}
+.pente-tipo.vazio-tipo{opacity:.35;cursor:not-allowed}
+.auto-tag{font-size:9px;border:1px solid var(--tech);color:var(--tech);border-radius:3px;
+  padding:0 6px;font-family:'IBM Plex Mono',monospace;vertical-align:middle}
