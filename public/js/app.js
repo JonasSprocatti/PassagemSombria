@@ -320,6 +320,26 @@ function abilidadesDeDescanso(f) {
 // Aplica um descanso à ficha (muta f) e devolve um resumo do que foi recuperado.
 // Curto: reinicia habilidades "curto"; regen racial (Mercusys +1d4). PV normal via Kits.
 // Longo: PV cheio, RAM cheia, reinicia TODAS as habilidades (curto + longo).
+// Repõe os pentes num descanso preservando os TIPOS que a pessoa carrega.
+// Antes isto gravava um número e apagava munição EMP/paralisante/incendiária.
+function reporPentes(f) {
+  const antes = normalizaPentes(f);
+  const teto = PENTES_MAX - 1;
+  const usados = Object.entries(antes).filter(([, q]) => q > 0);
+  const res = {}; for (const k of Object.keys(TIPOS_PENTE)) res[k] = 0;
+  if (!usados.length) { res[f.tipoPente || PENTE_PADRAO] = teto; }
+  else {
+    // devolve o que havia e completa o resto com o tipo carregado na arma
+    let total = 0;
+    for (const [k, q] of usados) { res[k] = q; total += q; }
+    const preferido = f.tipoPente || usados[0][0];
+    res[preferido] = (res[preferido] || 0) + Math.max(0, teto - total);
+  }
+  f.pentes = res;
+  f.tirosPente = TIROS_POR_PENTE;
+  return Object.values(res).reduce((a, b) => a + b, 0);
+}
+
 function aplicarDescanso(f, tipo) {
   const cat = abilidadesDeDescanso(f);
   f.usos = f.usos || {};
@@ -329,17 +349,16 @@ function aplicarDescanso(f, tipo) {
     pvRec = Math.max(0, (f.pvMax || 0) - (f.pvAtual || 0));
     f.pvAtual = f.pvMax || 0;
     ramRec = f.ramGasta || 0; f.ramGasta = 0;
-    f.pentes = PENTES_MAX - 1; f.tirosPente = TURNOS_POR_PENTE;   // reorganizar equipamento: pentes repostos
+    const totPentes = reporPentes(f);
     cat.forEach((a) => { if (f.usos[a.id]) { delete f.usos[a.id]; habsReset++; } });
-    notas.push(pvRec ? `+${pvRec} PV (cheio)` : "PV já cheio", ramRec ? `RAM recarregada (+${ramRec})` : "RAM já cheia", `${cat.length} habilidade(s) reiniciada(s)`);
+    notas.push(pvRec ? `+${pvRec} PV (cheio)` : "PV já cheio", ramRec ? `RAM recarregada (+${ramRec})` : "RAM já cheia", `${totPentes} pente(s) repostos`, `${cat.length} habilidade(s) reiniciada(s)`);
   } else {
     cat.filter((a) => a.freq === "curto").forEach((a) => { if (f.usos[a.id]) { delete f.usos[a.id]; habsReset++; } });
     const nCurto = cat.filter((a) => a.freq === "curto").length;
     notas.push(`${nCurto} habilidade(s) de descanso curto reiniciada(s)`);
     if (f.raca === "Mercusys") { const cura = d(4); pvRec = Math.min(cura, Math.max(0, (f.pvMax || 0) - (f.pvAtual || 0))); f.pvAtual = Math.min(f.pvMax || 0, (f.pvAtual || 0) + cura); notas.push(`regeneração Mercusys +${cura} PV`); }
     else notas.push("PV: use Kits Médicos");
-    f.pentes = PENTES_MAX - 1; f.tirosPente = TURNOS_POR_PENTE;   // reorganizar equipamento
-    notas.push("pentes repostos");
+    notas.push(`${reporPentes(f)} pente(s) repostos`);
   }
   return { tipo, pvRec, ramRec, habsReset, cat, notas };
 }
@@ -982,14 +1001,79 @@ async function telaFicha(id) {
           <div><h4>Deck de Scripts (${f.deck.length}/${k.deckMax})</h4>${SCRIPTS.map((s) => `
             <label class="chk" title="${esc(s.d)}"><input type="checkbox" class="ck-scr" data-n="${esc(s.n)}" ${f.deck.includes(s.n) ? "checked" : ""}/> ${esc(s.n)} <small>${s.c}◈ ${esc(s.a)}</small></label>`).join("")}</div>
           <div><h4>Inventário</h4>
-            <div class="linha-add"><select id="add-tipo"><option value="arma">Arma</option><option value="armadura">Armadura</option></select>
-            <select id="add-sel"></select><button id="add-btn" class="btn-ghost">+</button></div>
-            <div id="inv">${f.inventario.map((it, ix) => { const cs = ehConsumivel(it.nome);
-              return `<div class="inv"><span>${cs ? `${cs.ic} ` : ""}${esc(it.nome)}${(it.qtd || 1) > 1 ? ` <b class="chrome">×${it.qtd}</b>` : ""}${cs ? `<br><span class="regra">${esc(cs.d)}</span>` : ""}</span>
-              <span>${(!cs && it.tipo !== "item") ? `<button class="mini eq ${it.equip ? "on" : ""}" data-eq="${ix}">${it.equip ? "EQUIPADO" : "equipar"}</button>` : ""}
-              <button class="mini rm" data-rm="${ix}">✕</button></span></div>`; }).join("") || `<p class="regra"><i>Mochila vazia.</i></p>`}</div></div>
+            <p class="regra">Você só carrega o que comprou no Mercado ou recebeu do Mestre. A lista completa fica na seção <b>Inventário</b>, abaixo.</p>
+            <div id="inv">${f.inventario.length ? `<p class="regra">${f.inventario.length} item(ns) · ${f.inventario.filter((it) => it.equip).length} equipado(s)</p>` : `<p class="regra"><i>Mochila vazia.</i></p>`}</div></div>
         </div>
       </section>
+
+      <section class="sec"><header><span class="tag">🎒</span><h2>Inventário</h2>
+        <span class="extra">${f.inventario.length} item(ns)</span></header>
+        ${(() => {
+          if (!f.inventario.length) return `<div class="vazio-msg"><span class="icone">🎒</span>
+            <p>A mochila está vazia. Compre equipamento no Mercado abaixo — ou espere o Mestre distribuir saque.</p></div>`;
+          const grupos = [
+            ["arma", "⚔ Armas", (it) => ARMAS.find((x) => x.n === it.nome)],
+            ["armadura", "🛡 Armaduras", (it) => ARMADURAS.find((x) => x.n === it.nome)],
+            ["item", "🎒 Itens", () => null],
+          ];
+          return grupos.map(([tipo, titulo]) => {
+            const itens = f.inventario.map((it, ix) => ({ it, ix }))
+              .filter(({ it }) => (tipo === "item" ? (it.tipo === "item" || ehConsumivel(it.nome)) : (it.tipo === tipo && !ehConsumivel(it.nome))));
+            if (!itens.length) return "";
+            return `<h4>${titulo} <span class="dim">(${itens.length})</span></h4>
+              ${itens.map(({ it, ix }) => {
+                const cat = ARMAS.find((x) => x.n === it.nome) || ARMADURAS.find((x) => x.n === it.nome);
+                const cs = ehConsumivel(it.nome);
+                const pr = (cat && cat.dano) ? propsArma(cat) : null;
+                return `<details class="det inv-item ${it.equip ? "equipado" : ""}">
+                  <summary>${img(it.nome)}
+                    <b>${cs ? `${cs.ic} ` : ""}${esc(it.nome)}</b>
+                    ${(it.qtd || 1) > 1 ? `<span class="chrome">×${it.qtd}</span>` : ""}
+                    ${cat && cat.dano ? `<span class="inv-dano">${danoArma(cat, f.nivel)}</span>` : ""}
+                    ${cat && cat.cd != null ? `<span class="inv-dano">CD +${cat.cd}</span>` : ""}
+                    ${it.equip ? `<span class="best-tag" style="color:var(--tech);border-color:var(--tech)">EQUIPADO</span>` : ""}
+                  </summary>
+                  ${imgFig(it.nome)}
+                  ${cat && cat.dano ? `<p class="regra"><b class="chrome">Dano:</b> ${danoArma(cat, f.nivel)}${cat.escala ? ` <span class="dim">(escala: ${cat.dano} → ${Object.entries(cat.escala).map(([nv, dd]) => `NV${nv} ${dd}`).join(" → ")})</span>` : ""} ·
+                    <b>Rolagem:</b> 1d20 + ${cat.attr} + ${esc(cat.per)}</p>` : ""}
+                  ${cat && cat.cd != null ? `<p class="regra"><b class="chrome">Defesa:</b> +${cat.cd} de CD (${esc(cat.t)})${cat.e ? ` · ${esc(cat.e)}` : ""}</p>` : ""}
+                  ${cat && cat.kw ? `<p class="regra"><b class="tech-c">${esc(cat.kw)}:</b> ${esc(pr?.efeito || "")}</p>` : ""}
+                  ${pr && (pr.area || pr.alcance) ? `<p class="regra">${pr.area ? `◎ Área: ${esc(pr.areaTxt)}` : ""}${pr.area && pr.alcance ? " · " : ""}${pr.alcance ? `⟿ Alcance: ${esc(pr.alcanceTxt)}` : ""}</p>` : ""}
+                  ${cs ? `<p class="regra"><b class="tech-c">${esc(cs.acao)}:</b> ${esc(cs.d)}</p>` : ""}
+                  ${cat && cat.desc ? `<p>${esc(cat.desc)}</p>` : ""}
+                  ${cat && cat.preco ? `<p class="regra dim">Valor de tabela: ${cat.preco} CG</p>` : ""}
+                  <div class="filtros">
+                    ${(!cs && (it.tipo === "arma" || it.tipo === "armadura")) ? `<button class="mini eq ${it.equip ? "on" : ""}" data-eq="${ix}">${it.equip ? "✓ Equipado — desequipar" : "Equipar"}</button>` : ""}
+                    <button class="mini rm" data-rm="${ix}">🗑 Descartar</button>
+                  </div></details>`; }).join("")}`;
+          }).join("");
+        })()}
+      </section>
+
+      ${(f.implantes || []).includes("Tatuagens de Nano-Enxame") ? (() => {
+        const formas = ARMAS.filter((a2) => a2.nano);
+        const tatuadas = (f.inventario || []).filter((it) => formas.some((x) => x.n === it.nome));
+        const grátis = 3;                       // o implante vem com 3 formas; extras custam 250 CG
+        const extra = Math.max(0, tatuadas.length - grátis + 1) * 0 + 250;
+        return `<section class="sec"><header><span class="tag">🖋</span><h2>Tatuagens de Nano-Enxame</h2>
+          <span class="extra">${tatuadas.length} forma(s) tatuada(s)</span></header>
+          <p class="regra">O implante vem com <b>3 formas</b> à sua escolha. Cada forma adicional custa
+            <b class="chrome">250 CG</b> e um Descanso Longo numa clínica. As formas não podem ser arremessadas,
+            largadas nem desarmadas — e o dano sobe nos níveis 5 e 9.</p>
+          <div class="nano-grade">${formas.map((w) => {
+            const tem = tatuadas.some((it) => it.nome === w.n);
+            const custo = tatuadas.length < grátis ? 0 : 250;
+            const podePagar = tem || custo === 0 || (f.creditos ?? 0) >= custo;
+            return `<button class="nano-op ${tem ? "on" : ""}" data-nano="${esc(w.n)}" ${!tem && !podePagar ? "disabled" : ""}
+              title="${esc(w.desc || "")}">
+              <b>${esc(w.n.replace("Nano-Tatuagem: ", ""))}</b>
+              <span class="nano-dano">${danoArma(w, f.nivel)}</span>
+              <span class="regra">${esc(w.kw)} · ${w.attr}</span>
+              <span class="nano-acao">${tem ? "✓ tatuada — remover" : custo ? `tatuar · ${custo} CG` : "tatuar (grátis)"}</span>
+            </button>`; }).join("")}</div>
+          ${tatuadas.length ? `<p class="regra">Materializar ou dissolver uma forma é <b>Ação Livre</b>, uma por vez.
+            Equipe a forma que quer usar na seção Inventário para ela aparecer na mesa.</p>` : ""}
+        </section>`; })() : ""}
 
       <section class="sec"><header><span class="tag">🎒</span><h2>Suprimentos</h2>
         <span class="extra">o que você leva para o combate</span></header>
@@ -1170,10 +1254,6 @@ async function telaFicha(id) {
       f.implantes = c.checked ? [...f.implantes, c.dataset.n] : f.implantes.filter((x) => x !== c.dataset.n); (autoSalvar(), render()); });
     app.querySelectorAll(".ck-scr").forEach((c) => c.onchange = () => {
       f.deck = c.checked ? [...f.deck, c.dataset.n] : f.deck.filter((x) => x !== c.dataset.n); (autoSalvar(), render()); });
-    const fillSel = () => { const t = $("#add-tipo").value; const cat = t === "arma" ? ARMAS : ARMADURAS;
-      $("#add-sel").innerHTML = cat.map((a) => `<option>${esc(a.n)}</option>`).join(""); };
-    fillSel(); $("#add-tipo").onchange = fillSel;
-    $("#add-btn").onclick = () => { f.inventario.push({ tipo: $("#add-tipo").value, nome: $("#add-sel").value, equip: false, qtd: 1 }); (autoSalvar(), render()); };
     // ---- Mercado (loja com créditos) ----
     const renderLoja = (cat) => {
       const alvo = $("#loja-lista"); if (!alvo) return;
@@ -1189,22 +1269,60 @@ async function telaFicha(id) {
         <span class="loja-nome"><b>${esc(it.nome)}</b><small>${esc(it.sub)}</small></span>
         <span class="loja-preco">${it.preco} CG</span>
         <button class="mini loja-comprar" data-ix="${ix}" ${cg < it.preco || it.jaTem ? "disabled" : ""}>${it.jaTem ? "✓ já tem" : "comprar"}</button></div>`).join("");
-      alvo.querySelectorAll(".loja-comprar").forEach((b) => b.onclick = () => {
+      alvo.querySelectorAll(".loja-comprar").forEach((b) => b.onclick = async () => {
         const it = itens[+b.dataset.ix]; if (!it) return;
         if ((f.creditos ?? 0) < it.preco) return;
+        // Consumíveis e pentes empilham: pergunta a quantidade antes de cobrar.
+        const empilha = ehConsumivel(it.nome) || it.pente;
+        let qtd = 1;
+        if (empilha) {
+          const maxPode = Math.max(1, Math.floor((f.creditos ?? 0) / it.preco));
+          const r = await modalForm({ titulo: `🛒 ${it.nome}`,
+            descricao: `${it.preco} CG cada. Você tem ${f.creditos ?? 0} CG — dá para ${maxPode}.`,
+            campos: [{ k: "q", label: "Quantidade", tipo: "numero", valor: 1, min: 1, max: maxPode }], okLabel: "Comprar" });
+          if (!r) return;
+          qtd = Math.max(1, Math.min(maxPode, +r.q || 1));
+        }
+        const total = it.preco * qtd;
+        if ((f.creditos ?? 0) < total) return alert(`Faltam ${total - (f.creditos ?? 0)} CG.`);
         const cgAntes = f.creditos ?? 0;
-        f.creditos = cgAntes - it.preco;
+        f.creditos = cgAntes - total;
         contarAte($("#loja-cg"), cgAntes, f.creditos, 600, " CG");
-        if (it.pente) { const res2 = normalizaPentes(f); res2[it.pente] = (res2[it.pente] || 0) + 1; f.pentes = res2; }
-        else if (cat === "implante") { if (!f.implantes.includes(it.nome)) f.implantes.push(it.nome); }
-        else f.inventario.push({ tipo: cat, nome: it.nome, equip: false, qtd: 1 });
-        registrar(`🛒 Comprou ${it.nome} por ${it.preco} CG (restam ${f.creditos} CG).`);
+        if (it.pente) { const res2 = normalizaPentes(f); const teto = PENTES_MAX - 1;
+          const tot = Object.values(res2).reduce((x, y) => x + y, 0);
+          const cabe = Math.min(qtd, Math.max(0, teto - tot));
+          if (!cabe) { f.creditos = cgAntes; return alert(`A reserva já está cheia (${teto} pentes).`); }
+          res2[it.pente] = (res2[it.pente] || 0) + cabe; f.pentes = res2;
+          if (cabe < qtd) f.creditos = cgAntes - it.preco * cabe;   // devolve o que não coube
+          qtd = cabe;
+        } else if (cat === "implante") { if (!f.implantes.includes(it.nome)) f.implantes.push(it.nome); }
+        else { const ja = f.inventario.find((x) => x.nome === it.nome && ehConsumivel(it.nome));
+          if (ja) ja.qtd = (ja.qtd || 1) + qtd; else f.inventario.push({ tipo: cat, nome: it.nome, equip: false, qtd }); }
+        registrar(`🛒 Comprou ${qtd > 1 ? `${qtd}× ` : ""}${it.nome} por ${it.preco * qtd} CG (restam ${f.creditos} CG).`);
         autoSalvar();                       // a compra precisa persistir antes de ir para a mesa
         setTimeout(render, 650);
       });
     };
     $("#loja-cat") && ($("#loja-cat").onchange = (e) => renderLoja(e.target.value));
     renderLoja($("#loja-cat")?.value || "arma");
+    app.querySelectorAll("[data-nano]").forEach((b) => b.onclick = async () => {
+      const nome = b.dataset.nano;
+      const ix = (f.inventario || []).findIndex((it) => it.nome === nome);
+      if (ix >= 0) {                                    // remover a tatuagem
+        if (!(await confirmModal(`Remover a tatuagem "${nome.replace("Nano-Tatuagem: ", "")}"?\n\nO enxame é dissolvido. Tatuar de novo custará 250 CG.`, { okLabel: "Remover", perigo: true }))) return;
+        f.inventario.splice(ix, 1);
+        registrar(`🖋 Tatuagem dissolvida: ${nome.replace("Nano-Tatuagem: ", "")}.`);
+      } else {
+        const formas = ARMAS.filter((a2) => a2.nano);
+        const tatuadas = (f.inventario || []).filter((it) => formas.some((x) => x.n === it.nome));
+        const custo = tatuadas.length < 3 ? 0 : 250;
+        if (custo && (f.creditos ?? 0) < custo) return alert(`Faltam ${custo - (f.creditos ?? 0)} CG para tatuar mais uma forma.`);
+        if (custo) f.creditos = (f.creditos ?? 0) - custo;
+        f.inventario.push({ tipo: "arma", nome, equip: false, qtd: 1 });
+        registrar(`🖋 Nova forma tatuada: ${nome.replace("Nano-Tatuagem: ", "")}${custo ? ` (−${custo} CG)` : " (inclusa no implante)"}.`);
+      }
+      autoSalvar(); render();
+    });
     app.querySelectorAll("[data-eq]").forEach((b) => b.onclick = () => { const it = f.inventario[+b.dataset.eq];
       if (it.tipo === "armadura") f.inventario.forEach((x) => { if (x.tipo === "armadura") x.equip = false; });
       it.equip = !it.equip; (autoSalvar(), render()); });
@@ -1283,6 +1401,23 @@ async function telaMesa(id) {
   if (!camp.combate || typeof camp.combate !== "object" || !("ordem" in camp.combate)) camp.combate = combateVazio();
   const snapshot = (rotulo) => { pilhaUndo.push({ rotulo, combate: JSON.parse(JSON.stringify(camp.combate || {})), nave: JSON.parse(JSON.stringify(camp.nave || null)), combate_nave: JSON.parse(JSON.stringify(camp.combate_nave || {})) }); if (pilhaUndo.length > 10) pilhaUndo.shift(); };
   const salvarCombate = async () => { const { error } = await salvarCampanha({ combate: camp.combate }).eq("id", id); if (error) alert("Não consegui salvar o combate: " + error.message); };
+  // Espelha na ficha do jogador a variação de PV sofrida no rastreador.
+  // Sem isto, o rastreador e a ficha viviam com valores diferentes — e a ficha,
+  // sempre cheia, fazia qualquer cura parecer "restaurou tudo".
+  const sincronizarFicha = async (c, delta) => {
+    if (!c || !c.personagem_id || !delta) return;
+    const alvo = (pers || []).find((x) => x.id === c.personagem_id);
+    if (!alvo) return;
+    const { data: fresco } = await sb.from("personagens").select("dados").eq("id", alvo.id).single();
+    const dd = { ...novaFichaDados(), ...(fresco?.dados || alvo.dados) };
+    const antes = dd.pvAtual || 0;
+    dd.pvAtual = Math.max(0, Math.min(dd.pvMax || 0, antes + delta));
+    if (dd.pvAtual === antes) return;
+    dd.log = [{ q: new Date().toISOString(), t: `${delta < 0 ? "💥" : "✚"} ${Math.abs(delta)} PV no combate (${antes} → ${dd.pvAtual})` }, ...(dd.log || [])].slice(0, 60);
+    await sb.from("personagens").update({ dados: dd }).eq("id", alvo.id);
+    alvo.dados = dd;
+    if (meuPers && meuPers.id === alvo.id) meuPers.dados = dd;
+  };
   if (!Array.isArray(camp.bestiario)) camp.bestiario = [];
   if (!camp.combate_nave || typeof camp.combate_nave !== "object" || !("inimigas" in camp.combate_nave)) camp.combate_nave = combateNaveVazio();
   if (!camp.faccoes || typeof camp.faccoes !== "object") camp.faccoes = {};
@@ -1334,7 +1469,7 @@ async function telaMesa(id) {
           ${(camp.combate.ativo || souMestre) ? `<section class="sec combate-sec">
             <header><span class="tag">⚔</span><h2>Combate</h2>${camp.combate.ativo ? `<span class="regra" style="margin-left:auto">Rodada ${camp.combate.rodada}</span>` : ""}</header>
             ${!camp.combate.ativo ? (souMestre ? `<button id="cb-iniciar" class="mini eq">⚔ Iniciar Combate</button><p class="regra">Adicione jogadores e inimigos do bestiário; a ordem é montada pela iniciativa.</p>` : "") : `
-            ${camp.nave ? (() => { const nt = camp.combate.nave || naveTaticaVazia();
+            ${(camp.nave && camp.combate.naveEmCena) ? (() => { const nt = camp.combate.nave || naveTaticaVazia();
               const defBase = 10 + (camp.nave.manobra || 0);
               const def = nt.evasiva != null ? nt.evasiva : defBase;
               const pc = camp.nave.casco_max ? Math.max(0, 100 * camp.nave.casco / camp.nave.casco_max) : 0;
@@ -1362,6 +1497,10 @@ async function telaMesa(id) {
             ${(camp.combate.avarias || []).length ? `<div class="avarias">${camp.combate.avarias.map((av, ai) => `<div class="avaria"><b>⚠ ${esc(av.n)}</b> <span class="regra">${esc(av.e)}</span>${souMestre ? `<button class="mini rm" data-av-fix2="${ai}">✔</button>` : ""}</div>`).join("")}</div>` : ""}
             ${camp.combate.ordem.some((x) => x.nave_party) ? `<p class="regra cbn-postos">Postos: ${POSTOS_ORDEM.map((pk) => { const q2 = (membros || []).find((m) => m.posto === pk); const ag = (camp.combate.agiram || []).includes(pk);
               return `<span class="cbn-posto ${ag ? "ok" : ""} ${q2 ? "" : "vazio"}">${esc(ESTACOES[pk].n.split(" ")[0])}${ag ? " ✓" : ""}</span>`; }).join(" ")}</p>` : ""}
+            ${(souMestre && camp.nave) ? `<div class="filtros" style="margin-bottom:6px">
+              <button id="cb-nave-cena" class="mini ${camp.combate.naveEmCena ? "on" : ""}"
+                title="${camp.combate.naveEmCena ? "A nave está em cena: painel, postos e avarias aparecem" : "Traga a nave para a cena em combates espaciais ou de abordagem"}">
+                🚀 ${camp.combate.naveEmCena ? "Nave em cena — tirar" : "Trazer a nave para a cena"}</button></div>` : ""}
             ${souMestre ? `<div class="cb-add">
               <select id="cb-quem"><optgroup label="Jogadores">${(pers || []).map((p) => `<option value="j:${p.id}">${esc(p.nome) || "sem nome"}</option>`).join("")}</optgroup>${camp.bestiario.length ? `<optgroup label="Minhas criaturas">${camp.bestiario.map((b, ci) => `<option value="c:${ci}">${esc(b.n)} · ${b.ameaca}</option>`).join("")}</optgroup>` : ""}<optgroup label="Inimigos (bestiário)">${BESTIARIO.map((b, bi) => b.ambiental ? "" : `<option value="e:${bi}">${esc(b.n)} · ${b.ameaca}</option>`).join("")}</optgroup><optgroup label="Naves inimigas">${NAVES.map((n, ni) => `<option value="ni:${ni}">🚀 ${esc(n.n)}</option>`).join("")}</optgroup></select>
               <button id="cb-add-btn" class="mini">🎲 Add</button><button id="cb-criar" class="mini" title="Criar/editar criaturas do Mestre">🐉</button></div>
@@ -1610,6 +1749,27 @@ async function telaMesa(id) {
           const dados = { ...novaFichaDados(), ...meuPers.dados }; const p = m.payload || {}; const notas = [];
           if (p.xp) { dados.xp = (dados.xp || 0) + p.xp; notas.push(`+${p.xp} XP (${dados.xp}/${dados.xpMeta})`); }
           if (p.creditos) { dados.creditos = (dados.creditos || 0) + p.creditos; notas.push(`+${p.creditos} CG (${dados.creditos})`); }
+          if (p.item) {
+            dados.inventario = dados.inventario || [];
+            const ja = dados.inventario.find((x) => x.nome === p.item.nome);
+            if (ja) ja.qtd = (ja.qtd || 1) + (p.item.qtd || 1);
+            else dados.inventario.push({ ...p.item, equip: false });
+            notas.push(`+${p.item.qtd || 1}× ${p.item.nome}`);
+          }
+          if (p.loot) {
+            const { nome, tipo, qtd } = p.loot;
+            if (tipo === "implante") { dados.implantes = dados.implantes || [];
+              if (!dados.implantes.includes(nome)) { dados.implantes.push(nome); notas.push(`⧉ ${nome}`); }
+              else notas.push(`${nome} (já instalado)`);
+            } else {
+              dados.inventario = dados.inventario || [];
+              const empilha = ehConsumivel(nome);
+              const ja = empilha ? dados.inventario.find((x) => x.nome === nome) : null;
+              if (ja) ja.qtd = (ja.qtd || 1) + qtd;
+              else dados.inventario.push({ tipo, nome, equip: false, qtd: empilha ? qtd : 1 });
+              notas.push(`${qtd > 1 ? `${qtd}× ` : ""}${nome}`);
+            }
+          }
           if (p.pentes) {
             const res = normalizaPentes(dados);
             const tipo = p.tipoPente || PENTE_PADRAO;
@@ -1796,7 +1956,7 @@ async function telaMesa(id) {
           <div class="filtros"><button id="mestre-curto" class="mini">☾ Curto (1h)</button><button id="mestre-longo" class="mini eq">🌙 Longo (8h)</button></div></div>
         <div class="det grande"><b>🎁 Recompensas</b>
           <p class="regra">Distribui para todos os jogadores conectados, direto nas fichas.</p>
-          <div class="filtros"><button id="mestre-xp" class="mini">🎖 Conceder XP</button><button id="mestre-cg" class="mini">🎁 Conceder Créditos</button><button id="mestre-mun" class="mini">🔫 Conceder pentes</button></div></div>
+          <div class="filtros"><button id="mestre-xp" class="mini">🎖 Conceder XP</button><button id="mestre-cg" class="mini">🎁 Conceder Créditos</button><button id="mestre-mun" class="mini">🔫 Conceder pentes</button><button id="mestre-loot" class="mini">🎁 Conceder equipamento</button><button id="mestre-item" class="mini">🎁 Conceder item</button></div></div>
         <div class="det grande"><b>🖼 Imagem para a mesa</b>
           <p class="regra">Mostra um mapa, documento ou retrato no topo do chat de todos.</p>
           <div class="filtros"><button id="handout-btn" class="mini">🖼 Mostrar imagem</button>${camp.handout?.visivel ? `<button id="handout-off" class="mini rm">Ocultar atual</button>` : ""}</div></div>
@@ -1906,6 +2066,52 @@ async function telaMesa(id) {
         });
         liga("mestre-xp", async () => { const r = await modalForm({ titulo: "🎖 Conceder XP", campos: [{ k: "n", label: "XP para toda a tripulação conectada", tipo: "numero", valor: 500 }], okLabel: "Conceder" }); if (!r || !(+r.n > 0)) return; enviar("recompensa", `O Mestre concedeu ${+r.n} XP à tripulação.`, { xp: +r.n }); fechar(); });
         liga("mestre-cg", async () => { const r = await modalForm({ titulo: "🎁 Conceder Créditos", campos: [{ k: "n", label: "CG para toda a tripulação conectada", tipo: "numero", valor: 1000 }], okLabel: "Conceder" }); if (!r || !(+r.n > 0)) return; enviar("recompensa", `O Mestre distribuiu ${+r.n} CG de saque à tripulação.`, { creditos: +r.n }); fechar(); });
+        liga("mestre-item", async () => {
+          const cat = await modalForm({ titulo: "🎁 Conceder item", descricao: "Saque distribuído a toda a tripulação conectada. Vai direto para o inventário.",
+            campos: [{ k: "tipo", label: "Tipo", tipo: "select", opcoes: [
+              { v: "arma", l: "⚔ Arma" }, { v: "armadura", l: "🛡 Armadura" }, { v: "consumivel", l: "🎒 Consumível" }] }], okLabel: "Escolher" });
+          if (!cat) return;
+          const lista = cat.tipo === "arma" ? ARMAS.map((x) => x.n)
+            : cat.tipo === "armadura" ? ARMADURAS.map((x) => x.n) : CONSUMIVEIS.map((x) => x.n);
+          const r = await modalForm({ titulo: "🎁 Conceder item", campos: [
+            { k: "nome", label: "Item", tipo: "select", opcoes: lista },
+            { k: "qtd", label: "Quantidade", tipo: "numero", valor: 1, min: 1, max: 10 },
+          ], okLabel: "Distribuir" });
+          if (!r?.nome) return;
+          enviar("recompensa", `O Mestre distribuiu ${+r.qtd > 1 ? `${r.qtd}× ` : ""}${r.nome} à tripulação.`,
+            { item: { nome: r.nome, tipo: cat.tipo === "consumivel" ? "item" : cat.tipo, qtd: +r.qtd || 1 } });
+          fechar();
+        });
+        liga("mestre-loot", async () => {
+          const cats = [
+            ["arma", "⚔ Arma", ARMAS.filter((x) => x.preco || x.nano)],
+            ["armadura", "🛡 Armadura", ARMADURAS],
+            ["item", "🎒 Consumível", CONSUMIVEIS.map((c) => ({ n: c.n, preco: c.p }))],
+            ["implante", "⧉ Implante", IMPLANTES.map((i2) => ({ n: i2.n, preco: i2.p }))],
+          ];
+          const r = await modalForm({ titulo: "🎁 Conceder equipamento",
+            descricao: "Saque de um corpo, achado num contêiner ou presente de um contato. Vai direto para a ficha de cada tripulante conectado.",
+            campos: [
+              { k: "cat", label: "Categoria", tipo: "select", opcoes: cats.map(([v, l]) => ({ v, l })) },
+              { k: "item", label: "Item (digite o nome exato ou escolha depois)", tipo: "texto" },
+              { k: "qtd", label: "Quantidade", tipo: "numero", valor: 1, min: 1, max: 20 },
+            ], okLabel: "Continuar" });
+          if (!r) return;
+          const lista = (cats.find(([v]) => v === r.cat) || [])[2] || [];
+          let nome = (r.item || "").trim();
+          if (!nome || !lista.some((x) => x.n === nome)) {
+            const filtrada = nome ? lista.filter((x) => x.n.toLowerCase().includes(nome.toLowerCase())) : lista;
+            if (!filtrada.length) return alert("Nenhum item encontrado com esse nome.");
+            const r2 = await modalForm({ titulo: "🎁 Escolher item",
+              campos: [{ k: "n", label: `${filtrada.length} opção(ões)`, tipo: "select",
+                opcoes: filtrada.slice(0, 60).map((x) => ({ v: x.n, l: `${x.n}${x.preco ? ` — ${x.preco} CG` : ""}` })) }], okLabel: "Distribuir" });
+            if (!r2?.n) return; nome = r2.n;
+          }
+          const qtd = Math.max(1, +r.qtd || 1);
+          enviar("recompensa", `O Mestre distribuiu ${qtd > 1 ? `${qtd}× ` : ""}${nome} à tripulação.`,
+            { loot: { nome, tipo: r.cat, qtd } });
+          fechar();
+        });
         liga("mestre-mun", async () => {
           const r = await modalForm({ titulo: "🔫 Conceder pentes",
             descricao: `Munição de saque. Vai para a reserva de cada tripulante conectado (teto de ${PENTES_MAX - 1} pentes).`,
@@ -2180,6 +2386,14 @@ async function telaMesa(id) {
       };
       pinta(); timerInt = setInterval(pinta, 1000);
     });
+    $("#cb-nave-cena")?.addEventListener("click", async () => {
+      camp.combate.naveEmCena = !camp.combate.naveEmCena;
+      await salvarCombate();
+      await enviar("sistema", camp.combate.naveEmCena
+        ? `🚀 ${camp.nave.nome_batismo || camp.nave.modelo} entra em cena. Postos de batalha!`
+        : `🚀 A nave sai de cena — o combate segue em terra.`);
+      render();
+    });
     $("#cb-undo")?.addEventListener("click", async () => {
       const snap = pilhaUndo.pop();
       if (!snap) return alert("Nada para desfazer nesta sessão.");
@@ -2307,7 +2521,7 @@ async function telaMesa(id) {
         if (delta < 0) { const r = danoNave(c, -delta); if (r.critico) { const av = rolarAvaria(); (camp.combate.avarias = camp.combate.avarias || []).push(av); await enviar("sistema", `⚠ ${c.nome}: ${av.n} — ${av.e}`); } }
         else c.escudos = Math.min(c.escudos_max, c.escudos + delta);
         if (c.nave_party && camp.nave) { camp.nave.casco = c.casco; camp.nave.escudos = c.escudos; await salvarCampanha({ nave: camp.nave }).eq("id", id); }
-      } else c.hp = Math.max(0, Math.min(c.hp_max, c.hp + delta));
+      } else { c.hp = Math.max(0, Math.min(c.hp_max, c.hp + delta)); await sincronizarFicha(c, delta); }
       await salvarCombate(); render();
       avisar(`${c.nome}: ${delta < 0 ? `−${-delta}` : `+${delta}`} ${ehNave(c) ? "no casco/escudos" : "de PV"}`, async () => {
         const snap = pilhaUndo.pop(); if (!snap) return;
@@ -2315,7 +2529,7 @@ async function telaMesa(id) {
         await salvarCampanha({ combate: camp.combate, ...(snap.nave ? { nave: camp.nave } : {}) }).eq("id", id); render();
       }); });
     app.querySelectorAll(".cb-hpset").forEach((i) => i.onchange = async () => { const c = cbFind(i.dataset.cb); if (!c) return; if (ehNave(c)) { c.casco = Math.max(0, Math.min(c.casco_max, +i.value || 0)); if (c.nave_party && camp.nave) { camp.nave.casco = c.casco; await salvarCampanha({ nave: camp.nave }).eq("id", id); } }
-      else c.hp = Math.max(0, Math.min(c.hp_max, +i.value || 0));
+      else { const pvA = c.hp; c.hp = Math.max(0, Math.min(c.hp_max, +i.value || 0)); await sincronizarFicha(c, c.hp - pvA); }
       await salvarCombate(); render(); });
     app.querySelectorAll(".cb-rm").forEach((b) => b.onclick = async () => { const idx = camp.combate.ordem.findIndex((x) => x.id === b.dataset.cb); if (idx < 0) return; snapshot("remover combatente");
       const nomeRm = camp.combate.ordem[idx]?.nome || "combatente";
@@ -2354,6 +2568,19 @@ async function telaMesa(id) {
           await sb.from("personagens").update({ dados: meuPers.dados }).eq("id", meuPers.id);
           precisaRender = true;
         }
+        // Alvos possíveis: naves inimigas em campo entram na escolha, porque uma
+        // tripulação pode muito bem atirar no casco de quem está do outro lado.
+        const navesAlvo = (camp.combate?.ativo ? camp.combate.ordem : []).filter((x) => ehNave(x) && x.lado === "inimiga" && !foraDeCombate(x));
+        let alvoNave = null;
+        if (navesAlvo.length) {
+          const r = await modalForm({ titulo: `⚔ ${a.nome}`, descricao: "Há naves inimigas em campo.",
+            campos: [{ k: "alvo", label: "Mirar em", tipo: "select",
+              opcoes: [{ v: "", l: "— alvo pessoal (resolvo na mesa) —" },
+                ...navesAlvo.map((x) => ({ v: x.id, l: `🚀 ${x.nome} — casco ${x.casco}/${x.casco_max}, Def ${10 + (x.manobra || 0)}` }))] }],
+            okLabel: "Atacar" });
+          if (!r) return;
+          if (r.alvo) alvoNave = navesAlvo.find((x) => x.id === r.alvo);
+        }
         const furtivo = $("#atq-furtivo")?.checked;
         const assassino = f.classe === "Assassino";
         // Ágil: usa o melhor de For/Des no acerto e no dano
@@ -2383,6 +2610,20 @@ async function telaMesa(id) {
           detalhe: `d20 [${nat}]${detVant} ${sign(mod)} · dano ${danoBase}${sets > 1 ? `×${sets}` : ""} [${dados.join(", ")}] ${sign(danoMod)}${marcadores ? " · " + marcadores : ""}`,
           total: nat + mod, crit: nat === 20, fumble: nat === 1, ...(privada ? { privada: true } : {}), dano_total: dados.reduce((x, y) => x + y, 0) + danoMod,
           extra: `Dano: ${dados.reduce((x, y) => x + y, 0) + danoMod}${efeitoMun ? "  —  " + efeitoMun : ""}${infoArma ? "  —  " + infoArma : ""}` });
+        if (alvoNave) {                    // resolve o tiro contra o casco
+          const def = 10 + (alvoNave.manobra || 0);
+          const acertou = total >= def && nat !== 1;
+          if (acertou) {
+            const bruto = dados.reduce((x, y) => x + y, 0) + danoMod;
+            const r2 = danoNave(alvoNave, bruto);
+            snapshot("tiro em nave");
+            if (r2.critico) { const av = rolarAvaria(); (camp.combate.avarias = camp.combate.avarias || []).push(av);
+              await enviar("sistema", `⚠ ${alvoNave.nome}: ${av.n} — ${av.e}`); }
+            await salvarCombate();
+            await enviar("sistema", `🚀 ${meuPers.nome} acerta ${alvoNave.nome} (Def ${def}): escudos −${r2.escudos}, casco −${r2.casco}. Agora ${alvoNave.casco}/${alvoNave.casco_max}.${alvoNave.casco <= 0 ? " 💥 ABATIDA!" : ""}`);
+          } else await enviar("sistema", `🚀 ${meuPers.nome} erra ${alvoNave.nome} (Defesa ${def}).`);
+          render();
+        }
         if (precisaRender) render();      // atualiza o contador de munição na tela
       });
       // Trocar direto pelo pente clicado na reserva — mais rápido que abrir o menu.

@@ -760,7 +760,7 @@ export const ARMAS = [
  },
  {
   "n": "Nano-Tatuagem: Garras de Enxame", "preco": 0, "nano": true,
-  "dano": "1d4", "escala": { "5": "1d6", "9": "1d8" },
+  "dano": "1d6", "escala": { "5": "2d6", "9": "2d8" },
   "tipo": "branca",
   "per": "Armas Brancas",
   "attr": "Des",
@@ -769,7 +769,7 @@ export const ARMAS = [
  },
  {
   "n": "Nano-Tatuagem: Punhal Dérmico", "preco": 0, "nano": true,
-  "dano": "1d4", "escala": { "5": "1d6", "9": "1d8" },
+  "dano": "1d6", "escala": { "5": "2d6", "9": "2d8" },
   "tipo": "branca",
   "per": "Armas Brancas",
   "attr": "Des",
@@ -778,7 +778,7 @@ export const ARMAS = [
  },
  {
   "n": "Nano-Tatuagem: Machadinha de Enxame", "preco": 0, "nano": true,
-  "dano": "1d6", "escala": { "5": "1d8", "9": "1d10" },
+  "dano": "1d8", "escala": { "5": "2d6", "9": "2d10" },
   "tipo": "branca",
   "per": "Armas Brancas",
   "attr": "Des",
@@ -787,7 +787,7 @@ export const ARMAS = [
  },
  {
   "n": "Nano-Tatuagem: Espada de Nanofio", "preco": 0, "nano": true,
-  "dano": "1d6", "escala": { "5": "1d8", "9": "1d10" },
+  "dano": "1d8", "escala": { "5": "2d8", "9": "2d10" },
   "tipo": "branca",
   "per": "Armas Brancas",
   "attr": "For",
@@ -796,7 +796,7 @@ export const ARMAS = [
  },
  {
   "n": "Nano-Tatuagem: Lâmina Serrilhada de Enxame", "preco": 0, "nano": true,
-  "dano": "1d6", "escala": { "5": "1d8", "9": "1d10" },
+  "dano": "1d8", "escala": { "5": "2d6", "9": "2d8" },
   "tipo": "branca",
   "per": "Armas Brancas",
   "attr": "For",
@@ -805,7 +805,7 @@ export const ARMAS = [
  },
  {
   "n": "Nano-Tatuagem: Manopla de Impacto", "preco": 0, "nano": true,
-  "dano": "1d6", "escala": { "5": "1d8", "9": "1d10" },
+  "dano": "1d8", "escala": { "5": "2d8", "9": "2d10" },
   "tipo": "branca",
   "per": "Armas Brancas",
   "attr": "For",
@@ -814,7 +814,7 @@ export const ARMAS = [
  },
  {
   "n": "Nano-Tatuagem: Machado Pesado de Enxame", "preco": 0, "nano": true,
-  "dano": "1d8", "escala": { "5": "1d10", "9": "2d6" },
+  "dano": "1d10", "escala": { "5": "2d8", "9": "2d12" },
   "tipo": "branca",
   "per": "Armas Brancas",
   "attr": "For",
@@ -823,7 +823,7 @@ export const ARMAS = [
  },
  {
   "n": "Nano-Tatuagem: Alabarda Curta de Enxame", "preco": 0, "nano": true,
-  "dano": "1d6", "escala": { "5": "1d8", "9": "1d10" },
+  "dano": "1d8", "escala": { "5": "2d6", "9": "2d10" },
   "tipo": "branca",
   "per": "Armas Brancas",
   "attr": "For",
