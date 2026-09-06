@@ -3234,10 +3234,162 @@ async function painelAdmin(voltarPara = "racas") {
   };
   const painelCriaturas = () => {
     const cs = C.conteudo().criaturas;
-    return `<p class="regra">Criaturas próprias, que aparecem no Bestiário e no rastreador de combate para toda a mesa.</p>
+    return `<p class="regra">Criaturas próprias, que aparecem no Bestiário e no rastreador de combate para toda a mesa.
+      Habilidades marcadas com <span class="auto-tag">automático</span> são aplicadas pelo app no momento certo — você não precisa lembrar delas na sessão.</p>
       <button id="adm-cri-nova" class="mini eq">➕ Nova criatura</button>
-      ${cs.length ? cs.map((c) => `<div class="inv"><span><b>${esc(c.n)}</b> · ${esc(c.categoria || "—")} · ${esc(c.ameaca || "—")} · HP ${c.hp ?? "?"}</span><button class="mini rm" data-cri-del="${c._id}">✕</button></div>`).join("") : `<p class="regra"><i>Nenhuma criatura própria.</i></p>`}`;
+      ${cs.length ? cs.map((c) => { const autos = (c.habs || []).filter((h) => h.efeito).length;
+        return `<div class="inv"><span><b>${esc(c.n)}</b> · ${esc(c.categoria || "—")} · ${esc(c.ameaca || "—")} · HP ${c.hp ?? "?"}
+          ${autos ? `<span class="auto-tag">${autos} automática(s)</span>` : ""}</span>
+          <button class="mini" data-cri-ed="${c._id}" title="Editar">✎</button>
+          <button class="mini rm" data-cri-del="${c._id}">✕</button></div>`; }).join("")
+        : `<p class="regra"><i>Nenhuma criatura própria.</i></p>`}`;
   };
+
+  // -------------------------------------------------------------------------
+  //  EDITOR DE CRIATURA — ataques e habilidades com efeitos que o app executa.
+  // -------------------------------------------------------------------------
+  async function editorCriatura(existente) {
+    const M = await criaturaMod();
+    const c = existente ? JSON.parse(JSON.stringify(existente))
+      : { n: "", categoria: "Personalizado", ameaca: "Comum", hp: 20, cd: 12, desloc: 9, nota: "", ataques: [], habs: [] };
+    c.ataques = c.ataques || []; c.habs = c.habs || [];
+
+    const GAT = [
+      { v: "", l: "— sem automação (só texto para o Mestre) —" },
+      { v: M.GATILHOS.INICIO_TURNO, l: "No início do turno dela" },
+      { v: M.GATILHOS.FIM_TURNO, l: "No fim do turno dela" },
+      { v: M.GATILHOS.AO_SOFRER, l: "Quando sofre qualquer dano" },
+      { v: M.GATILHOS.AO_SOFRER_CORPO, l: "Quando sofre dano corpo a corpo" },
+      { v: M.GATILHOS.AO_ACERTAR, l: "Quando acerta um ataque" },
+      { v: M.GATILHOS.AO_MORRER, l: "Quando é derrotada" },
+      { v: M.GATILHOS.AURA, l: "Passiva contínua (aura)" },
+    ];
+    const TIPOS_EF = [
+      { v: "dano", l: "💥 Causa dano" },
+      { v: "cura", l: "♻ Recupera PV" },
+      { v: "condicao", l: "🏷 Aplica condição" },
+      { v: "invocar", l: "👹 Invoca lacaios" },
+      { v: "imunidade", l: "🛡 Imunidade / couraça" },
+      { v: "zona", l: "🚫 Zona de negação" },
+    ];
+
+    const ov2 = document.createElement("div"); ov2.className = "ss-overlay ov-modal"; ov2.style.zIndex = "10010";
+    const fechar2 = () => ov2.remove();
+
+    const camposEfeito = (e) => {
+      if (!e || !e.tipo) return "";
+      if (e.tipo === "dano") return `<label>Dado de dano<input data-ef="dano" value="${esc(e.dano || "1d6")}" placeholder="1d6"/></label>
+        <label>Em quem<select data-ef="alvo">${[["atacante", "quem a atingiu"], ["alvo", "no alvo dela"], ["todos_proximos", "todos por perto"]].map(([v, l]) => `<option value="${v}" ${e.alvo === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+        <label>Tipo (opcional)<input data-ef="tipoDano" value="${esc(e.tipoDano || "")}" placeholder="ácido, fogo…"/></label>`;
+      if (e.tipo === "cura") return `<label>PV fixos<input data-ef="valor" type="number" value="${e.valor ?? 0}"/></label>
+        <label>ou dado<input data-ef="dado" value="${esc(e.dado || "")}" placeholder="1d6"/></label>`;
+      if (e.tipo === "condicao") return `<label>Condição<select data-ef="cond">${CONDICOES.map((x) => `<option ${e.cond === x ? "selected" : ""}>${x}</option>`).join("")}</select></label>
+        <label>Turnos<input data-ef="turnos" type="number" value="${e.turnos ?? 1}" min="1"/></label>
+        <label>CD para evitar<input data-ef="cd" type="number" value="${e.cd ?? ""}" placeholder="vazio = automático"/></label>`;
+      if (e.tipo === "invocar") return `<label>Criatura invocada<input data-ef="criatura" value="${esc(e.criatura || "")}" placeholder="Enxame Adaptativo"/></label>
+        <label>Quantidade (dado)<input data-ef="dado" value="${esc(e.dado || "1d4")}"/></label>`;
+      if (e.tipo === "imunidade") return `<label>Imune a<input data-ef="a" value="${esc(e.a || "")}" placeholder="Cegueira"/></label>
+        <label>Ignora dano abaixo de<input data-ef="limiar" type="number" value="${e.limiar ?? ""}" placeholder="ex: 10"/></label>`;
+      if (e.tipo === "zona") return `<label>Raio (m)<input data-ef="raio" type="number" value="${e.raio ?? 15}"/></label>
+        <label>Anula<input data-ef="nega" value="${esc((e.nega || []).join(", "))}" placeholder="cura, tecnomancia, implantes"/></label>`;
+      return "";
+    };
+
+    const pintar2 = () => {
+      const erros = M.validar(c);
+      ov2.innerHTML = `<div class="ss-painel" style="width:660px;max-width:96vw;margin:auto;border:1px solid var(--line);border-radius:10px;max-height:94vh">
+        <div class="mp-topo"><b>🐉 ${existente ? "Editar" : "Nova"} criatura</b><button id="ed-x" class="mp-x" style="margin-left:auto">✕</button></div>
+        <div class="di-corpo">
+          <h4>Identidade</h4>
+          <div class="ed-grade">
+            <label>Nome<input id="ed-n" value="${esc(c.n)}"/></label>
+            <label>Categoria<input id="ed-cat" value="${esc(c.categoria)}"/></label>
+            <label>Ameaça<select id="ed-am">${Object.keys(NIVEIS_AMEACA).filter((x) => x !== "Ambiental").map((x) => `<option ${c.ameaca === x ? "selected" : ""}>${x}</option>`).join("")}</select></label>
+          </div>
+          <div class="ed-grade">
+            <label>HP<input id="ed-hp" type="number" value="${c.hp}"/></label>
+            <label>Defesa (CD)<input id="ed-cd" type="number" value="${c.cd}"/></label>
+            <label>Deslocamento (m)<input id="ed-de" type="number" value="${c.desloc}"/></label>
+          </div>
+          <label>Nota do Mestre<input id="ed-nota" value="${esc(c.nota || "")}" placeholder="tática, comportamento…"/></label>
+
+          <h4 style="margin-top:16px">⚔ Ataques <button id="ed-atk-add" class="mini">＋</button></h4>
+          ${c.ataques.length ? c.ataques.map((a2, i2) => `<div class="ed-item">
+            <div class="ed-grade">
+              <label>Nome<input data-atk="${i2}" data-k="n" value="${esc(a2.n || "")}"/></label>
+              <label>Bônus de acerto<input data-atk="${i2}" data-k="bonus" type="number" value="${a2.bonus ?? 0}"/></label>
+              <label>Dano<input data-atk="${i2}" data-k="dano" value="${esc(a2.dano || "1d6")}"/></label>
+            </div>
+            <label>Observação<input data-atk="${i2}" data-k="extra" value="${esc(a2.extra || "")}" placeholder="alcance, área, efeito…"/></label>
+            <button class="mini rm" data-atk-del="${i2}">remover ataque</button></div>`).join("")
+            : `<p class="regra"><i>Nenhum ataque.</i></p>`}
+
+          <h4 style="margin-top:16px">✨ Habilidades <button id="ed-hab-add" class="mini">＋</button></h4>
+          <p class="regra">Escolha um gatilho e um efeito para o app aplicar sozinho. Deixe o gatilho vazio se preferir que a habilidade seja só um lembrete de texto.</p>
+          ${c.habs.length ? c.habs.map((h, i2) => `<div class="ed-item ${h.efeito ? "auto" : ""}">
+            <label>Nome<input data-hab="${i2}" data-k="n" value="${esc(h.n || "")}"/></label>
+            <label>Descrição<textarea data-hab="${i2}" data-k="d" rows="2">${esc(h.d || "")}</textarea></label>
+            <div class="ed-grade">
+              <label>Quando acontece<select data-hab="${i2}" data-k="gatilho">${GAT.map((g) => `<option value="${g.v}" ${(h.gatilho || "") === g.v ? "selected" : ""}>${g.l}</option>`).join("")}</select></label>
+              ${h.gatilho ? `<label>O que faz<select data-hab="${i2}" data-k="eftipo">${TIPOS_EF.map((t) => `<option value="${t.v}" ${h.efeito?.tipo === t.v ? "selected" : ""}>${t.l}</option>`).join("")}</select></label>` : ""}
+            </div>
+            ${h.gatilho && h.efeito ? `<div class="ed-grade ed-efeito" data-hab-ef="${i2}">${camposEfeito(h.efeito)}</div>` : ""}
+            <button class="mini rm" data-hab-del="${i2}">remover habilidade</button></div>`).join("")
+            : `<p class="regra"><i>Nenhuma habilidade.</i></p>`}
+
+          ${erros.length ? `<div class="ed-erros"><b>Falta ajustar:</b><ul>${erros.map((e) => `<li>${esc(e)}</li>`).join("")}</ul></div>`
+            : `<p class="regra tech-c" style="margin-top:14px">✓ Criatura válida — pronta para entrar no bestiário.</p>`}
+        </div>
+        <div class="cri-rodape"><button id="ed-cancel" class="mini">Cancelar</button>
+          <span class="cri-dica">${(c.habs || []).filter((h) => h.efeito).length} habilidade(s) automática(s)</span>
+          <button id="ed-salvar" class="btn-primario" ${erros.length ? "disabled" : ""}>${existente ? "Salvar" : "Criar criatura"}</button></div>
+      </div>`;
+      ligar2();
+    };
+
+    const ligar2 = () => {
+      ov2.querySelector("#ed-x").onclick = fechar2;
+      ov2.querySelector("#ed-cancel").onclick = fechar2;
+      const bind = (id, campo, num) => { const el = ov2.querySelector(id); if (el) el.oninput = () => { c[campo] = num ? +el.value : el.value; }; };
+      bind("#ed-n", "n"); bind("#ed-cat", "categoria"); bind("#ed-nota", "nota");
+      bind("#ed-hp", "hp", 1); bind("#ed-cd", "cd", 1); bind("#ed-de", "desloc", 1);
+      ov2.querySelector("#ed-am").onchange = (e) => { c.ameaca = e.target.value; };
+
+      ov2.querySelector("#ed-atk-add").onclick = () => { c.ataques.push({ n: "", bonus: 4, dano: "1d6", extra: "" }); pintar2(); };
+      ov2.querySelectorAll("[data-atk-del]").forEach((b) => b.onclick = () => { c.ataques.splice(+b.dataset.atkDel, 1); pintar2(); });
+      ov2.querySelectorAll("[data-atk]").forEach((el) => el.oninput = () => {
+        const a2 = c.ataques[+el.dataset.atk]; if (a2) a2[el.dataset.k] = el.dataset.k === "bonus" ? +el.value : el.value; });
+
+      ov2.querySelector("#ed-hab-add").onclick = () => { c.habs.push({ n: "", d: "", gatilho: "" }); pintar2(); };
+      ov2.querySelectorAll("[data-hab-del]").forEach((b) => b.onclick = () => { c.habs.splice(+b.dataset.habDel, 1); pintar2(); });
+      ov2.querySelectorAll("[data-hab]").forEach((el) => {
+        const h = c.habs[+el.dataset.hab]; if (!h) return;
+        const k = el.dataset.k;
+        if (k === "gatilho") el.onchange = () => { h.gatilho = el.value;
+          if (!h.gatilho) delete h.efeito; else if (!h.efeito) h.efeito = { tipo: "dano", dano: "1d6", alvo: "atacante" };
+          pintar2(); };
+        else if (k === "eftipo") el.onchange = () => { h.efeito = { tipo: el.value }; pintar2(); };
+        else el.oninput = () => { h[k] = el.value; };
+      });
+      ov2.querySelectorAll("[data-hab-ef]").forEach((box) => {
+        const h = c.habs[+box.dataset.habEf]; if (!h?.efeito) return;
+        box.querySelectorAll("[data-ef]").forEach((el) => el.oninput = () => {
+          const campo = el.dataset.ef; let v = el.value;
+          if (["turnos", "cd", "valor", "limiar", "raio"].includes(campo)) v = v === "" ? undefined : +v;
+          if (campo === "nega") v = v.split(",").map((x) => x.trim()).filter(Boolean);
+          if (v === undefined || v === "") delete h.efeito[campo]; else h.efeito[campo] = v;
+          const dica = ov2.querySelector(".cri-dica");
+          if (dica) dica.textContent = `${c.habs.filter((x) => x.efeito).length} habilidade(s) automática(s)`;
+        });
+      });
+
+      ov2.querySelector("#ed-salvar").onclick = async () => {
+        if (M.validar(c).length) return;
+        if (await salvar("criatura", c, null, existente?._id)) { fechar2(); pintar(); }
+      };
+    };
+    document.body.appendChild(ov2); pintar2();
+  }
   const painelArmas = () => {
     const as = C.conteudo().armas;
     return `<p class="regra">Armas próprias, que entram no Arsenal e ficam disponíveis nas fichas.</p>
@@ -3297,22 +3449,10 @@ async function painelAdmin(voltarPara = "racas") {
       if (error) return alert(error.message); await recarregar(); pintar();
     });
 
-    ov.querySelector("#adm-cri-nova")?.addEventListener("click", async () => {
-      const r = await modalForm({ titulo: "🐉 Nova criatura", campos: [
-        { k: "n", label: "Nome", tipo: "texto" },
-        { k: "categoria", label: "Categoria", tipo: "texto", valor: "Crias do Vazio" },
-        { k: "ameaca", label: "Ameaça", tipo: "select", opcoes: Object.keys(NIVEIS_AMEACA) },
-        { k: "hp", label: "HP", tipo: "numero", valor: 30 }, { k: "cd", label: "CD", tipo: "numero", valor: 13 },
-        { k: "desloc", label: "Deslocamento (m)", tipo: "numero", valor: 9 },
-        { k: "atk", label: "Ataque (nome)", tipo: "texto" }, { k: "bonus", label: "Bônus de acerto", tipo: "numero", valor: 4 },
-        { k: "dano", label: "Dano", tipo: "texto", valor: "1d6" },
-        { k: "hab", label: "Habilidade (nome)", tipo: "texto" }, { k: "habd", label: "Habilidade (efeito)", tipo: "area", rows: 2 },
-      ], okLabel: "Criar" });
-      if (!r || !r.n) return;
-      const c = { n: r.n, categoria: r.categoria || "Personalizado", ameaca: r.ameaca, hp: +r.hp || 1, cd: +r.cd || 10, desloc: +r.desloc || 9, ataques: [], habs: [] };
-      if (r.atk) c.ataques.push({ n: r.atk, bonus: +r.bonus || 0, dano: r.dano || "1d4", extra: "" });
-      if (r.hab) c.habs.push({ n: r.hab, d: r.habd || "" });
-      if (await salvar("criatura", c)) pintar();
+    ov.querySelector("#adm-cri-nova")?.addEventListener("click", () => editorCriatura(null));
+    ov.querySelectorAll("[data-cri-ed]").forEach((b) => b.onclick = () => {
+      const c = C.conteudo().criaturas.find((x) => x._id === b.dataset.criEd);
+      if (c) editorCriatura(c);
     });
     ov.querySelectorAll("[data-cri-del]").forEach((b) => b.onclick = async () => { await apagar(b.dataset.criDel); pintar(); });
 

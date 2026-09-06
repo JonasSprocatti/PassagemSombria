@@ -1181,3 +1181,16 @@ html,body{max-width:100%;overflow-x:hidden}
 .pente-tipo.vazio-tipo{opacity:.35;cursor:not-allowed}
 .auto-tag{font-size:9px;border:1px solid var(--tech);color:var(--tech);border-radius:3px;
   padding:0 6px;font-family:'IBM Plex Mono',monospace;vertical-align:middle}
+
+/* Editor de criatura */
+.ed-grade{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-bottom:8px}
+.ed-item{border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin-bottom:8px;background:var(--panel2)}
+.ed-item.auto{border-left:3px solid var(--tech)}
+.ed-item textarea{width:100%;resize:vertical}
+.ed-item .rm{margin-top:6px}
+.ed-efeito{background:rgba(89,227,200,.07);border-radius:6px;padding:8px;margin-top:4px}
+.ed-erros{margin-top:14px;padding:11px 14px;background:rgba(240,122,122,.12);
+  border-left:3px solid var(--perigo);border-radius:0 7px 7px 0;font-size:12.5px}
+.ed-erros ul{margin:5px 0 0;padding-left:18px}
+.ed-erros li{margin:2px 0;color:var(--perigo)}
+@media(max-width:720px){.ed-grade{grid-template-columns:1fr}}
