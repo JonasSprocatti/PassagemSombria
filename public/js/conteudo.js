@@ -10,7 +10,7 @@ import { sb } from "./app.js";
 let cache = null;                 // { imagens: {chave: url}, criaturas: [], armas: [], mecanicas: [] }
 let carregando = null;
 
-const TIPOS = ["criatura", "arma", "armadura", "implante", "consumivel", "nave", "npc", "mecanica"];
+const TIPOS = ["criatura", "arma", "armadura", "implante", "consumivel", "nave", "npc", "chave", "mecanica"];
 export const conteudoVazio = () => { const o = { imagens: {} }; for (const t of TIPOS) o[t + "s"] = []; return o; };
 
 // Carrega uma vez por sessão. Falha silenciosa: sem banco, o app segue com os dados estáticos.

@@ -5,7 +5,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./config.js";
 import { FichaEfeitos, MOMENTOS, EFEITOS as EFEITOS_FICHA, validarEfeitos } from "./efeitos.js";
-import { RACAS, CLASSES, FILOSOFIAS, IMPLANTES, SCRIPTS, ARMAS, ARMADURAS, PERICIAS, NAVES, ESTACOES, REGRAS_NAVE, RIQUEZA, TEMAS, CONVERTE_2D8, RENOME_PERICIAS, KEYWORDS, propsArma, AVARIAS, UPGRADES_NAVE, TURNOS_POR_PENTE, PENTES_MAX, custoTiro, PENTES_INICIAIS, TIROS_POR_PENTE, TIPOS_PENTE, PENTE_PADRAO, CONSUMIVEIS, ehConsumivel } from "./dados-jogo.js";
+import { RACAS, CLASSES, FILOSOFIAS, IMPLANTES, SCRIPTS, ARMAS, ARMADURAS, PERICIAS, NAVES, ESTACOES, REGRAS_NAVE, RIQUEZA, TEMAS, CONVERTE_2D8, RENOME_PERICIAS, KEYWORDS, PALAVRAS_CHAVE, chavesDaArma, propsArma, AVARIAS, UPGRADES_NAVE, TURNOS_POR_PENTE, PENTES_MAX, custoTiro, PENTES_INICIAIS, TIROS_POR_PENTE, TIPOS_PENTE, PENTE_PADRAO, CONSUMIVEIS, ehConsumivel } from "./dados-jogo.js";
 import { BESTIARIO, NIVEIS_AMEACA } from "./dados-bestiario.js";
 import { NPCS, PAPEIS } from "./dados-npcs.js";
 import { FACCOES, NIVEIS_REPUTACAO, TABELAS, REFERENCIA  } from "./dados-mestre.js";
@@ -606,6 +606,18 @@ async function conteudoMod() {
 function sincronizarExtra() {
   const c = CONT?.conteudo?.(); if (!c) return;
   for (const k of Object.keys(CONTEUDO_EXTRA)) CONTEUDO_EXTRA[k] = c[k] || [];
+  // Palavras-chave cadastradas entram no catálogo do jogo, para que propsArma
+  // as reconheça exatamente como as nativas.
+  for (const ch of c.chaves || []) {
+    if (!ch.n) continue;
+    const def = { props: {} };
+    if (ch.marca) def.props[ch.marca] = true;
+    if (ch.ignoraArmadura) def.ignoraArmadura = +ch.ignoraArmadura;
+    if (ch.cond) def.aoAcertar = { cond: ch.cond, turnos: +ch.turnos || 1, ...(ch.cd ? { cd: +ch.cd } : {}) };
+    if ((ch.efeitos || []).length) def.efeitos = ch.efeitos;
+    PALAVRAS_CHAVE[ch.n] = def;
+    if (ch.d) KEYWORDS[ch.n] = ch.d;
+  }
 }
 const img = (nome) => (CONT ? CONT.thumb(nome) : "");
 const imgFig = (nome) => (CONT ? CONT.figura(nome) : "");
@@ -2713,8 +2725,19 @@ async function telaMesa(id) {
         const sets = 1 + (nat === 20 ? 1 : 0) + (furtivo && assassino ? 1 : 0);
         let dados = rollNd(pd.n * sets, pd.f);
         if (pr.brutal) { const d2 = rollNd(pd.n * sets, pd.f); if (d2.reduce((x, y) => x + y, 0) > dados.reduce((x, y) => x + y, 0)) dados = d2; } // Brutal: vantagem no dano
-        const danoMod = k.attr[atkAttr] + (cat.tipo === "branca" && f.implantes.includes("Braço Mecânico Hidráulico") ? 2 : 0);
+        const modKw = (pr.efeitos || []).filter((e) => e.momento === "ao_atacar" && e.tipo === "dano" && !e.contra)
+          .reduce((x, e) => x + (e.valor || 0), 0);
+        const danoMod = k.attr[atkAttr] + modKw + (cat.tipo === "branca" && f.implantes.includes("Braço Mecânico Hidráulico") ? 2 : 0);
         const marcadores = [nat === 20 ? "CRÍTICO ×2" : "", furtivo && assassino ? "FURTIVO ×2" : furtivo ? "furtivo +2 acerto" : "", pr.agil ? `Ágil (${atkAttr})` : "", pr.brutal ? "Brutal (vantagem)" : ""].filter(Boolean).join(" · ");
+        // Palavras-chave declaradas: condições ao acertar e perfuração de armadura.
+        let efeitoKw = "";
+        if (nat !== 1 && total >= 0) {
+          const partes = [];
+          for (const ac of (pr.aoAcertar || []))
+            partes.push(`🏷 ${ac.origem}: alvo fica ${ac.cond} por ${ac.turnos} turno(s)${ac.cd ? ` (CD ${ac.cd} evita)` : ""}`);
+          if (pr.ignoraArmadura) partes.push(`🗡 ignora ${pr.ignoraArmadura} de armadura`);
+          efeitoKw = partes.join(" · ");
+        }
         // Munição especial: o efeito entra no resultado para o Mestre aplicar a condição.
         let efeitoMun = "";
         if (custo > 0 && nat !== 1) { const itA = (meuPers.dados.inventario || []).find((x) => x.nome === a.nome && x.equip);
@@ -2726,7 +2749,7 @@ async function telaMesa(id) {
         enviar("rolagem", null, { titulo: (privada ? "🔒 " : "") + `Ataque — ${a.nome}${furtivo ? " 🥷" : ""}`,
           detalhe: `d20 [${nat}]${detVant} ${sign(mod)} · dano ${danoBase}${sets > 1 ? `×${sets}` : ""} [${dados.join(", ")}] ${sign(danoMod)}${marcadores ? " · " + marcadores : ""}`,
           total: nat + mod, crit: nat === 20, fumble: nat === 1, ...(privada ? { privada: true } : {}), dano_total: dados.reduce((x, y) => x + y, 0) + danoMod,
-          extra: `Dano: ${dados.reduce((x, y) => x + y, 0) + danoMod}${efeitoMun ? "  —  " + efeitoMun : ""}${infoArma ? "  —  " + infoArma : ""}` });
+          extra: `Dano: ${dados.reduce((x, y) => x + y, 0) + danoMod}${efeitoKw ? "  —  " + efeitoKw : ""}${efeitoMun ? "  —  " + efeitoMun : ""}${infoArma ? "  —  " + infoArma : ""}` });
         if (alvoNave) {                    // resolve o tiro contra o casco
           const def = 10 + (alvoNave.manobra || 0);
           const acertou = total >= def && nat !== 1;
@@ -3525,6 +3548,14 @@ async function painelAdmin(voltarPara = "racas") {
       ["n", "Nome", "texto"], ["casco", "Casco", "numero"], ["escudos", "Escudos", "numero"],
       ["manobra", "Manobrabilidade", "numero"], ["dano", "Dano", "texto", null, "4d10"],
       ["trip", "Tripulação", "texto"], ["desc", "Descrição", "area"]] },
+    chave: { rot: "Palavra-chave", ic: "🏷", campos: [
+      ["n", "Nome da palavra-chave", "texto", null, "Perfurante"],
+      ["d", "O que significa", "area"],
+      ["marca", "Marca especial", "select", [{ v: "", l: "nenhuma" }, { v: "agil", l: "Ágil (usa Destreza)" }, { v: "oculta", l: "Oculta (furtiva)" }, { v: "brutal", l: "Brutal (vantagem)" }, { v: "area", l: "Área" }, { v: "alcance", l: "Alcance estendido" }]],
+      ["ignoraArmadura", "Ignora armadura (pontos)", "numero"],
+      ["cond", "Condição ao acertar", "select", [{ v: "", l: "nenhuma" }, ...CONDICOES.map((c) => ({ v: c, l: c }))]],
+      ["turnos", "Turnos da condição", "numero"],
+      ["cd", "CD para evitar", "numero"]] },
     npc: { rot: "NPC", ic: "👤", campos: [
       ["n", "Nome", "texto"], ["papel", "Papel", "select", Object.keys(PAPEIS).map((p) => ({ v: p, l: p }))],
       ["raca", "Raça", "texto"], ["local", "Onde encontrar", "texto"], ["faccao", "Facção", "texto"],
@@ -3618,7 +3649,7 @@ async function painelAdmin(voltarPara = "racas") {
   const apagar = async (id2) => { const { error } = await sb.from("conteudo").delete().eq("id", id2); if (error) return alert("Não consegui apagar: " + error.message); await recarregar(); };
 
   const pintar = () => {
-    const abas = [["pessoas", "👥 Personagens"], ["imagens", "🖼 Imagens"], ["criaturas", "🐉 Criaturas"], ["arma", "⚔ Armas"], ["armadura", "🛡 Armaduras"], ["implante", "⧉ Implantes"], ["consumivel", "🎒 Consumíveis"], ["nave", "🚀 Naves"], ["npc", "👤 NPCs"], ["mecanicas", "📜 Mecânicas"]];
+    const abas = [["pessoas", "👥 Personagens"], ["imagens", "🖼 Imagens"], ["criaturas", "🐉 Criaturas"], ["arma", "⚔ Armas"], ["armadura", "🛡 Armaduras"], ["implante", "⧉ Implantes"], ["consumivel", "🎒 Consumíveis"], ["nave", "🚀 Naves"], ["npc", "👤 NPCs"], ["chave", "🏷 Palavras-chave"], ["mecanicas", "📜 Mecânicas"]];
     ov.innerHTML = `<div class="ss-painel" style="width:680px;max-width:96vw;margin:auto;border:1px solid var(--line);border-radius:10px;max-height:94vh">
       <div class="mp-topo"><b>🛠 Administrar conteúdo</b><button id="adm-x" class="mp-x" style="margin-left:auto">✕</button></div>
       <div class="filtros" style="padding:8px 14px;border-bottom:1px solid var(--line);flex-wrap:wrap">

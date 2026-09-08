@@ -1117,18 +1117,91 @@ export const KEYWORDS = {
   "Ferramenta": "Também funciona como ferramenta utilitária.",
 };
 // Deriva propriedades mecânicas a partir da palavra-chave da arma.
+// ---------------------------------------------------------------------------
+//  PALAVRAS-CHAVE — cada uma declara o que faz, em vez de o app adivinhar pelo
+//  texto. Adicionar uma nova é acrescentar uma entrada aqui (ou cadastrar pela
+//  Tela do Mestre); o motor passa a aplicá-la sozinho.
+//
+//  props:  marcas que o app já usa (agil, oculta, brutal, area, alcance…)
+//  efeitos: modificadores automáticos, no formato do motor de efeitos
+//  aoAcertar: condição aplicada no alvo quando o ataque acerta
+// ---------------------------------------------------------------------------
+export const PALAVRAS_CHAVE = {
+  "Ágil":              { props: { agil: true } },
+  "Compacto e Ágil":   { props: { agil: true, oculta: true } },
+  "Híbrida de Atributo": { props: { agil: true } },
+  "Saque Rápido":      { props: { agil: true } },
+  "Oculta":            { props: { oculta: true } },
+  "Ultra-Oculta / Surpresa": { props: { oculta: true }, efeitos: [{ tipo: "acerto", valor: 2, momento: "ao_atacar" }] },
+  "Silenciosa":        { props: { oculta: true } },
+  "Brutal":            { props: { brutal: true } },
+  "Despedaçador":      { props: { brutal: true } },
+  "Destruidora":       { props: { brutal: true } },
+  "Alcance":           { props: { alcance: true, alcanceTxt: "3m (corpo a corpo)" } },
+  "Alcance Maior":     { props: { alcance: true, alcanceTxt: "estendido" } },
+  "Telescópica":       { props: { alcance: true, alcanceTxt: "longo (mirar)" } },
+  "Marcador Térmico":  { props: { alcance: true }, aoAcertar: { cond: "Marcado", turnos: 2 } },
+  "Área":              { props: { area: true, areaTxt: "área" } },
+  "Rajada":            { props: { area: true, areaTxt: "área/linha" } },
+  "Cone de Repulsão":  { props: { area: true, areaTxt: "cone frontal" } },
+  "Artilharia":        { props: { area: true, areaTxt: "área" } },
+  "Atravessa Paredes": { props: { area: true, areaTxt: "linha" } },
+  "Sangramento":       { aoAcertar: { cond: "Sangrando", turnos: 2 } },
+  "Sangramento em Área": { props: { area: true, areaTxt: "área" }, aoAcertar: { cond: "Sangrando", turnos: 2 } },
+  "Tóxica":            { aoAcertar: { cond: "Envenenado", turnos: 2, cd: 13 } },
+  "Toxina Lenta":      { props: { oculta: true }, aoAcertar: { cond: "Envenenado", turnos: 2, cd: 13 } },
+  "Atordoante":        { aoAcertar: { cond: "Atordoado", turnos: 1, cd: 13 } },
+  "Concussão":         { aoAcertar: { cond: "Atordoado", turnos: 1, cd: 13 } },
+  "Derrubar":          { aoAcertar: { cond: "Caído", turnos: 1 } },
+  "Impacto":           { aoAcertar: { cond: "Caído", turnos: 1, cd: 13 } },
+  "Anti-Sintético":    { efeitos: [{ tipo: "dano", valor: 2, contra: "robos", momento: "ao_atacar" }] },
+  "Ferramenta":        { efeitos: [{ tipo: "dano", valor: 2, contra: "robos", momento: "ao_atacar" }] },
+  "Perfurante":        { ignoraArmadura: 2 },
+  "Perfurante Leve":   { ignoraArmadura: 1 },
+  "Derretimento":      { ignoraArmadura: 2 },
+  "Confiável":         { props: {} },
+  "Defensiva":         { efeitos: [{ tipo: "defesa", valor: 1 }] },
+  "Aparar":            { efeitos: [{ tipo: "defesa", valor: 1 }] },
+  "Aderência":         { efeitos: [{ tipo: "vantagem", em: "pericia", pericia: "Atletismo" }] },
+  "Investida":         { props: { brutal: true } },
+  "Puxão":             { aoAcertar: { cond: "Caído", turnos: 1, cd: 13 } },
+  "Pesada":            { props: {} },
+  "Sobreaquecimento":  { props: {} },
+  "Inesquivável / Contínuo": { props: {} },
+};
+
+// Lê a lista de palavras-chave de uma arma (o campo `kw` pode ter várias, separadas por vírgula).
+export function chavesDaArma(cat) {
+  const bruto = String((cat && cat.kw) || "");
+  if (!bruto) return [];
+  return bruto.split(/,|·/).map((x) => x.trim()).filter(Boolean)
+    .map((nome) => {
+      if (PALAVRAS_CHAVE[nome]) return { nome, ...PALAVRAS_CHAVE[nome] };
+      // tolera variações de escrita procurando a chave mais próxima
+      const alvo = Object.keys(PALAVRAS_CHAVE).find((k) => k.toLowerCase() === nome.toLowerCase()
+        || nome.toLowerCase().startsWith(k.toLowerCase()));
+      return alvo ? { nome: alvo, ...PALAVRAS_CHAVE[alvo] } : { nome, props: {} };
+    });
+}
+
 export function propsArma(cat) {
-  const kw = (cat && cat.kw) || "";
-  const low = kw.toLowerCase();
-  const has = (t) => low.includes(t);
-  const agil = has("ágil") || has("agil") || has("híbrida") || has("hibrida");
-  const oculta = has("oculta") || has("surpresa");
-  const brutal = has("brutal");
-  const area = /área|area|cone|explos|rajada|supress|artilharia|atravessa|3x3/i.test(kw);
-  const areaTxt = /3x3/i.test(kw) ? "3×3m" : has("cone") ? "cone frontal" : has("supress") || has("rajada") ? "área/linha" : area ? "área" : "";
-  const alcance = has("alcance") || has("mira") || has("telesc");
-  const alcanceTxt = has("curto") ? "curto" : has("mira") || has("telesc") ? "longo (mirar)" : has("alcance maior") ? "estendido" : has("alcance") ? "3m (corpo a corpo)" : "";
-  return { agil, oculta, brutal, area, areaTxt, alcance, alcanceTxt, efeito: KEYWORDS[kw] || kw || "" };
+  const chaves = chavesDaArma(cat);
+  const p = { agil: false, oculta: false, brutal: false, area: false, areaTxt: "",
+              alcance: false, alcanceTxt: "", ignoraArmadura: 0, aoAcertar: [], efeitos: [] };
+  for (const c of chaves) {
+    Object.assign(p, c.props || {}, {
+      agil: p.agil || !!c.props?.agil, oculta: p.oculta || !!c.props?.oculta,
+      brutal: p.brutal || !!c.props?.brutal, area: p.area || !!c.props?.area,
+      areaTxt: c.props?.areaTxt || p.areaTxt, alcance: p.alcance || !!c.props?.alcance,
+      alcanceTxt: c.props?.alcanceTxt || p.alcanceTxt,
+    });
+    if (c.ignoraArmadura) p.ignoraArmadura = Math.max(p.ignoraArmadura, c.ignoraArmadura);
+    if (c.aoAcertar) p.aoAcertar.push({ ...c.aoAcertar, origem: c.nome });
+    if (c.efeitos) p.efeitos.push(...c.efeitos.map((e) => ({ ...e, origem: c.nome })));
+  }
+  p.chaves = chaves;
+  p.efeito = KEYWORDS[(cat && cat.kw) || ""] || (cat && cat.kw) || "";
+  return p;
 }
 
 // ---------------- CONSUMÍVEIS (Cap. de equipamento) ----------------
