@@ -593,6 +593,30 @@ function shell(titulo, corpo, ativo = "") {
 // Conteúdo cadastrado pela administração, espelhado aqui porque calc() é
 // síncrono e não pode esperar um import dinâmico.
 const CONTEUDO_EXTRA = { implantes: [], armaduras: [], armas: [], consumiveis: [], naves: [], npcs: [] };
+// Etiquetas de palavra-chave que explicam o que fazem — em vez do nome solto.
+function etiquetasKw(cat, { detalhado = false } = {}) {
+  const chaves = chavesDaArma(cat);
+  if (!chaves.length) return "";
+  const linha = chaves.map((c) => {
+    const efs = [];
+    if (c.props?.agil) efs.push("usa Destreza");
+    if (c.props?.oculta) efs.push("furtiva");
+    if (c.props?.brutal) efs.push("vantagem");
+    if (c.props?.area) efs.push(c.props.areaTxt || "área");
+    if (c.props?.alcance) efs.push(c.props.alcanceTxt || "alcance");
+    if (c.ignoraArmadura) efs.push(`ignora ${c.ignoraArmadura} de armadura`);
+    if (c.aoAcertar) efs.push(`${c.aoAcertar.cond} ${c.aoAcertar.turnos}t`);
+    const auto = efs.length > 0;
+    return `<span class="kw-tag ${auto ? "auto" : ""}" title="${esc(KEYWORDS[c.nome] || c.nome)}">${esc(c.nome)}${efs.length ? ` <i>${esc(efs.join(" · "))}</i>` : ""}</span>`;
+  }).join("");
+  if (!detalhado) return `<span class="kw-linha">${linha}</span>`;
+  // versão longa: cada palavra-chave com a regra inteira
+  return `<span class="kw-linha">${linha}</span>
+    <div class="kw-detalhe">${chaves.map((c) => `<p><b class="tech-c">${esc(c.nome)}:</b> ${esc(KEYWORDS[c.nome] || "sem descrição cadastrada")}
+      ${c.aoAcertar ? `<span class="auto-tag">aplica ${esc(c.aoAcertar.cond)} automaticamente</span>` : ""}
+      ${c.ignoraArmadura ? `<span class="auto-tag">ignora ${c.ignoraArmadura} de armadura</span>` : ""}</p>`).join("")}</div>`;
+}
+
 let CRIA = null;   // motor de criaturas (efeitos automáticos)
 async function criaturaMod() { if (!CRIA) CRIA = await import("./criaturas.js"); return CRIA; }
 // Rolagem injetada no motor: ele não conhece o app, só pede um número.
@@ -1107,7 +1131,7 @@ async function telaFicha(id) {
                   ${cat && cat.dano ? `<p class="regra"><b class="chrome">Dano:</b> ${danoArma(cat, f.nivel)}${cat.escala ? ` <span class="dim">(escala: ${cat.dano} → ${Object.entries(cat.escala).map(([nv, dd]) => `NV${nv} ${dd}`).join(" → ")})</span>` : ""} ·
                     <b>Rolagem:</b> 1d20 + ${cat.attr} + ${esc(cat.per)}</p>` : ""}
                   ${cat && cat.cd != null ? `<p class="regra"><b class="chrome">Defesa:</b> +${cat.cd} de CD (${esc(cat.t)})${cat.e ? ` · ${esc(cat.e)}` : ""}</p>` : ""}
-                  ${cat && cat.kw ? `<p class="regra"><b class="tech-c">${esc(cat.kw)}:</b> ${esc(pr?.efeito || "")}</p>` : ""}
+                  ${cat && cat.kw ? etiquetasKw(cat, { detalhado: true }) : ""}
                   ${pr && (pr.area || pr.alcance) ? `<p class="regra">${pr.area ? `◎ Área: ${esc(pr.areaTxt)}` : ""}${pr.area && pr.alcance ? " · " : ""}${pr.alcance ? `⟿ Alcance: ${esc(pr.alcanceTxt)}` : ""}</p>` : ""}
                   ${cs ? `<p class="regra"><b class="tech-c">${esc(cs.acao)}:</b> ${esc(cs.d)}</p>` : ""}
                   ${cat && cat.desc ? `<p>${esc(cat.desc)}</p>` : ""}
@@ -1624,7 +1648,7 @@ async function telaMesa(id) {
               ${armasEq.length ? `<label class="chk" style="margin:0" title="Ataque furtivo: +2 no acerto (armas Ocultas / Assassino) e dano DOBRADO para o Assassino."><input type="checkbox" id="atq-furtivo"/> 🥷 Furtivo</label>` : ""}
               ${armasEq.map((a, i) => { const cat = ARMAS.find((x) => x.n === a.nome); const pr = cat ? propsArma(cat) : {};
                 const tip = [cat?.kw ? `${cat.kw}: ${pr.efeito}` : "", pr.area ? `Área: ${pr.areaTxt}` : "", pr.alcance ? `Alcance: ${pr.alcanceTxt}` : "", pr.agil ? "Ágil (Des)" : ""].filter(Boolean).join(" · ");
-                return `<button class="mini atq" data-atq="${i}" title="${esc(tip)}">⚔ ${esc(a.nome)} (${cat ? danoArma(cat, f.nivel) : "—"})${pr.area ? " ◎" : ""}${pr.agil ? " ⚡" : ""}</button>`; }).join("")}
+                return `<button class="mini atq" data-atq="${i}" title="${esc(tip)}">⚔ ${esc(a.nome)} (${cat ? danoArma(cat, f.nivel) : "—"})${pr.area ? " ◎" : ""}${pr.agil ? " ⚡" : ""}${pr.aoAcertar?.length ? " 🏷" : ""}${pr.ignoraArmadura ? " 🗡" : ""}</button>`; }).join("")}
               <select id="sel-scr">${(f.deck.length ? SCRIPTS.filter((s) => f.deck.includes(s.n)) : SCRIPTS.filter((s) => s.c === 0)).map((s) => `<option>${esc(s.n)}</option>`).join("")}</select>
               <button id="conjurar" class="mini">⚡ CONJURAR</button>
               ${(f.inventario || []).filter((it) => ehConsumivel(it.nome) && (it.qtd || 1) > 0)
@@ -3167,7 +3191,11 @@ function telaBiblioteca(aba = "racas") {
     ${c.hab.map((h) => `<p><b class="tech-c">${h.tipo} — ${esc(h.n)}:</b> ${esc(h.d)}</p>`).join("")}
     <p><b class="chrome">★ Veterana (NV5) — ${esc(c.vet.n)}:</b> ${esc(c.vet.d)}</p></details>`).join("");
   if (aba === "armas") corpo = ["branca", "fogo"].map((t) => `<h3 class="sub">${t === "branca" ? "⚔ Armas Brancas (1d20 + For + Armas Brancas)" : "🔫 Armas de Fogo (1d20 + Des + Armas de Fogo)"}</h3>` +
-    [...ARMAS, ...extras("armas")].filter((a) => a.tipo === t).map((a) => `<details class="det"><summary>${img(a.n)}<b>${esc(a.n)}</b> · ${a.dano}${a.kw ? ` · <i>${esc(a.kw)}</i>` : ""}</summary>${imgFig(a.n)}<p>${esc(a.desc || "")}${a.attr === "Des" && a.tipo === "branca" ? "<br><b>Ágil:</b> usa Destreza." : ""}</p></details>`).join("")).join("");
+    [...ARMAS, ...extras("armas")].filter((a) => a.tipo === t).map((a) => `<details class="det grande"><summary>${img(a.n)}<b>${esc(a.n)}</b> · <b class="chrome">${a.dano}</b>${a.preco ? ` · ${a.preco} CG` : ""}</summary>
+      ${imgFig(a.n)}
+      <p class="regra">Rola <b>1d20 + ${a.attr === "Des" ? "Destreza" : "Força"} + ${esc(a.per)}</b> · dano <b>${a.dano} + ${a.attr}</b></p>
+      ${a.kw ? etiquetasKw(a, { detalhado: true }) : `<p class="regra"><i>Sem palavras-chave.</i></p>`}
+      ${a.desc ? `<p>${esc(a.desc)}</p>` : ""}</details>`).join("")).join("");
   if (aba === "armaduras") corpo = todasArmaduras().map((a) => `<details class="det grande"><summary>${img(a.n)}<b>${esc(a.n)}</b> · CD +${a.cd} <span class="dim">(${a.t})</span>${a.preco ? ` · <b class="chrome">${a.preco} CG</b>` : ""}</summary>${a.e ? `<p class="regra"><b>Efeito:</b> ${esc(a.e)}</p>` : ""}${a.desc ? `<p>${esc(a.desc)}</p>` : ""}</details>`).join("");
   if (aba === "implantes") corpo = todosImplantes().map((i) => `<div class="det"><b>${esc(i.n)}</b> · <b class="chrome">${i.p} CG</b> <span class="dim">(${i.g})</span> — ${esc(i.e)}</div>`).join("");
   if (aba === "scripts") corpo = SCRIPTS.map((s) => `<details class="det grande"><summary><b>${esc(s.n)}</b> <i class="sombra-c">${s.c}◈ ${esc(s.a)}</i></summary><p class="regra"><b>Efeito:</b> ${esc(s.d)}</p>${s.lore ? `<p>${esc(s.lore)}</p>` : ""}</details>`).join("");
@@ -3530,7 +3558,8 @@ async function painelAdmin(voltarPara = "racas") {
     arma: { rot: "Arma", ic: "⚔", campos: [
       ["n", "Nome", "texto"], ["tipo", "Tipo", "select", [{ v: "branca", l: "Branca" }, { v: "fogo", l: "De fogo" }]],
       ["dano", "Dano", "texto", null, "1d8"], ["attr", "Atributo", "select", [{ v: "For", l: "Força" }, { v: "Des", l: "Destreza" }]],
-      ["kw", "Palavra-chave", "texto", null, "Ágil, Perfurante…"], ["preco", "Preço (CG)", "numero"],
+      ["kw", "Palavras-chave", "kwpick"],
+      ["preco", "Preço (CG)", "numero"],
       ["desc", "Descrição", "area"]] },
     armadura: { rot: "Armadura", ic: "🛡", campos: [
       ["n", "Nome", "texto"], ["t", "Peso", "select", [{ v: "leve", l: "Leve" }, { v: "media", l: "Média" }, { v: "pesada", l: "Pesada" }]],
@@ -3571,6 +3600,24 @@ async function painelAdmin(voltarPara = "racas") {
     const fechar2 = () => ov2.remove();
     const campo = ([k, lbl, t, ops, ph]) => {
       const v = it[k];
+      if (t === "kwpick") {
+        const sel = String(v || "").split(/,|·/).map((x) => x.trim()).filter(Boolean);
+        return `<div class="kw-campo"><label style="margin-bottom:4px">${lbl}</label>
+          <p class="regra">Marque quantas quiser. As que têm <span class="auto-tag">automático</span> o app aplica sozinho no combate.</p>
+          <div class="kw-pick">${Object.keys(PALAVRAS_CHAVE).sort((x, y) => x.localeCompare(y)).map((nome) => {
+            const def = PALAVRAS_CHAVE[nome]; const marcado = sel.includes(nome);
+            const autos = [];
+            if (def.aoAcertar) autos.push(`aplica ${def.aoAcertar.cond}`);
+            if (def.ignoraArmadura) autos.push(`ignora ${def.ignoraArmadura} de armadura`);
+            if ((def.efeitos || []).length) autos.push("modifica o ataque");
+            if (def.props?.agil) autos.push("usa Destreza");
+            if (def.props?.area) autos.push("área");
+            return `<label class="kw-op ${marcado ? "on" : ""}">
+              <input type="checkbox" data-kw="${esc(nome)}" ${marcado ? "checked" : ""}/>
+              <span class="kw-op-txt"><b>${esc(nome)}</b>
+                <span>${esc(KEYWORDS[nome] || "sem descrição")}</span>
+                ${autos.length ? `<span class="auto-tag">${esc(autos.join(" · "))}</span>` : ""}</span></label>`; }).join("")}</div></div>`;
+      }
       if (t === "area") return `<label>${lbl}<textarea data-k="${k}" rows="3">${esc(v || "")}</textarea></label>`;
       if (t === "select") return `<label>${lbl}<select data-k="${k}">${(ops || []).map((o) => `<option value="${o.v}" ${v === o.v ? "selected" : ""}>${o.l}</option>`).join("")}</select></label>`;
       if (t === "numero") return `<label>${lbl}<input data-k="${k}" type="number" value="${v ?? ""}"/></label>`;
@@ -3582,7 +3629,8 @@ async function painelAdmin(voltarPara = "racas") {
       ov2.innerHTML = `<div class="ss-painel" style="width:640px;max-width:96vw;margin:auto;border:1px solid var(--line);border-radius:10px;max-height:94vh">
         <div class="mp-topo"><b>${esq.ic} ${existente ? "Editar" : "Novo"} ${esq.rot.toLowerCase()}</b><button id="it-x" class="mp-x" style="margin-left:auto">✕</button></div>
         <div class="di-corpo">
-          <div class="ed-grade">${esq.campos.filter((c) => c[2] !== "area").map(campo).join("")}</div>
+          <div class="ed-grade">${esq.campos.filter((c) => c[2] !== "area" && c[2] !== "kwpick").map(campo).join("")}</div>
+          ${esq.campos.filter((c) => c[2] === "kwpick").map(campo).join("")}
           ${esq.campos.filter((c) => c[2] === "area").map(campo).join("")}
           ${blocoEfeitos(it)}
           ${faltaNome ? `<div class="ed-erros">Dê um nome ao ${esq.rot.toLowerCase()}.</div>` : ""}
@@ -3598,6 +3646,13 @@ async function painelAdmin(voltarPara = "racas") {
         const ev = el.tagName === "SELECT" ? "onchange" : "oninput";
         el[ev] = () => { it[k] = isNum ? (el.value === "" ? undefined : +el.value) : el.value;
           const bt = ov2.querySelector("#it-salvar"); if (bt && k === "n") bt.disabled = !String(it.n || "").trim(); };
+      });
+      ov2.querySelectorAll("[data-kw]").forEach((cb) => cb.onchange = () => {
+        const atuais = String(it.kw || "").split(/,|·/).map((x) => x.trim()).filter(Boolean);
+        const nome = cb.dataset.kw;
+        const novos = cb.checked ? [...new Set([...atuais, nome])] : atuais.filter((x) => x !== nome);
+        it.kw = novos.join(", ");
+        cb.closest(".kw-op")?.classList.toggle("on", cb.checked);
       });
       ligarEfeitos(ov2, it, pintar2);
       ov2.querySelector("#it-salvar").onclick = async () => {
