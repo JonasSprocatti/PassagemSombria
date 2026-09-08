@@ -1217,3 +1217,18 @@ html,body{max-width:100%;overflow-x:hidden}
 .kw-op-txt span{color:var(--dim);font-size:10.5px;line-height:1.45;display:block}
 .kw-op-txt .auto-tag{margin-top:3px;display:inline-block}
 .inv.ajustado{box-shadow:inset 3px 0 0 var(--chrome)}
+
+/* Progressão de dano por nível */
+.escala-box{background:var(--panel2);border-radius:7px;padding:9px 11px;margin:8px 0}
+.escala-linha{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0 4px}
+.escala-faixa{display:flex;flex-direction:column;align-items:center;border:1px solid var(--line);
+  border-radius:6px;padding:5px 11px;min-width:66px}
+.escala-faixa i{font-style:normal;font-size:9px;color:var(--dim);text-transform:uppercase;letter-spacing:.06em}
+.escala-faixa b{font-family:'Chakra Petch',sans-serif;font-size:16px;color:var(--chrome)}
+.escala-faixa.atual{border-color:var(--tech);background:rgba(89,227,200,.11)}
+.escala-faixa.atual b{color:var(--tech)}
+.escala-edit{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}
+.escala-edit .escala-faixa{min-width:96px;gap:3px}
+.escala-edit .escala-faixa .dim{font-size:9px}
+.escala-edit input{background:var(--void);border:1px solid var(--line);color:var(--chrome);
+  border-radius:4px;padding:3px;font-family:'Chakra Petch',sans-serif;font-size:15px}

@@ -597,6 +597,18 @@ function shell(titulo, corpo, ativo = "") {
 // síncrono e não pode esperar um import dinâmico.
 const CONTEUDO_EXTRA = { implantes: [], armaduras: [], armas: [], consumiveis: [], naves: [], npcs: [] };
 // Etiquetas de palavra-chave que explicam o que fazem — em vez do nome solto.
+// Mostra a progressão de dano de uma arma que escala por nível.
+function escalaTabela(cat, nivelAtual = null) {
+  if (!cat?.escala) return "";
+  const marcos = Object.keys(cat.escala).map(Number).sort((a, b) => a - b);
+  const faixas = [{ de: 1, ate: marcos[0] - 1, d: cat.dano }];
+  marcos.forEach((m, i) => faixas.push({ de: m, ate: marcos[i + 1] ? marcos[i + 1] - 1 : 10, d: cat.escala[String(m)] }));
+  return faixas.map((f2) => {
+    const ativa = nivelAtual != null && nivelAtual >= f2.de && nivelAtual <= f2.ate;
+    return `<span class="escala-faixa ${ativa ? "atual" : ""}"><i>NV ${f2.de}${f2.ate > f2.de ? `–${f2.ate}` : ""}</i><b>${esc(f2.d)}</b></span>`;
+  }).join("");
+}
+
 function etiquetasKw(cat, { detalhado = false } = {}) {
   const chaves = chavesDaArma(cat);
   if (!chaves.length) return "";
@@ -1140,9 +1152,10 @@ async function telaFicha(id) {
                     ${it.equip ? `<span class="best-tag" style="color:var(--tech);border-color:var(--tech)">EQUIPADO</span>` : ""}
                   </summary>
                   ${imgFig(it.nome)}
-                  ${cat && cat.dano ? `<p class="regra"><b class="chrome">Dano:</b> ${danoArma(cat, f.nivel)}${cat.escala ? ` <span class="dim">(escala: ${cat.dano} → ${Object.entries(cat.escala).map(([nv, dd]) => `NV${nv} ${dd}`).join(" → ")})</span>` : ""} ·
+                  ${cat && cat.dano ? `<p class="regra"><b class="chrome">Dano:</b> ${danoArma(cat, f.nivel)} ·
                     <b>Rolagem:</b> 1d20 + ${cat.attr} + ${esc(cat.per)}</p>` : ""}
                   ${cat && cat.cd != null ? `<p class="regra"><b class="chrome">Defesa:</b> +${cat.cd} de CD (${esc(cat.t)})${cat.e ? ` · ${esc(cat.e)}` : ""}</p>` : ""}
+                  ${cat && cat.escala ? `<div class="escala-box"><b class="tech-c">↗ Dano por nível</b><div class="escala-linha">${escalaTabela(cat, f.nivel)}</div></div>` : ""}
                   ${cat && cat.kw ? etiquetasKw(cat, { detalhado: true }) : ""}
                   ${pr && (pr.area || pr.alcance) ? `<p class="regra">${pr.area ? `◎ Área: ${esc(pr.areaTxt)}` : ""}${pr.area && pr.alcance ? " · " : ""}${pr.alcance ? `⟿ Alcance: ${esc(pr.alcanceTxt)}` : ""}</p>` : ""}
                   ${cs ? `<p class="regra"><b class="tech-c">${esc(cs.acao)}:</b> ${esc(cs.d)}</p>` : ""}
@@ -1367,7 +1380,7 @@ async function telaFicha(id) {
       let itens;
       if (cat === "consumivel") itens = CONSUMIVEIS.map((c) => ({ nome: c.n, preco: c.p, sub: `${c.ic} ${c.acao} · ${c.d}` }));
       else if (cat === "municao") itens = Object.entries(TIPOS_PENTE).map(([k2, t2]) => ({ nome: `Pente ${t2.n}`, preco: t2.p, sub: `${t2.ic} ${t2.d}`, pente: k2 }));
-      else if (cat === "arma") itens = ARMAS.filter((a) => a.preco).map((a) => ({ nome: a.n, preco: a.preco, sub: `${a.dano} · ${a.kw || a.tipo}` }));
+      else if (cat === "arma") itens = todasArmas().filter((a) => a.preco).map((a) => ({ nome: a.n, preco: a.preco, sub: `${danoArma(a, f.nivel)}${a.escala ? " ↗" : ""} · ${a.kw || a.tipo}` }));
       else if (cat === "armadura") itens = ARMADURAS.filter((a) => a.preco).map((a) => ({ nome: a.n, preco: a.preco, sub: `${a.t} · +${a.cd} CD${a.e ? " · " + a.e : ""}` }));
       else itens = Object.values(IMPLANTES).filter((i) => i.p).map((i) => ({ nome: i.n, preco: i.p, sub: `${i.g} · ${i.e}`, jaTem: f.implantes.includes(i.n) }));
       itens.sort((a, b) => a.preco - b.preco);
@@ -1608,7 +1621,7 @@ async function telaMesa(id) {
                 title="${camp.combate.naveEmCena ? "A nave está em cena: painel, postos e avarias aparecem" : "Traga a nave para a cena em combates espaciais ou de abordagem"}">
                 🚀 ${camp.combate.naveEmCena ? "Nave em cena — tirar" : "Trazer a nave para a cena"}</button></div>` : ""}
             ${souMestre ? `<div class="cb-add">
-              <select id="cb-quem"><optgroup label="Jogadores">${(pers || []).map((p) => `<option value="j:${p.id}">${esc(p.nome) || "sem nome"}</option>`).join("")}</optgroup>${camp.bestiario.length ? `<optgroup label="Minhas criaturas">${camp.bestiario.map((b, ci) => `<option value="c:${ci}">${esc(b.n)} · ${b.ameaca}</option>`).join("")}</optgroup>` : ""}<optgroup label="Inimigos (bestiário)">${BESTIARIO.map((b, bi) => b.ambiental ? "" : `<option value="e:${bi}">${esc(b.n)} · ${b.ameaca}</option>`).join("")}</optgroup><optgroup label="Naves inimigas">${NAVES.map((n, ni) => `<option value="ni:${ni}">🚀 ${esc(n.n)}</option>`).join("")}</optgroup></select>
+              <select id="cb-quem"><optgroup label="Jogadores">${(pers || []).map((p) => `<option value="j:${p.id}">${esc(p.nome) || "sem nome"}</option>`).join("")}</optgroup>${camp.bestiario.length ? `<optgroup label="Minhas criaturas">${camp.bestiario.map((b, ci) => `<option value="c:${ci}">${esc(b.n)} · ${b.ameaca}</option>`).join("")}</optgroup>` : ""}<optgroup label="Inimigos (bestiário)">${todasCriaturas().map((b, bi) => b.ambiental ? "" : `<option value="e:${bi}">${esc(b.n)} · ${b.ameaca}</option>`).join("")}</optgroup><optgroup label="Naves inimigas">${NAVES.map((n, ni) => `<option value="ni:${ni}">🚀 ${esc(n.n)}</option>`).join("")}</optgroup></select>
               <button id="cb-add-btn" class="mini">🎲 Add</button><button id="cb-criar" class="mini" title="Criar/editar criaturas do Mestre">🐉</button></div>
             <div class="cb-ctrl"><button id="cb-undo" class="mini" title="Desfazer a última ação">↶</button><button id="cb-prox" class="mini eq">▶ Próximo turno</button><button id="cb-timer" class="mini" title="Cronômetro do turno">⏱</button><button id="cb-fim" class="mini rm">⏹ Encerrar</button></div><div id="cb-timer-out" class="cb-timer"></div>` : ""}`}
           </section>` : ""}
@@ -2644,7 +2657,7 @@ async function telaMesa(id) {
           nome: iguais ? `${base.n} #${iguais + 1}` : base.n, ini: d(20) + (base.manobra || 0),
           casco: base.casco, casco_max: base.casco, escudos: base.escudos, escudos_max: base.escudos,
           manobra: base.manobra, dano: base.dano });
-      } else { const b = v.startsWith("c:") ? camp.bestiario[+v.slice(2)] : BESTIARIO[+v.slice(2)]; if (!b) return;
+      } else { const b = v.startsWith("c:") ? camp.bestiario[+v.slice(2)] : todasCriaturas()[+v.slice(2)]; if (!b) return;
         const iguais = camp.combate.ordem.filter((x) => x.nome.replace(/ #\d+$/, "") === b.n).length;
         camp.combate.ordem.push({ id: cbId(), nome: iguais ? `${b.n} #${iguais + 1}` : b.n, ini: d(20), hp: b.hp, hp_max: b.hp, cd: b.cd, tipo: "inimigo", ameaca: b.ameaca, ataques: b.ataques });
       }
@@ -3203,9 +3216,12 @@ function telaBiblioteca(aba = "racas") {
     ${c.hab.map((h) => `<p><b class="tech-c">${h.tipo} — ${esc(h.n)}:</b> ${esc(h.d)}</p>`).join("")}
     <p><b class="chrome">★ Veterana (NV5) — ${esc(c.vet.n)}:</b> ${esc(c.vet.d)}</p></details>`).join("");
   if (aba === "armas") corpo = ["branca", "fogo"].map((t) => `<h3 class="sub">${t === "branca" ? "⚔ Armas Brancas (1d20 + For + Armas Brancas)" : "🔫 Armas de Fogo (1d20 + Des + Armas de Fogo)"}</h3>` +
-    [...ARMAS, ...extras("armas")].filter((a) => a.tipo === t).map((a) => `<details class="det grande"><summary>${img(a.n)}<b>${esc(a.n)}</b> · <b class="chrome">${a.dano}</b>${a.preco ? ` · ${a.preco} CG` : ""}</summary>
+    todasArmas().filter((a) => a.tipo === t).map((a) => `<details class="det grande"><summary>${img(a.n)}<b>${esc(a.n)}</b> · <b class="chrome">${a.dano}${a.escala ? "↗" : ""}</b>${a.preco ? ` · ${a.preco} CG` : ""}${a._ajustado ? ` <span class="best-tag" style="color:var(--chrome);border-color:var(--chrome)">ajustada</span>` : ""}</summary>
       ${imgFig(a.n)}
       <p class="regra">Rola <b>1d20 + ${a.attr === "Des" ? "Destreza" : "Força"} + ${esc(a.per)}</b> · dano <b>${a.dano} + ${a.attr}</b></p>
+      ${a.escala ? `<div class="escala-box"><b class="tech-c">↗ Dano por nível</b>
+        <div class="escala-linha">${escalaTabela(a)}</div>
+        <p class="regra">Esta arma acompanha a sua carreira: o dado sobe nos marcos abaixo.</p></div>` : ""}
       ${a.kw ? etiquetasKw(a, { detalhado: true }) : `<p class="regra"><i>Sem palavras-chave.</i></p>`}
       ${a.desc ? `<p>${esc(a.desc)}</p>` : ""}</details>`).join("")).join("");
   if (aba === "armaduras") corpo = todasArmaduras().map((a) => `<details class="det grande"><summary>${img(a.n)}<b>${esc(a.n)}</b> · CD +${a.cd} <span class="dim">(${a.t})</span>${a.preco ? ` · <b class="chrome">${a.preco} CG</b>` : ""}</summary>${a.e ? `<p class="regra"><b>Efeito:</b> ${esc(a.e)}</p>` : ""}${a.desc ? `<p>${esc(a.desc)}</p>` : ""}</details>`).join("");
@@ -3230,9 +3246,9 @@ function telaBiblioteca(aba = "racas") {
       <p class="regra">Um acerto crítico ou um dano massivo no Casco dispara uma avaria. Elas só saem com reparo.</p>`
       + AVARIAS.map((av) => `<div class="det"><b>${av.d} — ${esc(av.n)}</b><br><span class="regra">${esc(av.e)}</span></div>`).join("");
   if (aba === "bestiario") { const base = ["Crias do Vazio", "Inimigos das Raças", "Heranças das Estrelas"];
-    const cats = [...base, ...[...new Set(extras("criaturas").map((c) => c.categoria))].filter((c) => c && !base.includes(c))];
+    const cats = [...base, ...[...new Set(todasCriaturas().map((c) => c.categoria))].filter((c) => c && !base.includes(c))];
     const legenda = `<p class="regra">Ordene as fichas por ameaça: ${Object.entries(NIVEIS_AMEACA).map(([n, v]) => `<span class="best-tag" style="color:${v.cor};border-color:${v.cor}">${n}</span>`).join(" ")}</p>`;
-    corpo = legenda + cats.map((cat) => { const lista = [...BESTIARIO, ...extras("criaturas")].filter((c) => c.categoria === cat).sort((a, b) => (NIVEIS_AMEACA[a.ameaca]?.ordem || 0) - (NIVEIS_AMEACA[b.ameaca]?.ordem || 0));
+    corpo = legenda + cats.map((cat) => { const lista = todasCriaturas().filter((c) => c.categoria === cat).sort((a, b) => (NIVEIS_AMEACA[a.ameaca]?.ordem || 0) - (NIVEIS_AMEACA[b.ameaca]?.ordem || 0));
       const desc = { "Crias do Vazio": "Os invasores de fora da realidade — escalonados de lacaios a chefes.", "Inimigos das Raças": "Adversários de cada povo do sistema, em três níveis de dificuldade.", "Heranças das Estrelas": "Fauna exoplanetária e quimeras do mercado negro do Caminho da Espiral." }[cat];
       return `<h3 class="sub">${esc(cat)} <span class="dim">(${lista.length})</span></h3><p class="regra">${esc(desc)}</p>${lista.map(cardCriatura).join("")}`; }).join(""); }
   if (aba === "npcs") {
@@ -3335,24 +3351,44 @@ async function painelAdmin(voltarPara = "racas") {
         : `<p class="regra"><i>Nenhuma imagem vinculada ainda.</i></p>`}`;
   };
   const painelCriaturas = () => {
-    const cs = C.conteudo().criaturas;
-    return `<p class="regra">Criaturas próprias, que aparecem no Bestiário e no rastreador de combate para toda a mesa.
-      Habilidades marcadas com <span class="auto-tag">automático</span> são aplicadas pelo app no momento certo — você não precisa lembrar delas na sessão.</p>
-      <button id="adm-cri-nova" class="mini eq">➕ Nova criatura</button>
-      ${cs.length ? cs.map((c) => { const autos = (c.habs || []).filter((h) => h.efeito).length;
-        return `<div class="inv"><span><b>${esc(c.n)}</b> · ${esc(c.categoria || "—")} · ${esc(c.ameaca || "—")} · HP ${c.hp ?? "?"}
-          ${autos ? `<span class="auto-tag">${autos} automática(s)</span>` : ""}</span>
-          <button class="mini" data-cri-ed="${c._id}" title="Editar">✎</button>
-          <button class="mini rm" data-cri-del="${c._id}">✕</button></div>`; }).join("")
-        : `<p class="regra"><i>Nenhuma criatura própria.</i></p>`}`;
+    const criadas = C.conteudo().criaturas || [];
+    const nativas = C.comAjustes(BESTIARIO, "criatura");
+    const termo = filtroTipo.toLowerCase();
+    const filtra = (arr) => termo ? arr.filter((x) => `${x.n} ${x.categoria || ""} ${x.ameaca || ""}`.toLowerCase().includes(termo)) : arr;
+    const cartao = (c, nativa) => { const autos = (c.habs || []).filter((h) => h.efeito).length;
+      const nv = NIVEIS_AMEACA[c.ameaca] || { cor: "var(--dim)" };
+      return `<div class="inv ${c._ajustado ? "ajustado" : ""}">
+        <span><b>${esc(c.n)}</b>
+          <span class="best-tag" style="color:${nv.cor};border-color:${nv.cor}">${esc(c.ameaca || "—")}</span>
+          <span class="dim">${esc(c.categoria || "")}${c.hp != null ? ` · HP ${c.hp}` : ""}${c.cd != null ? ` · CD ${c.cd}` : ""}</span>
+          ${autos ? `<span class="auto-tag">${autos} automática(s)</span>` : ""}
+          ${c._ajustado ? `<span class="best-tag" style="color:var(--chrome);border-color:var(--chrome)">ajustada</span>` : ""}</span>
+        <button class="mini" data-cri-ed="${nativa ? "n:" + esc(c.n) : c._id}" title="Editar">✎</button>
+        ${nativa
+          ? (c._ajustado ? `<button class="mini rm" data-restaurar="${c._ajusteId}" title="Voltar ao original do livro">↺</button>` : "")
+          : `<button class="mini rm" data-cri-del="${c._id}">✕</button>`}</div>`; };
+    const lNat = filtra(nativas), lCri = filtra(criadas);
+    // agrupa as nativas por categoria, como no Bestiário
+    const porCat = {};
+    lNat.forEach((c) => (porCat[c.categoria || "Outras"] = porCat[c.categoria || "Outras"] || []).push(c));
+    return `<p class="regra">Todas as criaturas do jogo. As do livro podem ser ajustadas — o original é preservado e o ↺ desfaz.
+      Habilidades com <span class="auto-tag">automático</span> o app aplica sozinho no combate.</p>
+      <div class="filtros" style="margin-bottom:8px">
+        <button id="adm-cri-nova" class="mini eq">➕ Nova criatura</button>
+        <input id="adm-filtro" placeholder="Filtrar por nome, categoria ou ameaça…" value="${esc(filtroTipo)}" style="flex:1;min-width:150px"/></div>
+      ${lCri.length ? `<h4 class="adm-dono">Criadas por você <span class="dim">(${lCri.length})</span></h4>${lCri.map((c) => cartao(c, false)).join("")}` : ""}
+      ${Object.keys(porCat).length ? Object.entries(porCat).map(([cat, arr]) =>
+        `<h4 class="adm-dono">${esc(cat)} <span class="dim">(${arr.length})</span></h4>${arr.map((c) => cartao(c, true)).join("")}`).join("")
+        : `<p class="regra"><i>Nada encontrado.</i></p>`}`;
   };
 
   // -------------------------------------------------------------------------
   //  EDITOR DE CRIATURA — ataques e habilidades com efeitos que o app executa.
   // -------------------------------------------------------------------------
-  async function editorCriatura(existente) {
+  async function editorCriatura(existente, nativa = null) {
     const M = await criaturaMod();
-    const c = existente ? JSON.parse(JSON.stringify(existente))
+    const base = nativa || existente;
+    const c = base ? JSON.parse(JSON.stringify(base))
       : { n: "", categoria: "Personalizado", ameaca: "Comum", hp: 20, cd: 12, desloc: 9, nota: "", ataques: [], habs: [] };
     c.ataques = c.ataques || []; c.habs = c.habs || [];
 
@@ -3400,7 +3436,7 @@ async function painelAdmin(voltarPara = "racas") {
     const pintar2 = () => {
       const erros = M.validar(c);
       ov2.innerHTML = `<div class="ss-painel" style="width:660px;max-width:96vw;margin:auto;border:1px solid var(--line);border-radius:10px;max-height:94vh">
-        <div class="mp-topo"><b>🐉 ${existente ? "Editar" : "Nova"} criatura</b><button id="ed-x" class="mp-x" style="margin-left:auto">✕</button></div>
+        <div class="mp-topo"><b>🐉 ${nativa ? `Ajustar ${esc(nativa.n || "")}` : existente ? "Editar criatura" : "Nova criatura"}</b>${nativa ? `<span class="dim" style="font-size:11px">criatura do livro — o original é preservado</span>` : ""}<button id="ed-x" class="mp-x" style="margin-left:auto">✕</button></div>
         <div class="di-corpo">
           <h4>Identidade</h4>
           <div class="ed-grade">
@@ -3487,7 +3523,20 @@ async function painelAdmin(voltarPara = "racas") {
 
       ov2.querySelector("#ed-salvar").onclick = async () => {
         if (M.validar(c).length) return;
-        if (await salvar("criatura", c, null, existente?._id)) { fechar2(); pintar(); }
+        if (nativa) {
+          const orig = nativa._orig || nativa;
+          const dif = {};
+          for (const k of Object.keys(c)) {
+            if (k.startsWith("_")) continue;
+            if (JSON.stringify(c[k]) !== JSON.stringify(orig[k])) dif[k] = c[k];
+          }
+          if (!Object.keys(dif).length) return fechar2();
+          const linha = { tipo: "ajuste", chave: `criatura:${orig.n}`, dados: { dados_ajustados: dif },
+            criado_por: usuario.id, atualizado_em: new Date().toISOString() };
+          const { error } = await sb.from("conteudo").upsert(linha, { onConflict: "tipo,chave" });
+          if (error) return alert("Não consegui salvar o ajuste: " + error.message);
+          await recarregar(); sincronizarExtra(); fechar2(); pintar();
+        } else if (await salvar("criatura", c, null, existente?._id)) { fechar2(); pintar(); }
       };
     };
     document.body.appendChild(ov2); pintar2();
@@ -3570,6 +3619,7 @@ async function painelAdmin(voltarPara = "racas") {
     arma: { rot: "Arma", ic: "⚔", campos: [
       ["n", "Nome", "texto"], ["tipo", "Tipo", "select", [{ v: "branca", l: "Branca" }, { v: "fogo", l: "De fogo" }]],
       ["dano", "Dano", "texto", null, "1d8"], ["attr", "Atributo", "select", [{ v: "For", l: "Força" }, { v: "Des", l: "Destreza" }]],
+      ["escala", "Progressão por nível", "escala"],
       ["kw", "Palavras-chave", "kwpick"],
       ["preco", "Preço (CG)", "numero"],
       ["desc", "Descrição", "area"]] },
@@ -3614,6 +3664,23 @@ async function painelAdmin(voltarPara = "racas") {
     const fechar2 = () => ov2.remove();
     const campo = ([k, lbl, t, ops, ph]) => {
       const v = it[k];
+      if (t === "escala") {
+        const esc2 = it.escala || {};
+        const marcos = Object.keys(esc2).map(Number).sort((x, y) => x - y);
+        return `<div class="kw-campo"><label style="margin-bottom:4px">${lbl}</label>
+          <p class="regra">Deixe vazio para dano fixo. Preenchendo, a arma passa a subir de dado nos níveis indicados —
+            é assim que funcionam as Tatuagens de Nano-Enxame, e qualquer arma pode ter isso.</p>
+          <div class="escala-edit">
+            <div class="escala-faixa"><i>NV 1+</i><b>${esc(it.dano || "—")}</b><span class="dim">dano base</span></div>
+            ${[5, 9].map((nv) => `<div class="escala-faixa ${esc2[nv] ? "atual" : ""}">
+              <i>a partir do NV ${nv}</i>
+              <input data-escala="${nv}" value="${esc(esc2[nv] || "")}" placeholder="—" style="width:74px;text-align:center"/>
+            </div>`).join("")}
+            ${marcos.filter((m) => ![5, 9].includes(m)).map((m) => `<div class="escala-faixa atual">
+              <i>a partir do NV ${m}</i><input data-escala="${m}" value="${esc(esc2[m])}" style="width:74px;text-align:center"/></div>`).join("")}
+          </div>
+          <p class="regra">Marcos sugeridos: <b>5</b> (Veterano) e <b>9</b> (Lenda), os mesmos da progressão de carreira.</p></div>`;
+      }
       if (t === "kwpick") {
         const sel = String(v || "").split(/,|·/).map((x) => x.trim()).filter(Boolean);
         return `<div class="kw-campo"><label style="margin-bottom:4px">${lbl}</label>
@@ -3660,6 +3727,12 @@ async function painelAdmin(voltarPara = "racas") {
         const ev = el.tagName === "SELECT" ? "onchange" : "oninput";
         el[ev] = () => { it[k] = isNum ? (el.value === "" ? undefined : +el.value) : el.value;
           const bt = ov2.querySelector("#it-salvar"); if (bt && k === "n") bt.disabled = !String(it.n || "").trim(); };
+      });
+      ov2.querySelectorAll("[data-escala]").forEach((el) => el.oninput = () => {
+        const nv = el.dataset.escala; const v = el.value.trim();
+        it.escala = it.escala || {};
+        if (v) it.escala[nv] = v; else delete it.escala[nv];
+        if (!Object.keys(it.escala).length) delete it.escala;
       });
       ov2.querySelectorAll("[data-kw]").forEach((cb) => cb.onchange = () => {
         const atuais = String(it.kw || "").split(/,|·/).map((x) => x.trim()).filter(Boolean);
@@ -3810,7 +3883,14 @@ async function painelAdmin(voltarPara = "racas") {
     ov.querySelectorAll("[data-del]").forEach((b) => b.onclick = async () => { await apagar(b.dataset.del); pintar(); });
     ov.querySelector("#adm-cri-nova")?.addEventListener("click", () => editorCriatura(null));
     ov.querySelectorAll("[data-cri-ed]").forEach((b) => b.onclick = () => {
-      const c = C.conteudo().criaturas.find((x) => x._id === b.dataset.criEd);
+      const ref = b.dataset.criEd;
+      if (ref.startsWith("n:")) {                      // criatura do livro
+        const nome = ref.slice(2);
+        const orig = BESTIARIO.find((x) => x.n === nome); if (!orig) return;
+        const atual = C.comAjustes([orig], "criatura")[0];
+        return editorCriatura(null, { ...orig, ...atual, _orig: orig });
+      }
+      const c = C.conteudo().criaturas.find((x) => x._id === ref);
       if (c) editorCriatura(c);
     });
     ov.querySelectorAll("[data-cri-del]").forEach((b) => b.onclick = async () => { await apagar(b.dataset.criDel); pintar(); });
