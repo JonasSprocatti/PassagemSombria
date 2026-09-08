@@ -10,7 +10,8 @@ import { sb } from "./app.js";
 let cache = null;                 // { imagens: {chave: url}, criaturas: [], armas: [], mecanicas: [] }
 let carregando = null;
 
-export const conteudoVazio = () => ({ imagens: {}, criaturas: [], armas: [], mecanicas: [] });
+const TIPOS = ["criatura", "arma", "armadura", "implante", "consumivel", "nave", "npc", "mecanica"];
+export const conteudoVazio = () => { const o = { imagens: {} }; for (const t of TIPOS) o[t + "s"] = []; return o; };
 
 // Carrega uma vez por sessão. Falha silenciosa: sem banco, o app segue com os dados estáticos.
 export async function carregarConteudo(forcar = false) {
@@ -23,9 +24,7 @@ export async function carregarConteudo(forcar = false) {
       if (error) throw error;
       for (const r of data || []) {
         if (r.tipo === "imagem" && r.chave) out.imagens[r.chave.toLowerCase()] = r.dados?.url || "";
-        else if (r.tipo === "criatura") out.criaturas.push({ ...r.dados, _id: r.id, _custom: true });
-        else if (r.tipo === "arma") out.armas.push({ ...r.dados, _id: r.id, _custom: true });
-        else if (r.tipo === "mecanica") out.mecanicas.push({ ...r.dados, _id: r.id });
+        else if (TIPOS.includes(r.tipo)) out[r.tipo + "s"].push({ ...r.dados, _id: r.id, _custom: true });
       }
     } catch (_) { /* offline ou tabela ainda não criada: segue com o estático */ }
     cache = out; carregando = null; return out;

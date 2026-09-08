@@ -158,7 +158,9 @@ export function calc(f) {
   // Efeitos declarados (implantes, filosofias, raças, classes, armaduras) entram
   // por cima. É aditivo: o cálculo clássico acima continua valendo, e conteúdo
   // novo passa a funcionar sem precisar de código.
-  const fe = FichaEfeitos.de(f, { RACAS, CLASSES, FILOSOFIAS, IMPLANTES, ARMADURAS });
+  const fe = FichaEfeitos.de(f, { RACAS, CLASSES, FILOSOFIAS,
+    IMPLANTES: [...IMPLANTES, ...(CONTEUDO_EXTRA.implantes || [])],
+    ARMADURAS: [...ARMADURAS, ...(CONTEUDO_EXTRA.armaduras || [])] });
   // os quatro implantes que já estavam no cálculo clássico não podem contar duas vezes
   const jaContados = ["Chip de Expansão de RAM", "Placas Subdérmicas de Titânio"];
   fe.fontes = fe.fontes.filter((x) => !jaContados.includes(x.nome));
@@ -588,16 +590,33 @@ function shell(titulo, corpo, ativo = "") {
 }
 
 // ---------------- AUTH ----------------
+// Conteúdo cadastrado pela administração, espelhado aqui porque calc() é
+// síncrono e não pode esperar um import dinâmico.
+const CONTEUDO_EXTRA = { implantes: [], armaduras: [], armas: [], consumiveis: [], naves: [], npcs: [] };
 let CRIA = null;   // motor de criaturas (efeitos automáticos)
 async function criaturaMod() { if (!CRIA) CRIA = await import("./criaturas.js"); return CRIA; }
 // Rolagem injetada no motor: ele não conhece o app, só pede um número.
 const rolarTexto = (expr) => { const pd = parseDice(String(expr)); return pd ? rollNd(pd.n, pd.f).reduce((x, y) => x + y, 0) + pd.mod : (+expr || 0); };
 
 let CONT = null;   // módulo de conteúdo editável (carregado sob demanda)
-async function conteudoMod() { if (!CONT) { CONT = await import("./conteudo.js"); await CONT.carregarConteudo(); } return CONT; }
+async function conteudoMod() {
+  if (!CONT) { CONT = await import("./conteudo.js"); await CONT.carregarConteudo(); sincronizarExtra(); }
+  return CONT;
+}
+function sincronizarExtra() {
+  const c = CONT?.conteudo?.(); if (!c) return;
+  for (const k of Object.keys(CONTEUDO_EXTRA)) CONTEUDO_EXTRA[k] = c[k] || [];
+}
 const img = (nome) => (CONT ? CONT.thumb(nome) : "");
 const imgFig = (nome) => (CONT ? CONT.figura(nome) : "");
 const extras = (tipo) => (CONT ? CONT.conteudo()[tipo] || [] : []);
+// Listas do jogo já com o conteúdo cadastrado pela administração.
+const todasArmas = () => [...ARMAS, ...extras("armas")];
+const todasArmaduras = () => [...ARMADURAS, ...extras("armaduras")];
+const todosImplantes = () => [...IMPLANTES, ...extras("implantes")];
+const todosConsumiveis = () => [...CONSUMIVEIS, ...extras("consumiveis")];
+const todasNaves = () => [...NAVES, ...extras("naves")];
+const todosNPCs = () => [...NPCS, ...extras("npcs")];
 
 // ---------------------------------------------------------------------------
 //  AVISO COM DESFAZER — confirma depois da ação em vez de perguntar antes.
@@ -3126,12 +3145,12 @@ function telaBiblioteca(aba = "racas") {
     <p><b class="chrome">★ Veterana (NV5) — ${esc(c.vet.n)}:</b> ${esc(c.vet.d)}</p></details>`).join("");
   if (aba === "armas") corpo = ["branca", "fogo"].map((t) => `<h3 class="sub">${t === "branca" ? "⚔ Armas Brancas (1d20 + For + Armas Brancas)" : "🔫 Armas de Fogo (1d20 + Des + Armas de Fogo)"}</h3>` +
     [...ARMAS, ...extras("armas")].filter((a) => a.tipo === t).map((a) => `<details class="det"><summary>${img(a.n)}<b>${esc(a.n)}</b> · ${a.dano}${a.kw ? ` · <i>${esc(a.kw)}</i>` : ""}</summary>${imgFig(a.n)}<p>${esc(a.desc || "")}${a.attr === "Des" && a.tipo === "branca" ? "<br><b>Ágil:</b> usa Destreza." : ""}</p></details>`).join("")).join("");
-  if (aba === "armaduras") corpo = ARMADURAS.map((a) => `<details class="det grande"><summary>${img(a.n)}<b>${esc(a.n)}</b> · CD +${a.cd} <span class="dim">(${a.t})</span>${a.preco ? ` · <b class="chrome">${a.preco} CG</b>` : ""}</summary>${a.e ? `<p class="regra"><b>Efeito:</b> ${esc(a.e)}</p>` : ""}${a.desc ? `<p>${esc(a.desc)}</p>` : ""}</details>`).join("");
-  if (aba === "implantes") corpo = IMPLANTES.map((i) => `<div class="det"><b>${esc(i.n)}</b> · <b class="chrome">${i.p} CG</b> <span class="dim">(${i.g})</span> — ${esc(i.e)}</div>`).join("");
+  if (aba === "armaduras") corpo = todasArmaduras().map((a) => `<details class="det grande"><summary>${img(a.n)}<b>${esc(a.n)}</b> · CD +${a.cd} <span class="dim">(${a.t})</span>${a.preco ? ` · <b class="chrome">${a.preco} CG</b>` : ""}</summary>${a.e ? `<p class="regra"><b>Efeito:</b> ${esc(a.e)}</p>` : ""}${a.desc ? `<p>${esc(a.desc)}</p>` : ""}</details>`).join("");
+  if (aba === "implantes") corpo = todosImplantes().map((i) => `<div class="det"><b>${esc(i.n)}</b> · <b class="chrome">${i.p} CG</b> <span class="dim">(${i.g})</span> — ${esc(i.e)}</div>`).join("");
   if (aba === "scripts") corpo = SCRIPTS.map((s) => `<details class="det grande"><summary><b>${esc(s.n)}</b> <i class="sombra-c">${s.c}◈ ${esc(s.a)}</i></summary><p class="regra"><b>Efeito:</b> ${esc(s.d)}</p>${s.lore ? `<p>${esc(s.lore)}</p>` : ""}</details>`).join("");
   if (aba === "filosofias") corpo = Object.entries(FILOSOFIAS).map(([n, x]) => `<details class="det grande"><summary><b>${esc(n)}</b>${x.apelido ? ` <i class="dim">${esc(x.apelido)}</i>` : ""}${x.freq ? ` <span class="best-tag">1x/desc. ${esc(x.freq)}</span>` : ""}</summary>${x.lore ? `<p>${esc(x.lore)}</p>` : ""}<p class="regra"><b class="tech-c">Mecânica:</b> ${esc(x.d)}</p></details>`).join("");
   if (aba === "naves") corpo = `<p class="regra">${esc(REGRAS_NAVE.defesa)}<br>${esc(REGRAS_NAVE.dobra)}<br>${esc(REGRAS_NAVE.critico)}</p>` +
-    NAVES.map((n) => `<details class="det grande"><summary><b>${esc(n.n)}</b> · Casco ${n.casco} · Escudos ${n.escudos} · Manobra ${sign(n.manobra)} · Dano ${n.dano}</summary>
+    todasNaves().map((n) => `<details class="det grande"><summary><b>${esc(n.n)}</b> · Casco ${n.casco} · Escudos ${n.escudos} · Manobra ${sign(n.manobra)} · Dano ${n.dano}</summary>
     <p>${esc(n.desc)}</p><p class="regra">Tripulação: ${esc(n.trip)}</p></details>`).join("") +
     `<h3 class="sub">Estações de Batalha</h3>` + Object.values(ESTACOES).map((e) => `<div class="det"><b>${esc(e.n)}</b>${e.acoes.map((a) => `<p><b class="tech-c">${esc(a.n)}${a.rola ? ` (${a.rola.join("+")})` : ""}:</b> ${esc(a.d)}</p>`).join("")}</div>`).join("")
     + `<h3 class="sub">🛠 Manutenção e reparo</h3>
@@ -3155,7 +3174,7 @@ function telaBiblioteca(aba = "racas") {
       return `<h3 class="sub">${esc(cat)} <span class="dim">(${lista.length})</span></h3><p class="regra">${esc(desc)}</p>${lista.map(cardCriatura).join("")}`; }).join(""); }
   if (aba === "npcs") {
     const porPapel = {};
-    NPCS.forEach((n) => (porPapel[n.papel] = porPapel[n.papel] || []).push(n));
+    todosNPCs().forEach((n) => (porPapel[n.papel] = porPapel[n.papel] || []).push(n));
     corpo = `<p class="regra">Figuras prontas para o Mestre puxar numa cena social: o que oferecem, o que querem e o segredo que guardam.</p>`
       + Object.entries(porPapel).map(([papel, lista]) => { const p = PAPEIS[papel] || { ic: "•", cor: "#8189a3" };
         return `<h3 class="sub">${p.ic} ${esc(papel)} <span class="dim">(${lista.length})</span></h3>` + lista.map((n) => `
@@ -3170,7 +3189,7 @@ function telaBiblioteca(aba = "racas") {
           </details>`).join(""); }).join("");
   }
   if (aba === "consumiveis") corpo = `<p class="regra">Itens de uso único. Gastam-se ao serem usados e pedem um alvo quando curam — na mesa, pelo botão <b>🎒 Usar item</b>.</p>`
-    + CONSUMIVEIS.map((c) => `<details class="det grande"><summary>${img(c.n)}<b>${c.ic} ${esc(c.n)}</b> · <b class="chrome">${c.p} CG</b> <span class="dim">(${esc(c.acao)})</span></summary>${imgFig(c.n)}<p>${esc(c.d)}</p>${c.dado ? `<p class="regra"><b class="tech-c">Efeito:</b> cura ${c.dado} no alvo.</p>` : ""}</details>`).join("");
+    + todosConsumiveis().map((c) => `<details class="det grande"><summary>${img(c.n)}<b>${c.ic} ${esc(c.n)}</b> · <b class="chrome">${c.p} CG</b> <span class="dim">(${esc(c.acao)})</span></summary>${imgFig(c.n)}<p>${esc(c.d)}</p>${c.dado ? `<p class="regra"><b class="tech-c">Efeito:</b> cura ${c.dado} no alvo.</p>` : ""}</details>`).join("");
   if (aba === "mecanicas") {
     const ms = extras("mecanicas");
     corpo = `<p class="regra">Regras, mecânicas e conteúdo acrescentados pela administração da mesa — sempre em dia com a última versão do livro.</p>`
@@ -3410,6 +3429,171 @@ async function painelAdmin(voltarPara = "racas") {
     };
     document.body.appendChild(ov2); pintar2();
   }
+  // -------------------------------------------------------------------------
+  //  EDITOR DE EFEITOS — componente reutilizável. Qualquer item do jogo (arma,
+  //  armadura, implante, consumível, nave, NPC) declara efeitos por aqui, e o
+  //  motor passa a aplicá-los sozinho. Sem código, sem esperar por deploy.
+  // -------------------------------------------------------------------------
+  const TIPOS_EFEITO = [
+    { v: "atributo", l: "△ Modifica atributo" },
+    { v: "defesa", l: "🛡 Modifica Defesa" },
+    { v: "ram", l: "◈ Modifica RAM" },
+    { v: "iniciativa", l: "🎯 Modifica Iniciativa" },
+    { v: "deslocamento", l: "🏃 Modifica Deslocamento" },
+    { v: "pericia", l: "% Modifica perícia" },
+    { v: "conjuracao", l: "⚡ Modifica Conjuração" },
+    { v: "acerto", l: "◎ Modifica acerto de ataque" },
+    { v: "dano", l: "💥 Modifica dano de ataque" },
+    { v: "vantagem", l: "▲ Concede Vantagem" },
+    { v: "imunidade", l: "🚫 Concede imunidade" },
+    { v: "recurso", l: "★ Habilidade por descanso" },
+  ];
+  const camposDoEfeito = (e, i) => {
+    const num = (k, lbl, val, ph) => `<label>${lbl}<input data-ef="${i}" data-c="${k}" type="number" value="${val ?? ""}" placeholder="${ph || ""}"/></label>`;
+    const txt = (k, lbl, val, ph) => `<label>${lbl}<input data-ef="${i}" data-c="${k}" value="${esc(val || "")}" placeholder="${ph || ""}"/></label>`;
+    const sel = (k, lbl, val, ops) => `<label>${lbl}<select data-ef="${i}" data-c="${k}">${ops.map((o) => `<option value="${o.v}" ${val === o.v ? "selected" : ""}>${o.l}</option>`).join("")}</select></label>`;
+    const CONTRA = [{ v: "", l: "sempre" }, { v: "branca", l: "só armas brancas" }, { v: "fogo", l: "só armas de fogo" }, { v: "robos", l: "só contra sintéticos" }];
+    switch (e.tipo) {
+      case "atributo": return sel("attr", "Atributo", e.attr, ["For", "Des", "Con", "Int", "Sab", "Car"].map((a) => ({ v: a, l: a }))) + num("valor", "Quanto", e.valor, "ex: 2");
+      case "pericia": return sel("pericia", "Perícia", e.pericia, PERICIAS.map(([p]) => ({ v: p, l: p }))) + num("valor", "Quanto", e.valor);
+      case "deslocamento": return sel("modo", "Como", e.modo || "soma", [{ v: "soma", l: "soma metros" }, { v: "dobra", l: "dobra o total" }]) + (e.modo === "dobra" ? "" : num("valor", "Metros", e.valor));
+      case "acerto": case "dano": return num("valor", "Quanto", e.valor) + sel("contra", "Quando", e.contra || "", CONTRA);
+      case "vantagem": return sel("em", "Em que", e.em || "ataque", [{ v: "ataque", l: "ataques" }, { v: "pericia", l: "uma perícia" }]) + (e.em === "pericia" ? sel("pericia", "Qual", e.pericia, PERICIAS.map(([p]) => ({ v: p, l: p }))) : "");
+      case "imunidade": return txt("a", "Imune a", e.a, "queda, ser derrubado, Cegueira…");
+      case "recurso": return txt("n", "Nome", e.n, "Fôlego de Aço") + sel("freq", "Recarrega em", e.freq || "longo", [{ v: "curto", l: "descanso curto" }, { v: "longo", l: "descanso longo" }, { v: "sessao", l: "por sessão" }]);
+      default: return num("valor", "Quanto", e.valor, "ex: 2");
+    }
+  };
+  // Devolve o HTML do bloco de efeitos e liga os eventos depois via ligarEfeitos.
+  const blocoEfeitos = (item) => {
+    item.efeitos = item.efeitos || [];
+    return `<h4 style="margin-top:14px">⚙ Efeitos automáticos <button class="mini" data-ef-add="1">＋</button></h4>
+      <p class="regra">O que o app deve aplicar sozinho. Deixe vazio se o item for só narrativo — o texto continua aparecendo para a mesa.</p>
+      ${item.efeitos.length ? item.efeitos.map((e, i) => `<div class="ed-item auto">
+        <div class="ed-grade">
+          <label>O que faz<select data-ef="${i}" data-c="tipo">${TIPOS_EFEITO.map((t) => `<option value="${t.v}" ${e.tipo === t.v ? "selected" : ""}>${t.l}</option>`).join("")}</select></label>
+          <label>Quando<select data-ef="${i}" data-c="momento">
+            <option value="ficha" ${(e.momento || "ficha") === "ficha" ? "selected" : ""}>Sempre (nos números da ficha)</option>
+            <option value="ao_atacar" ${e.momento === "ao_atacar" ? "selected" : ""}>Ao atacar</option>
+            <option value="ao_sofrer" ${e.momento === "ao_sofrer" ? "selected" : ""}>Ao sofrer dano</option></select></label>
+        </div>
+        <div class="ed-grade ed-efeito">${camposDoEfeito(e, i)}</div>
+        <button class="mini rm" data-ef-del="${i}">remover efeito</button></div>`).join("")
+        : `<p class="regra"><i>Nenhum efeito automático.</i></p>`}
+      ${(() => { const erros = item.efeitos.length ? validarEfeitos(item.efeitos) : [];
+        return erros.length ? `<div class="ed-erros"><b>Ajuste antes de salvar:</b><ul>${erros.map((x) => `<li>${esc(x)}</li>`).join("")}</ul></div>` : ""; })()}`;
+  };
+  const ligarEfeitos = (raiz, item, repintar) => {
+    raiz.querySelector("[data-ef-add]")?.addEventListener("click", () => {
+      item.efeitos = item.efeitos || []; item.efeitos.push({ tipo: "defesa", valor: 1, momento: "ficha" }); repintar(); });
+    raiz.querySelectorAll("[data-ef-del]").forEach((b) => b.onclick = () => { item.efeitos.splice(+b.dataset.efDel, 1); repintar(); });
+    raiz.querySelectorAll("[data-ef]").forEach((el) => {
+      const e = item.efeitos[+el.dataset.ef]; if (!e) return;
+      const c = el.dataset.c;
+      const grande = ["tipo", "momento", "modo", "em"].includes(c);
+      const ev = grande ? "onchange" : (el.tagName === "SELECT" ? "onchange" : "oninput");
+      el[ev] = () => {
+        let v = el.value;
+        if (["valor"].includes(c)) v = v === "" ? undefined : +v;
+        if (c === "tipo") { item.efeitos[+el.dataset.ef] = { tipo: v, momento: e.momento || "ficha" }; return repintar(); }
+        if (v === "" || v === undefined) delete e[c]; else e[c] = v;
+        if (grande) repintar();
+      };
+    });
+  };
+
+  // Esquema de cada tipo de conteúdo: só os campos próprios; efeitos são comuns.
+  const ESQUEMAS = {
+    arma: { rot: "Arma", ic: "⚔", campos: [
+      ["n", "Nome", "texto"], ["tipo", "Tipo", "select", [{ v: "branca", l: "Branca" }, { v: "fogo", l: "De fogo" }]],
+      ["dano", "Dano", "texto", null, "1d8"], ["attr", "Atributo", "select", [{ v: "For", l: "Força" }, { v: "Des", l: "Destreza" }]],
+      ["kw", "Palavra-chave", "texto", null, "Ágil, Perfurante…"], ["preco", "Preço (CG)", "numero"],
+      ["desc", "Descrição", "area"]] },
+    armadura: { rot: "Armadura", ic: "🛡", campos: [
+      ["n", "Nome", "texto"], ["t", "Peso", "select", [{ v: "leve", l: "Leve" }, { v: "media", l: "Média" }, { v: "pesada", l: "Pesada" }]],
+      ["cd", "Bônus de CD", "numero"], ["preco", "Preço (CG)", "numero"], ["e", "Efeito (texto)", "texto"], ["desc", "Descrição", "area"]] },
+    implante: { rot: "Implante", ic: "⧉", campos: [
+      ["n", "Nome", "texto"], ["g", "Local", "select", [{ v: "Cabeça", l: "Cabeça" }, { v: "Torso", l: "Torso" }, { v: "Membros", l: "Membros" }, { v: "Olhos", l: "Olhos" }]],
+      ["p", "Preço (CG)", "numero"], ["e", "Efeito (texto)", "texto"]] },
+    consumivel: { rot: "Consumível", ic: "🎒", campos: [
+      ["n", "Nome", "texto"], ["ic", "Ícone", "texto", null, "✚"], ["p", "Preço (CG)", "numero"],
+      ["acao", "Ação necessária", "select", [{ v: "Ação Principal", l: "Ação Principal" }, { v: "Ação de Movimento", l: "Ação de Movimento" }, { v: "Ação Livre", l: "Ação Livre" }]],
+      ["efeito", "Efeito mecânico", "select", [{ v: "nenhum", l: "Nenhum (narrativo)" }, { v: "cura", l: "Cura" }, { v: "ram", l: "Recupera RAM" }, { v: "condicao", l: "Aplica condição" }, { v: "sangramento", l: "Estanca sangramento" }]],
+      ["dado", "Dado (se cura)", "texto", null, "1d8"], ["cond", "Condição (se aplica)", "texto"],
+      ["turnos", "Turnos", "numero"], ["d", "Descrição", "area"]] },
+    nave: { rot: "Nave", ic: "🚀", campos: [
+      ["n", "Nome", "texto"], ["casco", "Casco", "numero"], ["escudos", "Escudos", "numero"],
+      ["manobra", "Manobrabilidade", "numero"], ["dano", "Dano", "texto", null, "4d10"],
+      ["trip", "Tripulação", "texto"], ["desc", "Descrição", "area"]] },
+    npc: { rot: "NPC", ic: "👤", campos: [
+      ["n", "Nome", "texto"], ["papel", "Papel", "select", Object.keys(PAPEIS).map((p) => ({ v: p, l: p }))],
+      ["raca", "Raça", "texto"], ["local", "Onde encontrar", "texto"], ["faccao", "Facção", "texto"],
+      ["atitude", "Atitude", "select", [{ v: "Amigável", l: "Amigável" }, { v: "Neutro", l: "Neutro" }, { v: "Frio", l: "Frio" }, { v: "Hostil", l: "Hostil" }]],
+      ["gancho", "Gancho de cena", "area"], ["fala", "Uma fala típica", "texto"],
+      ["oferece", "O que oferece", "texto"], ["quer", "O que quer", "texto"], ["segredo", "Segredo (só o Mestre)", "area"]] },
+  };
+
+  async function editorItem(tipo, existente) {
+    const esq = ESQUEMAS[tipo];
+    const it = existente ? JSON.parse(JSON.stringify(existente)) : { efeitos: [] };
+    const ov2 = document.createElement("div"); ov2.className = "ss-overlay ov-modal"; ov2.style.zIndex = "10010";
+    const fechar2 = () => ov2.remove();
+    const campo = ([k, lbl, t, ops, ph]) => {
+      const v = it[k];
+      if (t === "area") return `<label>${lbl}<textarea data-k="${k}" rows="3">${esc(v || "")}</textarea></label>`;
+      if (t === "select") return `<label>${lbl}<select data-k="${k}">${(ops || []).map((o) => `<option value="${o.v}" ${v === o.v ? "selected" : ""}>${o.l}</option>`).join("")}</select></label>`;
+      if (t === "numero") return `<label>${lbl}<input data-k="${k}" type="number" value="${v ?? ""}"/></label>`;
+      return `<label>${lbl}<input data-k="${k}" value="${esc(v || "")}" placeholder="${esc(ph || "")}"/></label>`;
+    };
+    const pintar2 = () => {
+      const faltaNome = !String(it.n || "").trim();
+      const errosEf = (it.efeitos || []).length ? validarEfeitos(it.efeitos) : [];
+      ov2.innerHTML = `<div class="ss-painel" style="width:640px;max-width:96vw;margin:auto;border:1px solid var(--line);border-radius:10px;max-height:94vh">
+        <div class="mp-topo"><b>${esq.ic} ${existente ? "Editar" : "Novo"} ${esq.rot.toLowerCase()}</b><button id="it-x" class="mp-x" style="margin-left:auto">✕</button></div>
+        <div class="di-corpo">
+          <div class="ed-grade">${esq.campos.filter((c) => c[2] !== "area").map(campo).join("")}</div>
+          ${esq.campos.filter((c) => c[2] === "area").map(campo).join("")}
+          ${blocoEfeitos(it)}
+          ${faltaNome ? `<div class="ed-erros">Dê um nome ao ${esq.rot.toLowerCase()}.</div>` : ""}
+        </div>
+        <div class="cri-rodape"><button id="it-cancel" class="mini">Cancelar</button>
+          <span class="cri-dica">${(it.efeitos || []).length} efeito(s) automático(s)</span>
+          <button id="it-salvar" class="btn-primario" ${faltaNome || errosEf.length ? "disabled" : ""}>${existente ? "Salvar" : "Criar"}</button></div></div>`;
+      ov2.querySelector("#it-x").onclick = fechar2;
+      ov2.querySelector("#it-cancel").onclick = fechar2;
+      ov2.querySelectorAll("[data-k]").forEach((el) => {
+        const k = el.dataset.k;
+        const isNum = esq.campos.find((c) => c[0] === k)?.[2] === "numero";
+        const ev = el.tagName === "SELECT" ? "onchange" : "oninput";
+        el[ev] = () => { it[k] = isNum ? (el.value === "" ? undefined : +el.value) : el.value;
+          const bt = ov2.querySelector("#it-salvar"); if (bt && k === "n") bt.disabled = !String(it.n || "").trim(); };
+      });
+      ligarEfeitos(ov2, it, pintar2);
+      ov2.querySelector("#it-salvar").onclick = async () => {
+        if (!String(it.n || "").trim()) return;
+        // completa o que o app espera para cada tipo
+        if (tipo === "arma") { it.tipo = it.tipo || "branca"; it.per = it.tipo === "fogo" ? "Armas de Fogo" : "Armas Brancas"; it.attr = it.attr || "For"; }
+        if (tipo === "npc") it.papel = it.papel || "Contato";
+        if (await salvar(tipo, it, null, existente?._id)) { fechar2(); pintar(); }
+      };
+    };
+    document.body.appendChild(ov2); pintar2();
+  }
+
+  // Painel genérico de listagem para os tipos acima.
+  const painelTipo = (tipo) => {
+    const esq = ESQUEMAS[tipo];
+    const lista = C.conteudo()[tipo + "s"] || [];
+    return `<p class="regra">${esq.rot}s próprios, disponíveis para toda a mesa. Itens com efeitos declarados são aplicados automaticamente pelo app.</p>
+      <button class="mini eq" data-novo="${tipo}">➕ ${esq.ic} Novo ${esq.rot.toLowerCase()}</button>
+      ${lista.length ? lista.map((x) => `<div class="inv"><span><b>${esc(x.n)}</b>
+        ${x.preco || x.p ? `<span class="chrome">${x.preco || x.p} CG</span>` : ""}
+        ${(x.efeitos || []).length ? `<span class="auto-tag">${x.efeitos.length} automático(s)</span>` : ""}</span>
+        <button class="mini" data-ed="${tipo}|${x._id}">✎</button>
+        <button class="mini rm" data-del="${x._id}">✕</button></div>`).join("")
+        : `<p class="regra"><i>Nenhum cadastrado.</i></p>`}`;
+  };
+
   const painelArmas = () => {
     const as = C.conteudo().armas;
     return `<p class="regra">Armas próprias, que entram no Arsenal e ficam disponíveis nas fichas.</p>
@@ -3429,17 +3613,17 @@ async function painelAdmin(voltarPara = "racas") {
       : (tipo === "imagem" ? sb.from("conteudo").upsert(linha, { onConflict: "tipo,chave" }) : sb.from("conteudo").insert(linha));
     const { error } = await q;
     if (error) { alert("Não consegui salvar: " + error.message); return false; }
-    await recarregar(); return true;
+    await recarregar(); sincronizarExtra(); return true;
   };
   const apagar = async (id2) => { const { error } = await sb.from("conteudo").delete().eq("id", id2); if (error) return alert("Não consegui apagar: " + error.message); await recarregar(); };
 
   const pintar = () => {
-    const abas = [["pessoas", "👥 Personagens"], ["imagens", "🖼 Imagens"], ["criaturas", "🐉 Criaturas"], ["armas", "⚔ Armas"], ["mecanicas", "📜 Mecânicas"]];
+    const abas = [["pessoas", "👥 Personagens"], ["imagens", "🖼 Imagens"], ["criaturas", "🐉 Criaturas"], ["arma", "⚔ Armas"], ["armadura", "🛡 Armaduras"], ["implante", "⧉ Implantes"], ["consumivel", "🎒 Consumíveis"], ["nave", "🚀 Naves"], ["npc", "👤 NPCs"], ["mecanicas", "📜 Mecânicas"]];
     ov.innerHTML = `<div class="ss-painel" style="width:680px;max-width:96vw;margin:auto;border:1px solid var(--line);border-radius:10px;max-height:94vh">
       <div class="mp-topo"><b>🛠 Administrar conteúdo</b><button id="adm-x" class="mp-x" style="margin-left:auto">✕</button></div>
       <div class="filtros" style="padding:8px 14px;border-bottom:1px solid var(--line);flex-wrap:wrap">
         ${abas.map(([k, l]) => `<button class="mini ${abaA === k ? "on" : ""}" data-adm="${k}">${l}</button>`).join("")}</div>
-      <div class="di-corpo">${({ pessoas: painelPessoas, imagens: painelImagens, criaturas: painelCriaturas, armas: painelArmas, mecanicas: painelMecanicas }[abaA])()}</div></div>`;
+      <div class="di-corpo">${ESQUEMAS[abaA] ? painelTipo(abaA) : ({ pessoas: painelPessoas, imagens: painelImagens, criaturas: painelCriaturas, mecanicas: painelMecanicas }[abaA])()}</div></div>`;
     ov.querySelector("#adm-x").onclick = fechar;
     ov.querySelectorAll("[data-adm]").forEach((b) => b.onclick = () => { abaA = b.dataset.adm; pintar(); });
     const busca = ov.querySelector("#adm-busca");
@@ -3469,6 +3653,13 @@ async function painelAdmin(voltarPara = "racas") {
       if (error) return alert(error.message); await recarregar(); pintar();
     });
 
+    ov.querySelectorAll("[data-novo]").forEach((b) => b.onclick = () => editorItem(b.dataset.novo, null));
+    ov.querySelectorAll("[data-ed]").forEach((b) => b.onclick = () => {
+      const [tipo, id2] = b.dataset.ed.split("|");
+      const x = (C.conteudo()[tipo + "s"] || []).find((y) => y._id === id2);
+      if (x) editorItem(tipo, x);
+    });
+    ov.querySelectorAll("[data-del]").forEach((b) => b.onclick = async () => { await apagar(b.dataset.del); pintar(); });
     ov.querySelector("#adm-cri-nova")?.addEventListener("click", () => editorCriatura(null));
     ov.querySelectorAll("[data-cri-ed]").forEach((b) => b.onclick = () => {
       const c = C.conteudo().criaturas.find((x) => x._id === b.dataset.criEd);
