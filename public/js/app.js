@@ -1367,7 +1367,13 @@ async function telaFicha(id) {
       registrar(`▲ NÍVEL ${novoNv - 1} → ${novoNv}! Vida: ${detalhe} = +${ganhoPV} PV (agora ${f.pvMax}). Ganhos: ${extras.join(" · ")}`);
       await salvar(); render();
       $("#st").textContent = `Nível ${novoNv}! +${ganhoPV} PV ✓ (salvo)`;
-      cenaNivel(novoNv, ganhoPV, detalhe, extras);
+      // Armas com progressão que mudaram de dado neste nível merecem aviso:
+      // é um ganho real que passaria despercebido no meio dos números.
+      const subiram = (f.inventario || []).map((it) => todasArmas().find((w) => w.n === it.nome))
+        .filter((w) => w && w.escala && danoArma(w, novoNv) !== danoArma(w, novoNv - 1))
+        .map((w) => `${w.n.replace("Nano-Tatuagem: ", "")}: ${danoArma(w, novoNv - 1)} → ${danoArma(w, novoNv)}`);
+      if (subiram.length) registrar(`↗ Armas evoluíram — ${subiram.join(" · ")}.`);
+      cenaNivel(novoNv, ganhoPV, detalhe, [...extras, ...subiram.map((x) => `↗ ${x}`)]);
     });
     app.querySelectorAll(".ck-impl").forEach((c) => c.onchange = () => {
       f.implantes = c.checked ? [...f.implantes, c.dataset.n] : f.implantes.filter((x) => x !== c.dataset.n); (autoSalvar(), render()); });
@@ -3525,17 +3531,9 @@ async function painelAdmin(voltarPara = "racas") {
         if (M.validar(c).length) return;
         if (nativa) {
           const orig = nativa._orig || nativa;
-          const dif = {};
-          for (const k of Object.keys(c)) {
-            if (k.startsWith("_")) continue;
-            if (JSON.stringify(c[k]) !== JSON.stringify(orig[k])) dif[k] = c[k];
-          }
+          const dif = diferencas(c, orig);
           if (!Object.keys(dif).length) return fechar2();
-          const linha = { tipo: "ajuste", chave: `criatura:${orig.n}`, dados: { dados_ajustados: dif },
-            criado_por: usuario.id, atualizado_em: new Date().toISOString() };
-          const { error } = await sb.from("conteudo").upsert(linha, { onConflict: "tipo,chave" });
-          if (error) return alert("Não consegui salvar o ajuste: " + error.message);
-          await recarregar(); sincronizarExtra(); fechar2(); pintar();
+          if (await salvarAjuste("criatura", orig.n, dif)) { fechar2(); pintar(); }
         } else if (await salvar("criatura", c, null, existente?._id)) { fechar2(); pintar(); }
       };
     };
@@ -3748,18 +3746,10 @@ async function painelAdmin(voltarPara = "racas") {
         if (tipo === "arma") { it.tipo = it.tipo || "branca"; it.per = it.tipo === "fogo" ? "Armas de Fogo" : "Armas Brancas"; it.attr = it.attr || "For"; }
         if (tipo === "npc") it.papel = it.papel || "Contato";
         if (nativo) {
-          // Guarda só o que mudou em relação ao original — o item do livro fica intacto.
-          const dif = {};
-          for (const k of Object.keys(it)) {
-            if (k.startsWith("_")) continue;
-            if (JSON.stringify(it[k]) !== JSON.stringify(nativo[k])) dif[k] = it[k];
-          }
+          const orig = nativo._orig || nativo;
+          const dif = diferencas(it, orig);
           if (!Object.keys(dif).length) return fechar2();
-          const linha = { tipo: "ajuste", chave: `${tipo}:${nativo.n || nativo.nome}`,
-            dados: { dados_ajustados: dif }, criado_por: usuario.id, atualizado_em: new Date().toISOString() };
-          const { error } = await sb.from("conteudo").upsert(linha, { onConflict: "tipo,chave" });
-          if (error) return alert("Não consegui salvar o ajuste: " + error.message);
-          await recarregar(); sincronizarExtra(); fechar2(); pintar();
+          if (await salvarAjuste(tipo, orig.n || orig.nome, dif)) { fechar2(); pintar(); }
         } else if (await salvar(tipo, it, null, existente?._id)) { fechar2(); pintar(); }
       };
     };
@@ -3814,10 +3804,37 @@ async function painelAdmin(voltarPara = "racas") {
       ${ms.length ? ms.map((m) => `<div class="inv"><span><b>${esc(m.titulo)}</b>${m.cat ? ` · ${esc(m.cat)}` : ""}</span><button class="mini" data-mec-ed="${m._id}">✎</button><button class="mini rm" data-mec-del="${m._id}">✕</button></div>`).join("") : `<p class="regra"><i>Nenhuma mecânica cadastrada.</i></p>`}`;
   };
 
+  // Grava um ajuste sobre item nativo. Procura antes de gravar em vez de usar
+  // ON CONFLICT: assim funciona mesmo que o índice de unicidade não exista.
+  const salvarAjuste = async (tipo, nome, dif) => {
+    const chave = `${tipo}:${nome}`;
+    const { data: ja } = await sb.from("conteudo").select("id").eq("tipo", "ajuste").eq("chave", chave).maybeSingle();
+    const linha = { tipo: "ajuste", chave, dados: { dados_ajustados: dif },
+      criado_por: usuario.id, atualizado_em: new Date().toISOString() };
+    const { error } = ja
+      ? await sb.from("conteudo").update(linha).eq("id", ja.id)
+      : await sb.from("conteudo").insert(linha);
+    if (error) { alert("Não consegui salvar o ajuste: " + error.message); return false; }
+    await recarregar(); sincronizarExtra(); return true;
+  };
+  // O que mudou em relação ao original — só isso é guardado.
+  const diferencas = (novo, orig) => {
+    const dif = {};
+    for (const k of Object.keys(novo)) {
+      if (k.startsWith("_")) continue;
+      if (JSON.stringify(novo[k]) !== JSON.stringify(orig[k])) dif[k] = novo[k];
+    }
+    return dif;
+  };
+
   const salvar = async (tipo, dados, chave = null, id2 = null) => {
     const linha = { tipo, chave, dados, criado_por: usuario.id, atualizado_em: new Date().toISOString() };
-    const q = id2 ? sb.from("conteudo").update(linha).eq("id", id2)
-      : (tipo === "imagem" ? sb.from("conteudo").upsert(linha, { onConflict: "tipo,chave" }) : sb.from("conteudo").insert(linha));
+    let q;
+    if (id2) q = sb.from("conteudo").update(linha).eq("id", id2);
+    else if (tipo === "imagem" && chave) {
+      const { data: ja } = await sb.from("conteudo").select("id").eq("tipo", "imagem").eq("chave", chave).maybeSingle();
+      q = ja ? sb.from("conteudo").update(linha).eq("id", ja.id) : sb.from("conteudo").insert(linha);
+    } else q = sb.from("conteudo").insert(linha);
     const { error } = await q;
     if (error) { alert("Não consegui salvar: " + error.message); return false; }
     await recarregar(); sincronizarExtra(); return true;
