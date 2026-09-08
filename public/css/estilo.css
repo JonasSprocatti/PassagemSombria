@@ -1232,3 +1232,6 @@ html,body{max-width:100%;overflow-x:hidden}
 .escala-edit .escala-faixa .dim{font-size:9px}
 .escala-edit input{background:var(--void);border:1px solid var(--line);color:var(--chrome);
   border-radius:4px;padding:3px;font-family:'Chakra Petch',sans-serif;font-size:15px}
+.hab-ativa{border-color:var(--sombra)!important;color:var(--sombra)!important}
+.hab-ativa:hover:not(:disabled){background:rgba(167,139,250,.14)!important}
+.hab-ativa.gasta{opacity:.4;text-decoration:line-through}

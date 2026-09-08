@@ -22,14 +22,25 @@ export const RACAS = [
    {
     "n": "Alta Velocidade e Metabolismo",
     "d": "O deslocamento base do Mercusys é o dobro do normal. Possuem regeneração acelerada (recuperam 1d4 de Vida extra num descanso curto). Contra: Precisam de consumir o dobro das rações diárias; se não o fizerem, sofrem 1 nível de exaustão e perdem acesso à regeneração."
+   ,
+    "tipo": "Passiva",
+    "freq": "passiva",
+    "efeitos": [{"tipo":"deslocamento","modo":"dobra"}]
    },
    {
     "n": "Leitura Sensitiva",
     "d": "Ao tocar numa superfície, objeto ou líquido, podem identificar imediatamente a sua composição elementar básica e detetar venenos ou ácidos."
+   ,
+    "tipo": "Ativa",
+    "freq": "curto"
    },
    {
     "n": "Resistência ao Calor",
     "d": "Imunes a dano por fogo ambiental e temperaturas extremas. Contra: Sofrem desvantagem em rolagens físicas em qualquer ambiente abaixo de 25°C."
+   ,
+    "tipo": "Passiva",
+    "freq": "passiva",
+    "efeitos": [{"tipo":"imunidade","a":"fogo ambiental e calor extremo"}]
    }
   ],
   "lendaria": {
@@ -58,6 +69,9 @@ export const RACAS = [
    {
     "n": "Air Shifter",
     "d": "O Ven'y pode ativar um efeito respirando um gás dominante durante 6 minutos (ou 2 minutos com cilindro concentrado). O efeito dura até 1 minuto após a troca de ar."
+   ,
+    "tipo": "Ativa",
+    "freq": "combate"
    }
   ],
   "lendaria": {
@@ -86,10 +100,16 @@ export const RACAS = [
    {
     "n": "Alta Adaptabilidade",
     "d": "O terráqueo é uma tela em branco. Ao criar o personagem, o jogador recebe +2 pontos para distribuir livremente entre quaisquer Atributos (For, Des, Con, Int, Sab, Car) e +3 pontos para distribuir em Perícias."
+   ,
+    "tipo": "Passiva",
+    "freq": "passiva"
    },
    {
     "n": "Gambiarra",
     "d": "Uma vez por dia, o terráqueo pode transformar 3 itens inúteis (sucata, fios, pedaços de metal) em um item funcional temporário (como uma arma branca simples, um comunicador de curto alcance ou um kit de primeiros socorros improvisado)."
+   ,
+    "tipo": "Ativa",
+    "freq": "longo"
    }
   ],
   "lendaria": {
@@ -118,10 +138,16 @@ export const RACAS = [
    {
     "n": "Êxtase da Batalha (Adrenalina ou DHEA)",
     "d": "O metabolismo marciano armazena hormônios de combate. Como Ação Livre, o jogador ativa o Êxtase. Jogue 1d6: se cair 1-3 (Adrenalina de Phobos), ganha +2 de Dano Físico e +3m de Deslocamento. Se cair 4-6 (DHEA de Deimos), a mente esfria, ganhando +2 em rolagens de Ataque à Distância e ignorando penalidades de cobertura. Dura 4 turnos."
+   ,
+    "tipo": "Ativa",
+    "freq": "curto"
    },
    {
     "n": "Endurecer",
     "d": "Como Ação de Movimento, enrijece os músculos. Recebe redução de dano de -2 contra qualquer ataque físico por 4 turnos."
+   ,
+    "tipo": "Ativa",
+    "freq": "combate"
    }
   ],
   "lendaria": {
@@ -150,14 +176,25 @@ export const RACAS = [
    {
     "n": "Física de Motor",
     "d": "Devido à densidade de seus corpos, eles recebem +2 de bônus natural em sua Classe de Defesa (CD) contra tentativas de empurrões ou arremessos, e podem carregar o triplo do peso que o seu atributo de Força normalmente permitiria."
+   ,
+    "tipo": "Passiva",
+    "freq": "passiva",
+    "efeitos": [{"tipo":"dano","valor":2,"contra":"branca","momento":"ao_atacar"}]
    },
    {
     "n": "Engenharia de Bordo",
     "d": "Recebem um bônus permanente de +2 nas perícias Pilotagem e Mecânica."
+   ,
+    "tipo": "Passiva",
+    "freq": "passiva",
+    "efeitos": [{"tipo":"pericia","pericia":"Pilotagem","valor":2},{"tipo":"pericia","pericia":"Mecânica","valor":2}]
    },
    {
     "n": "Conta da Confederação",
     "d": "O Conjupitero possui uma credencial de cristal de diamante que funciona em toda a galáxia. Em qualquer loja ou negociação, o Mestre deve aplicar um desconto passivo de 10% no valor dos itens."
+   ,
+    "tipo": "Passiva",
+    "freq": "passiva"
    }
   ],
   "lendaria": {
@@ -186,14 +223,23 @@ export const RACAS = [
    {
     "n": "Cura Genética",
     "d": "1 vez por dia, através de micro-incisões e partilha genética, cura 1d8 + Sabedoria PV de um alvo. Se o dado rolar o valor máximo (8), a cura é duplicada. Se rolar 1, o Sata sofre 2 de dano pela rejeição."
+   ,
+    "tipo": "Ativa",
+    "freq": "longo"
    },
    {
     "n": "Camuflagem Cromática",
     "d": "O Sata gasta a sua Ação Principal para alterar os pigmentos da sua pele, ganhando +5 em Furtividade enquanto se mantiver imóvel ou se mover a metade da velocidade."
+   ,
+    "tipo": "Ativa",
+    "freq": "combate"
    },
    {
     "n": "Emprestar Vitalidade",
     "d": "Como Ação Livre, o Sata pode transferir até metade dos seus próprios Pontos de Vida atuais para curar um aliado em quem toque, sofrendo dano equivalente."
+   ,
+    "tipo": "Ativa",
+    "freq": "livre"
    }
   ],
   "lendaria": {
@@ -222,14 +268,24 @@ export const RACAS = [
    {
     "n": "Mímica Sonora e Proficiência",
     "d": "Memorizam perfeitamente qualquer código ou informação se for cantada. Podem imitar a voz de qualquer pessoa ou o som de qualquer alarme ou máquina após ouvirem apenas uma vez (teste de Enganação com Vantagem para iludir portas biométricas de voz)."
+   ,
+    "tipo": "Passiva",
+    "freq": "passiva"
    },
    {
     "n": "Criogénese",
     "d": "Como Ação Principal, podem focar a umidade do ar e congelá-la, criando um objeto inanimado médio (como uma chave grossa, um escudo frágil ou um martelo) que derrete ao fim de 6 turnos."
+   ,
+    "tipo": "Ativa",
+    "freq": "combate"
    },
    {
     "n": "Resistência ao Frio",
     "d": "Sobrevivem no vácuo espacial gelado. Contra: Acima de 15°C ficam stressados (-1 em testes mentais); acima de 40°C sofrem 1 de dano fixo por turno se não usarem trajes refrigerados."
+   ,
+    "tipo": "Passiva",
+    "freq": "passiva",
+    "efeitos": [{"tipo":"imunidade","a":"frio extremo e vácuo"}]
    }
   ],
   "lendaria": {
@@ -258,10 +314,16 @@ export const RACAS = [
    {
     "n": "Levantamento Mental",
     "d": "O Proturno pode usar sua Inteligência (ao invés de Força) para erguer, mover ou arremessar objetos de até 50kg a uma distância de 10 metros, usando apenas o pensamento."
+   ,
+    "tipo": "Passiva",
+    "freq": "passiva"
    },
    {
     "n": "Invasão da Sombra (Controle Mental)",
     "d": "Como Ação Principal, o Proturno tenta invadir a mente de um inimigo orgânico. O jogador e o Mestre rolam 1d20 + Sabedoria. Se o Proturno vencer, ele dita a próxima Ação Principal do alvo. Se o Proturno perder, o esforço causa uma hemorragia cerebral leve, e ele toma 2 pontos de dano fixo."
+   ,
+    "tipo": "Ativa",
+    "freq": "longo"
    }
   ],
   "lendaria": {
@@ -290,14 +352,25 @@ export const RACAS = [
    {
     "n": "Espaço e Passos Leves",
     "d": "Imunes ao vácuo e a asfixia. Podem encolher-se como Ação de Movimento; neste estado, o seu deslocamento cai para metade, mas ganham vantagem absoluta em testes de Furtividade para não fazerem ruído."
+   ,
+    "tipo": "Passiva",
+    "freq": "passiva",
+    "efeitos": [{"tipo":"imunidade","a":"vácuo e asfixia"}]
    },
    {
     "n": "Braços Telescópicos",
     "d": "Os seus ataques corpo a corpo têm um alcance natural de 10 metros, podendo agarrar inimigos ou itens a essa distância."
+   ,
+    "tipo": "Passiva",
+    "freq": "passiva",
+    "efeitos": [{"tipo":"acerto","valor":0,"momento":"ao_atacar"}]
    },
    {
     "n": "Fúria dos Desclassificados",
     "d": "Se ouvirem alguém dizer que Plutão não é um planeta durante uma batalha, entram em fúria instintiva. Crescem de tamanho, ganham +2 em todos os atributos e +3 nas rolagens de ataque/dano, mas perdem a capacidade de distinguir aliados de inimigos por 5 turnos."
+   ,
+    "tipo": "Ativa",
+    "freq": "curto"
    }
   ],
   "lendaria": {

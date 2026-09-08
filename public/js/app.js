@@ -339,6 +339,23 @@ function abilidadesDeDescanso(f) {
   if (raca?.lendaria && f.nivel >= 10) { const fr = freqDescanso(raca.lendaria) || "longo"; out.push({ id: "lend", nome: raca.lendaria.n, origem: `${raca.nome} · Lendária`, freq: fr }); }
   return out;
 }
+// Habilidades ATIVAS do personagem — as que ele declara usar em combate.
+// Reúne raça, classe, veterana e filosofia num formato único para a mesa.
+function habilidadesAtivas(f) {
+  const out = [];
+  const raca = RACAS.find((r) => r.nome === f.raca), classe = CLASSES[f.classe];
+  const add = (id, h, origem) => {
+    if (!h || h.tipo === "Passiva") return;
+    out.push({ id, nome: h.n, d: h.d || "", origem, freq: h.freq || "livre",
+               descanso: freqDescanso(h) });
+  };
+  (classe?.hab || []).forEach((h, i) => add(`cl${i}`, h, f.classe));
+  if (classe?.vet && f.nivel >= 5) add("vet", classe.vet, `${f.classe} · Veterana`);
+  (raca?.habilidades || []).forEach((h, i) => add(`ra${i}`, h, raca.nome));
+  if (raca?.lendaria && f.nivel >= 10) add("lend", raca.lendaria, `${raca.nome} · Lendária`);
+  return out;
+}
+
 // Aplica um descanso à ficha (muta f) e devolve um resumo do que foi recuperado.
 // Curto: reinicia habilidades "curto"; regen racial (Mercusys +1d4). PV normal via Kits.
 // Longo: PV cheio, RAM cheia, reinicia TODAS as habilidades (curto + longo).
@@ -1689,6 +1706,11 @@ async function telaMesa(id) {
                 return `<button class="mini atq" data-atq="${i}" title="${esc(tip)}">⚔ ${esc(a.nome)} (${cat ? danoArma(cat, f.nivel) : "—"})${pr.area ? " ◎" : ""}${pr.agil ? " ⚡" : ""}${pr.aoAcertar?.length ? " 🏷" : ""}${pr.ignoraArmadura ? " 🗡" : ""}</button>`; }).join("")}
               <select id="sel-scr">${(f.deck.length ? SCRIPTS.filter((s) => f.deck.includes(s.n)) : SCRIPTS.filter((s) => s.c === 0)).map((s) => `<option>${esc(s.n)}</option>`).join("")}</select>
               <button id="conjurar" class="mini">⚡ CONJURAR</button>
+              ${(() => { const ats = habilidadesAtivas(f);
+                return ats.map((h) => { const usada = h.descanso && f.usos?.[h.id];
+                  return `<button class="mini hab-ativa ${usada ? "gasta" : ""}" data-hab-usar="${h.id}"
+                    title="${esc(h.origem)} · ${esc(h.d)}${h.descanso ? ` (1×/descanso ${h.descanso})` : ""}"
+                    ${usada ? "disabled" : ""}>★ ${esc(h.nome.slice(0, 20))}${h.descanso ? (usada ? " ✓" : " ⟳") : ""}</button>`; }).join(""); })()}
               ${(f.inventario || []).filter((it) => ehConsumivel(it.nome) && (it.qtd || 1) > 0)
                 .map((it) => { const c = ehConsumivel(it.nome);
                   return `<button class="mini item-usa" data-item="${esc(it.nome)}" title="${esc(c.d)} · ${esc(c.acao)}">${c.ic} ${esc(it.nome.replace(/ de Batalha| de Campo| de Nanofibra|Kit de |Granada de |Granada /i, "").slice(0, 16))} <b>×${it.qtd || 1}</b></button>`; }).join("")}
@@ -2909,6 +2931,19 @@ async function telaMesa(id) {
         const t3 = TIPOS_PENTE[escolha];
         await enviar("sistema", `🔫 ${meuPers.nome} carrega um pente ${t3.ic} ${t3.n} (Ação de Movimento).`); render();
       });
+      app.querySelectorAll("[data-hab-usar]").forEach((bt) => bt.onclick = async () => {
+        const ats = habilidadesAtivas(f);
+        const h = ats.find((x) => x.id === bt.dataset.habUsar); if (!h) return;
+        if (h.descanso && f.usos?.[h.id]) return;
+        if (!(await confirmModal(`Usar ${h.nome}?\n\n${h.d}${h.descanso ? `\n\nRecarrega no descanso ${h.descanso}.` : ""}`, { okLabel: "Usar" }))) return;
+        if (h.descanso) {                       // marca como gasta até o descanso
+          const usos = { ...(meuPers.dados.usos || {}), [h.id]: true };
+          meuPers.dados = { ...meuPers.dados, usos }; f.usos = usos;
+          await sb.from("personagens").update({ dados: meuPers.dados }).eq("id", meuPers.id);
+        }
+        await enviar("sistema", `★ ${meuPers.nome} usa **${h.nome}** (${h.origem}) — ${h.d}`);
+        render();
+      });
       app.querySelectorAll(".item-usa").forEach((bt) => bt.onclick = async () => {
         const nomeItem = bt.dataset.item;
         const cfg = ehConsumivel(nomeItem); if (!cfg) return;
@@ -3644,6 +3679,14 @@ async function painelAdmin(voltarPara = "racas") {
       ["n", "Nome", "texto"], ["casco", "Casco", "numero"], ["escudos", "Escudos", "numero"],
       ["manobra", "Manobrabilidade", "numero"], ["dano", "Dano", "texto", null, "4d10"],
       ["trip", "Tripulação", "texto"], ["desc", "Descrição", "area"]] },
+    raca: { rot: "Raça", ic: "🌌", campos: [
+      ["nome", "Nome", "texto"], ["planeta", "Planeta", "texto"], ["titulo", "Epíteto", "texto"],
+      ["dadoVida", "Dado de vida (d?)", "numero"], ["vidaMod", "Modificador de vida", "numero"],
+      ["For", "Força", "numero"], ["Des", "Destreza", "numero"], ["Con", "Constituição", "numero"],
+      ["Int", "Inteligência", "numero"], ["Sab", "Sabedoria", "numero"], ["Car", "Carisma", "numero"],
+      ["lore", "Descrição", "area"]] },
+    classe: { rot: "Classe", ic: "⚔", campos: [
+      ["nome", "Nome", "texto"], ["pv", "PV base", "numero"]] },
     chave: { rot: "Palavra-chave", ic: "🏷", campos: [
       ["n", "Nome da palavra-chave", "texto", null, "Perfurante"],
       ["d", "O que significa", "area"],
@@ -3768,6 +3811,8 @@ async function painelAdmin(voltarPara = "racas") {
     arma: () => ARMAS, armadura: () => ARMADURAS, implante: () => IMPLANTES,
     consumivel: () => CONSUMIVEIS, nave: () => NAVES, npc: () => NPCS,
     criatura: () => BESTIARIO, chave: () => Object.keys(PALAVRAS_CHAVE).map((n2) => ({ n: n2, d: KEYWORDS[n2] || "" })),
+    raca: () => RACAS.map((r) => ({ ...r, n: r.nome, ...r.attrs })),
+    classe: () => Object.entries(CLASSES).map(([nome, c]) => ({ ...c, n: nome, nome })),
   };
   let filtroTipo = "";
 
@@ -3849,7 +3894,7 @@ async function painelAdmin(voltarPara = "racas") {
   const apagar = async (id2) => { const { error } = await sb.from("conteudo").delete().eq("id", id2); if (error) return alert("Não consegui apagar: " + error.message); await recarregar(); };
 
   const pintar = () => {
-    const abas = [["pessoas", "👥 Personagens"], ["imagens", "🖼 Imagens"], ["criaturas", "🐉 Criaturas"], ["arma", "⚔ Armas"], ["armadura", "🛡 Armaduras"], ["implante", "⧉ Implantes"], ["consumivel", "🎒 Consumíveis"], ["nave", "🚀 Naves"], ["npc", "👤 NPCs"], ["chave", "🏷 Palavras-chave"], ["mecanicas", "📜 Mecânicas"]];
+    const abas = [["pessoas", "👥 Personagens"], ["imagens", "🖼 Imagens"], ["criaturas", "🐉 Criaturas"], ["arma", "⚔ Armas"], ["armadura", "🛡 Armaduras"], ["implante", "⧉ Implantes"], ["consumivel", "🎒 Consumíveis"], ["nave", "🚀 Naves"], ["npc", "👤 NPCs"], ["chave", "🏷 Palavras-chave"], ["raca", "🌌 Raças"], ["classe", "⚔ Classes"], ["mecanicas", "📜 Mecânicas"]];
     ov.innerHTML = `<div class="ss-painel" style="width:680px;max-width:96vw;margin:auto;border:1px solid var(--line);border-radius:10px;max-height:94vh">
       <div class="mp-topo"><b>🛠 Administrar conteúdo</b><button id="adm-x" class="mp-x" style="margin-left:auto">✕</button></div>
       <div class="filtros" style="padding:8px 14px;border-bottom:1px solid var(--line);flex-wrap:wrap">

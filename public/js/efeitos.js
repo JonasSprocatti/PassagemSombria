@@ -90,7 +90,10 @@ export class Portador {
   constructor(nome, dados = {}, origem = "") {
     this.nome = nome; this.origem = origem;
     Object.assign(this, dados);
-    this.efeitos = normalizaEfeitos(dados.efeitos);
+    this.efeitos = normalizaEfeitos([
+      ...(Array.isArray(dados.efeitos) ? dados.efeitos : dados.efeitos ? [dados.efeitos] : []),
+      ...efeitosDeHabilidades(dados.habilidades || dados.hab || []),
+    ]);
   }
   efeitosDe(momento) {
     return this.efeitos.filter((e) => (e.momento || MOMENTOS.FICHA) === momento);
@@ -104,6 +107,11 @@ export class Portador {
 }
 
 const normalizaEfeitos = (efs) => (Array.isArray(efs) ? efs : efs ? [efs] : []).filter((e) => e && EFEITOS[e.tipo]);
+
+// Raças e classes guardam os efeitos dentro de cada habilidade passiva.
+// Esta função os reúne para o Portador tratá-los como se fossem do item.
+export const efeitosDeHabilidades = (habs = []) =>
+  habs.filter((h) => h.tipo !== "Ativa").flatMap((h) => (h.efeitos || []).map((e) => ({ ...e, _hab: h.n })));
 
 // ---------------------------------------------------------------------------
 //  FICHA — reúne todas as fontes de efeito de um personagem
