@@ -111,7 +111,7 @@ const normalizaEfeitos = (efs) => (Array.isArray(efs) ? efs : efs ? [efs] : []).
 export class FichaEfeitos {
   constructor(fontes = []) { this.fontes = fontes.filter(Boolean); }
 
-  static de(f, { RACAS, CLASSES, FILOSOFIAS, IMPLANTES, ARMADURAS }) {
+  static de(f, { RACAS, CLASSES, FILOSOFIAS, IMPLANTES, ARMADURAS, chavesDeArmasEquipadas = [] }) {
     const fontes = [];
     const r = RACAS.find((x) => x.nome === f.raca);
     if (r) fontes.push(new Portador(r.nome, r, "raça"));
@@ -126,6 +126,10 @@ export class FichaEfeitos {
     const arm = (f.inventario || []).find((i) => i.tipo === "armadura" && i.equip);
     if (arm) { const a = ARMADURAS.find((x) => x.n === arm.nome);
       if (a) fontes.push(new Portador(arm.nome, a, "armadura")); }
+    // Armas equipadas também carregam efeitos — pelas palavras-chave delas.
+    // (Aparar concede +1 de Defesa; Aderência dá Vantagem em Atletismo.)
+    for (const w of chavesDeArmasEquipadas || [])
+      fontes.push(new Portador(w.nome, { efeitos: w.efeitos }, "arma"));
     return new FichaEfeitos(fontes);
   }
 

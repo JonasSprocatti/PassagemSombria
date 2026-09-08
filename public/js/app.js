@@ -163,7 +163,12 @@ export function calc(f) {
     CLASSES: CONTEUDO_EXTRA.classes || CLASSES,
     FILOSOFIAS: CONTEUDO_EXTRA.filosofias || FILOSOFIAS,
     IMPLANTES: CONTEUDO_EXTRA.implantesTodos || IMPLANTES,
-    ARMADURAS: CONTEUDO_EXTRA.armadurasTodas || ARMADURAS });
+    ARMADURAS: CONTEUDO_EXTRA.armadurasTodas || ARMADURAS,
+    chavesDeArmasEquipadas: (f.inventario || [])
+      .filter((i) => i.equip && i.tipo === "arma")
+      .flatMap((i) => { const w = (CONTEUDO_EXTRA.armasTodas || ARMAS).find((x) => x.n === i.nome);
+        return w ? chavesDaArma(w).filter((c) => (c.efeitos || []).length)
+          .map((c) => ({ nome: `${c.nome} (${w.n})`, efeitos: c.efeitos })) : []; }) });
   // os quatro implantes que já estavam no cálculo clássico não podem contar duas vezes
   const jaContados = ["Chip de Expansão de RAM", "Placas Subdérmicas de Titânio"];
   fe.fontes = fe.fontes.filter((x) => !jaContados.includes(x.nome));
@@ -621,6 +626,7 @@ function etiquetasKw(cat, { detalhado = false } = {}) {
     if (c.props?.alcance) efs.push(c.props.alcanceTxt || "alcance");
     if (c.ignoraArmadura) efs.push(`ignora ${c.ignoraArmadura} de armadura`);
     if (c.aoAcertar) efs.push(`${c.aoAcertar.cond} ${c.aoAcertar.turnos}t`);
+    for (const e of c.efeitos || []) { const r = EFEITOS_FICHA[e.tipo]?.rotulo(e); if (r) efs.push(r); }
     const auto = efs.length > 0;
     return `<span class="kw-tag ${auto ? "auto" : ""}" title="${esc(KEYWORDS[c.nome] || c.nome)}">${esc(c.nome)}${efs.length ? ` <i>${esc(efs.join(" · "))}</i>` : ""}</span>`;
   }).join("");
@@ -648,6 +654,7 @@ function sincronizarExtra() {
   // versões completas, com os ajustes já aplicados, para o calc() usar
   CONTEUDO_EXTRA.implantesTodos = todosImplantes();
   CONTEUDO_EXTRA.armadurasTodas = todasArmaduras();
+  CONTEUDO_EXTRA.armasTodas = todasArmas();
   CONTEUDO_EXTRA.racas = CONT.comAjustes(RACAS, "raca", "nome");
   CONTEUDO_EXTRA.classes = CLASSES;
   CONTEUDO_EXTRA.filosofias = FILOSOFIAS;
