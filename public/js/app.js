@@ -4,6 +4,7 @@
 // ============================================================
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./config.js";
+import { FichaEfeitos, MOMENTOS, EFEITOS as EFEITOS_FICHA, validarEfeitos } from "./efeitos.js";
 import { RACAS, CLASSES, FILOSOFIAS, IMPLANTES, SCRIPTS, ARMAS, ARMADURAS, PERICIAS, NAVES, ESTACOES, REGRAS_NAVE, RIQUEZA, TEMAS, CONVERTE_2D8, RENOME_PERICIAS, KEYWORDS, propsArma, AVARIAS, UPGRADES_NAVE, TURNOS_POR_PENTE, PENTES_MAX, custoTiro, PENTES_INICIAIS, TIROS_POR_PENTE, TIPOS_PENTE, PENTE_PADRAO, CONSUMIVEIS, ehConsumivel } from "./dados-jogo.js";
 import { BESTIARIO, NIVEIS_AMEACA } from "./dados-bestiario.js";
 import { NPCS, PAPEIS } from "./dados-npcs.js";
@@ -153,7 +154,18 @@ export function calc(f) {
   const iniciativa = attr.Des + iniBonus;
   const deslocBase = f.raca === "Mercusys" ? 18 : 9;
   const deslocamento = deslocBase + 2 * attr.Des;
-  return { attr, per, isCin, limite, limiteOrg, carga, ramMax, ramLivre, conj, cd, armRef, deckMax, pontosDireito, pontosGastos, perDireito, perGastas, iniciativa, iniBonus, deslocBase, deslocamento };
+  const k = { attr, per, isCin, limite, limiteOrg, carga, ramMax, ramLivre, conj, cd, armRef, deckMax, pontosDireito, pontosGastos, perDireito, perGastas, iniciativa, iniBonus, deslocBase, deslocamento };
+  // Efeitos declarados (implantes, filosofias, raças, classes, armaduras) entram
+  // por cima. É aditivo: o cálculo clássico acima continua valendo, e conteúdo
+  // novo passa a funcionar sem precisar de código.
+  const fe = FichaEfeitos.de(f, { RACAS, CLASSES, FILOSOFIAS, IMPLANTES, ARMADURAS });
+  // os quatro implantes que já estavam no cálculo clássico não podem contar duas vezes
+  const jaContados = ["Chip de Expansão de RAM", "Placas Subdérmicas de Titânio"];
+  fe.fontes = fe.fontes.filter((x) => !jaContados.includes(x.nome));
+  fe.aplicarNaFicha(k);
+  k.ramLivre = Math.max(0, k.ramMax - (f.ramGasta || 0));   // recalcula após os efeitos
+  k.efeitos = fe;
+  return k;
 }
 
 // O que se ganha ao subir para o nível n (para o preview e o registro)
@@ -961,6 +973,14 @@ async function telaFicha(id) {
               ${k.ramLivre === 0 && k.ramMax > 0 ? `<span class="vb-aviso">⚠ Sem RAM — descanse para recarregar</span>` : ""}
             </div>
           </div>`; })()}
+        ${(() => { const res = k.efeitos?.resumo() || []; const imu = k.efeitos?.imunidades() || []; const rec = k.efeitos?.recursos() || [];
+          if (!res.length && !imu.length) return "";
+          return `<details class="det grande" style="margin-top:12px"><summary><b>⚙ Bônus aplicados automaticamente</b> <span class="auto-tag">${res.length}</span></summary>
+            <p class="regra">O app já soma tudo isto nos seus números. O que não aparece aqui é regra de mesa e continua com você e o Mestre.</p>
+            ${res.map((x) => `<p class="regra"><b class="tech-c">${esc(x.nome)}</b> <i class="dim">(${esc(x.origem)})</i> — ${x.efeitos.map(esc).join(" · ")}</p>`).join("")}
+            ${imu.length ? `<p class="regra"><b class="chrome">Imunidades:</b> ${imu.map(esc).join(", ")}</p>` : ""}
+            ${rec.length ? `<p class="regra"><b class="sombra-c">Recursos:</b> ${rec.map((r) => `${esc(r.n)} (${esc(r.fonte)})`).join(", ")}</p>` : ""}
+          </details>`; })()}
         <div class="linha-4" style="margin-top:12px">
           <label>PV atual<input id="pvAtual" type="number" value="${f.pvAtual}"/></label>
           <label>PV máx<input id="pvMax" type="number" value="${f.pvMax}"/></label>
