@@ -158,9 +158,12 @@ export function calc(f) {
   // Efeitos declarados (implantes, filosofias, raças, classes, armaduras) entram
   // por cima. É aditivo: o cálculo clássico acima continua valendo, e conteúdo
   // novo passa a funcionar sem precisar de código.
-  const fe = FichaEfeitos.de(f, { RACAS, CLASSES, FILOSOFIAS,
-    IMPLANTES: [...IMPLANTES, ...(CONTEUDO_EXTRA.implantes || [])],
-    ARMADURAS: [...ARMADURAS, ...(CONTEUDO_EXTRA.armaduras || [])] });
+  const fe = FichaEfeitos.de(f, {
+    RACAS: CONTEUDO_EXTRA.racas || RACAS,
+    CLASSES: CONTEUDO_EXTRA.classes || CLASSES,
+    FILOSOFIAS: CONTEUDO_EXTRA.filosofias || FILOSOFIAS,
+    IMPLANTES: CONTEUDO_EXTRA.implantesTodos || IMPLANTES,
+    ARMADURAS: CONTEUDO_EXTRA.armadurasTodas || ARMADURAS });
   // os quatro implantes que já estavam no cálculo clássico não podem contar duas vezes
   const jaContados = ["Chip de Expansão de RAM", "Placas Subdérmicas de Titânio"];
   fe.fontes = fe.fontes.filter((x) => !jaContados.includes(x.nome));
@@ -629,7 +632,13 @@ async function conteudoMod() {
 }
 function sincronizarExtra() {
   const c = CONT?.conteudo?.(); if (!c) return;
-  for (const k of Object.keys(CONTEUDO_EXTRA)) CONTEUDO_EXTRA[k] = c[k] || [];
+  for (const k of ["implantes", "armaduras", "armas", "consumiveis", "naves", "npcs"]) CONTEUDO_EXTRA[k] = c[k] || [];
+  // versões completas, com os ajustes já aplicados, para o calc() usar
+  CONTEUDO_EXTRA.implantesTodos = todosImplantes();
+  CONTEUDO_EXTRA.armadurasTodas = todasArmaduras();
+  CONTEUDO_EXTRA.racas = CONT.comAjustes(RACAS, "raca", "nome");
+  CONTEUDO_EXTRA.classes = CLASSES;
+  CONTEUDO_EXTRA.filosofias = FILOSOFIAS;
   // Palavras-chave cadastradas entram no catálogo do jogo, para que propsArma
   // as reconheça exatamente como as nativas.
   for (const ch of c.chaves || []) {
@@ -646,13 +655,16 @@ function sincronizarExtra() {
 const img = (nome) => (CONT ? CONT.thumb(nome) : "");
 const imgFig = (nome) => (CONT ? CONT.figura(nome) : "");
 const extras = (tipo) => (CONT ? CONT.conteudo()[tipo] || [] : []);
-// Listas do jogo já com o conteúdo cadastrado pela administração.
-const todasArmas = () => [...ARMAS, ...extras("armas")];
-const todasArmaduras = () => [...ARMADURAS, ...extras("armaduras")];
-const todosImplantes = () => [...IMPLANTES, ...extras("implantes")];
-const todosConsumiveis = () => [...CONSUMIVEIS, ...extras("consumiveis")];
-const todasNaves = () => [...NAVES, ...extras("naves")];
-const todosNPCs = () => [...NPCS, ...extras("npcs")];
+// Listas do jogo: itens nativos (já com os ajustes da administração aplicados
+// por cima) somados ao conteúdo criado do zero.
+const ajustar = (lista, tipo) => (CONT ? CONT.comAjustes(lista, tipo) : lista);
+const todasArmas = () => [...ajustar(ARMAS, "arma"), ...extras("armas")];
+const todasArmaduras = () => [...ajustar(ARMADURAS, "armadura"), ...extras("armaduras")];
+const todosImplantes = () => [...ajustar(IMPLANTES, "implante"), ...extras("implantes")];
+const todosConsumiveis = () => [...ajustar(CONSUMIVEIS, "consumivel"), ...extras("consumiveis")];
+const todasNaves = () => [...ajustar(NAVES, "nave"), ...extras("naves")];
+const todosNPCs = () => [...ajustar(NPCS, "npc"), ...extras("npcs")];
+const todasCriaturas = () => [...ajustar(BESTIARIO, "criatura"), ...extras("criaturas")];
 
 // ---------------------------------------------------------------------------
 //  AVISO COM DESFAZER — confirma depois da ação em vez de perguntar antes.
@@ -730,7 +742,7 @@ document.addEventListener("pointerdown", (e) => {
 // A reserva de pentes é da mochila (compartilhada), mas o pente CARREGADO vive
 // em cada arma: duas armas de fogo têm contagens independentes.
 function estadoArma(f, it) {
-  const cat = ARMAS.find((w) => w.n === it.nome);
+  const cat = todasArmas().find((w) => w.n === it.nome);
   if (!cat || cat.tipo !== "fogo") return null;
   // migração: fichas antigas tinham um único tirosPente global
   if (it.tiros == null) {
@@ -3593,9 +3605,11 @@ async function painelAdmin(voltarPara = "racas") {
       ["oferece", "O que oferece", "texto"], ["quer", "O que quer", "texto"], ["segredo", "Segredo (só o Mestre)", "area"]] },
   };
 
-  async function editorItem(tipo, existente) {
+  async function editorItem(tipo, existente, nativo = null) {
     const esq = ESQUEMAS[tipo];
-    const it = existente ? JSON.parse(JSON.stringify(existente)) : { efeitos: [] };
+    const base = nativo || existente;
+    const it = base ? JSON.parse(JSON.stringify(base)) : { efeitos: [] };
+    it.efeitos = it.efeitos || [];
     const ov2 = document.createElement("div"); ov2.className = "ss-overlay ov-modal"; ov2.style.zIndex = "10010";
     const fechar2 = () => ov2.remove();
     const campo = ([k, lbl, t, ops, ph]) => {
@@ -3627,7 +3641,7 @@ async function painelAdmin(voltarPara = "racas") {
       const faltaNome = !String(it.n || "").trim();
       const errosEf = (it.efeitos || []).length ? validarEfeitos(it.efeitos) : [];
       ov2.innerHTML = `<div class="ss-painel" style="width:640px;max-width:96vw;margin:auto;border:1px solid var(--line);border-radius:10px;max-height:94vh">
-        <div class="mp-topo"><b>${esq.ic} ${existente ? "Editar" : "Novo"} ${esq.rot.toLowerCase()}</b><button id="it-x" class="mp-x" style="margin-left:auto">✕</button></div>
+        <div class="mp-topo"><b>${esq.ic} ${nativo ? `Ajustar ${esc(nativo.n || "")}` : existente ? "Editar" : `Novo ${esq.rot.toLowerCase()}`}</b>${nativo ? `<span class="dim" style="font-size:11px">item do livro — o original é preservado</span>` : ""}<button id="it-x" class="mp-x" style="margin-left:auto">✕</button></div>
         <div class="di-corpo">
           <div class="ed-grade">${esq.campos.filter((c) => c[2] !== "area" && c[2] !== "kwpick").map(campo).join("")}</div>
           ${esq.campos.filter((c) => c[2] === "kwpick").map(campo).join("")}
@@ -3660,24 +3674,58 @@ async function painelAdmin(voltarPara = "racas") {
         // completa o que o app espera para cada tipo
         if (tipo === "arma") { it.tipo = it.tipo || "branca"; it.per = it.tipo === "fogo" ? "Armas de Fogo" : "Armas Brancas"; it.attr = it.attr || "For"; }
         if (tipo === "npc") it.papel = it.papel || "Contato";
-        if (await salvar(tipo, it, null, existente?._id)) { fechar2(); pintar(); }
+        if (nativo) {
+          // Guarda só o que mudou em relação ao original — o item do livro fica intacto.
+          const dif = {};
+          for (const k of Object.keys(it)) {
+            if (k.startsWith("_")) continue;
+            if (JSON.stringify(it[k]) !== JSON.stringify(nativo[k])) dif[k] = it[k];
+          }
+          if (!Object.keys(dif).length) return fechar2();
+          const linha = { tipo: "ajuste", chave: `${tipo}:${nativo.n || nativo.nome}`,
+            dados: { dados_ajustados: dif }, criado_por: usuario.id, atualizado_em: new Date().toISOString() };
+          const { error } = await sb.from("conteudo").upsert(linha, { onConflict: "tipo,chave" });
+          if (error) return alert("Não consegui salvar o ajuste: " + error.message);
+          await recarregar(); sincronizarExtra(); fechar2(); pintar();
+        } else if (await salvar(tipo, it, null, existente?._id)) { fechar2(); pintar(); }
       };
     };
     document.body.appendChild(ov2); pintar2();
   }
 
-  // Painel genérico de listagem para os tipos acima.
+  // Listas nativas por tipo, para o painel poder editá-las também.
+  const NATIVOS = {
+    arma: () => ARMAS, armadura: () => ARMADURAS, implante: () => IMPLANTES,
+    consumivel: () => CONSUMIVEIS, nave: () => NAVES, npc: () => NPCS,
+    criatura: () => BESTIARIO, chave: () => Object.keys(PALAVRAS_CHAVE).map((n2) => ({ n: n2, d: KEYWORDS[n2] || "" })),
+  };
+  let filtroTipo = "";
+
+  // Painel genérico: mostra o que veio no jogo e o que você criou, tudo editável.
   const painelTipo = (tipo) => {
     const esq = ESQUEMAS[tipo];
-    const lista = C.conteudo()[tipo + "s"] || [];
-    return `<p class="regra">${esq.rot}s próprios, disponíveis para toda a mesa. Itens com efeitos declarados são aplicados automaticamente pelo app.</p>
-      <button class="mini eq" data-novo="${tipo}">➕ ${esq.ic} Novo ${esq.rot.toLowerCase()}</button>
-      ${lista.length ? lista.map((x) => `<div class="inv"><span><b>${esc(x.n)}</b>
-        ${x.preco || x.p ? `<span class="chrome">${x.preco || x.p} CG</span>` : ""}
-        ${(x.efeitos || []).length ? `<span class="auto-tag">${x.efeitos.length} automático(s)</span>` : ""}</span>
-        <button class="mini" data-ed="${tipo}|${x._id}">✎</button>
-        <button class="mini rm" data-del="${x._id}">✕</button></div>`).join("")
-        : `<p class="regra"><i>Nenhum cadastrado.</i></p>`}`;
+    const criados = C.conteudo()[tipo + "s"] || [];
+    const nativos = C.comAjustes((NATIVOS[tipo] || (() => []))(), tipo);
+    const termo = filtroTipo.toLowerCase();
+    const filtra = (arr) => termo ? arr.filter((x) => String(x.n || "").toLowerCase().includes(termo)) : arr;
+    const cartao = (x, nativo) => `<div class="inv ${x._ajustado ? "ajustado" : ""}">
+      <span><b>${esc(x.n)}</b>
+        ${x.dano ? `<span class="chrome">${esc(x.dano)}</span>` : ""}
+        ${x.preco || x.p ? `<span class="dim">${x.preco || x.p} CG</span>` : ""}
+        ${(x.efeitos || []).length ? `<span class="auto-tag">${x.efeitos.length} automático(s)</span>` : ""}
+        ${x._ajustado ? `<span class="best-tag" style="color:var(--chrome);border-color:var(--chrome)">ajustado</span>` : ""}</span>
+      <button class="mini" data-ed="${tipo}|${nativo ? "n:" + esc(x.n) : x._id}" title="Editar">✎</button>
+      ${nativo
+        ? (x._ajustado ? `<button class="mini rm" data-restaurar="${x._ajusteId}" title="Voltar ao original do livro">↺</button>` : "")
+        : `<button class="mini rm" data-del="${x._id}" title="Apagar">✕</button>`}</div>`;
+    const listaNat = filtra(nativos), listaCri = filtra(criados);
+    return `<p class="regra">Tudo o que existe deste tipo. Os itens do livro podem ser ajustados — o original nunca é perdido, e o botão ↺ desfaz a mudança.</p>
+      <div class="filtros" style="margin-bottom:8px">
+        <button class="mini eq" data-novo="${tipo}">➕ ${esq.ic} Novo ${esq.rot.toLowerCase()}</button>
+        <input id="adm-filtro" placeholder="Filtrar por nome…" value="${esc(filtroTipo)}" style="flex:1;min-width:140px"/></div>
+      ${listaCri.length ? `<h4 class="adm-dono">Criados por você <span class="dim">(${listaCri.length})</span></h4>${listaCri.map((x) => cartao(x, false)).join("")}` : ""}
+      <h4 class="adm-dono">Do livro <span class="dim">(${listaNat.length})</span></h4>
+      ${listaNat.length ? listaNat.map((x) => cartao(x, true)).join("") : `<p class="regra"><i>Nada encontrado.</i></p>`}`;
   };
 
   const painelArmas = () => {
@@ -3741,10 +3789,24 @@ async function painelAdmin(voltarPara = "racas") {
 
     ov.querySelectorAll("[data-novo]").forEach((b) => b.onclick = () => editorItem(b.dataset.novo, null));
     ov.querySelectorAll("[data-ed]").forEach((b) => b.onclick = () => {
-      const [tipo, id2] = b.dataset.ed.split("|");
-      const x = (C.conteudo()[tipo + "s"] || []).find((y) => y._id === id2);
+      const [tipo, ref] = b.dataset.ed.split("|");
+      if (ref.startsWith("n:")) {                    // item do livro
+        const nome = ref.slice(2);
+        const orig = ((NATIVOS[tipo] || (() => []))()).find((y) => (y.n || y.nome) === nome);
+        if (!orig) return;
+        const atual = C.comAjustes([orig], tipo)[0];  // abre já com os ajustes aplicados
+        return editorItem(tipo, null, { ...orig, ...atual, _orig: orig });
+      }
+      const x = (C.conteudo()[tipo + "s"] || []).find((y) => y._id === ref);
       if (x) editorItem(tipo, x);
     });
+    ov.querySelectorAll("[data-restaurar]").forEach((b) => b.onclick = async () => {
+      if (!(await confirmModal("Voltar este item ao original do livro? O seu ajuste será apagado.", { okLabel: "Restaurar", perigo: true }))) return;
+      await apagar(b.dataset.restaurar); sincronizarExtra(); pintar();
+    });
+    const flt = ov.querySelector("#adm-filtro");
+    if (flt) flt.oninput = () => { filtroTipo = flt.value; const pos = flt.selectionStart; pintar();
+      const nf = ov.querySelector("#adm-filtro"); if (nf) { nf.focus(); nf.setSelectionRange(pos, pos); } };
     ov.querySelectorAll("[data-del]").forEach((b) => b.onclick = async () => { await apagar(b.dataset.del); pintar(); });
     ov.querySelector("#adm-cri-nova")?.addEventListener("click", () => editorCriatura(null));
     ov.querySelectorAll("[data-cri-ed]").forEach((b) => b.onclick = () => {

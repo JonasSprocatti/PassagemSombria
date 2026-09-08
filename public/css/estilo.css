@@ -1216,3 +1216,4 @@ html,body{max-width:100%;overflow-x:hidden}
 .kw-op-txt b{display:block;font-family:'Chakra Petch',sans-serif;font-size:12.5px}
 .kw-op-txt span{color:var(--dim);font-size:10.5px;line-height:1.45;display:block}
 .kw-op-txt .auto-tag{margin-top:3px;display:inline-block}
+.inv.ajustado{box-shadow:inset 3px 0 0 var(--chrome)}

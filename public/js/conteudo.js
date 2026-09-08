@@ -11,7 +11,10 @@ let cache = null;                 // { imagens: {chave: url}, criaturas: [], arm
 let carregando = null;
 
 const TIPOS = ["criatura", "arma", "armadura", "implante", "consumivel", "nave", "npc", "chave", "mecanica"];
-export const conteudoVazio = () => { const o = { imagens: {} }; for (const t of TIPOS) o[t + "s"] = []; return o; };
+// Ajustes feitos sobre itens que já vêm no jogo. Guardados por "tipo:nome"
+// em vez de substituir os arquivos-base — assim o original nunca se perde e
+// dá para voltar atrás a qualquer momento.
+export const conteudoVazio = () => { const o = { imagens: {}, ajustes: {} }; for (const t of TIPOS) o[t + "s"] = []; return o; };
 
 // Carrega uma vez por sessão. Falha silenciosa: sem banco, o app segue com os dados estáticos.
 export async function carregarConteudo(forcar = false) {
@@ -24,6 +27,7 @@ export async function carregarConteudo(forcar = false) {
       if (error) throw error;
       for (const r of data || []) {
         if (r.tipo === "imagem" && r.chave) out.imagens[r.chave.toLowerCase()] = r.dados?.url || "";
+        else if (r.tipo === "ajuste" && r.chave) out.ajustes[r.chave] = { ...r.dados, _id: r.id };
         else if (TIPOS.includes(r.tipo)) out[r.tipo + "s"].push({ ...r.dados, _id: r.id, _custom: true });
       }
     } catch (_) { /* offline ou tabela ainda não criada: segue com o estático */ }
@@ -61,3 +65,16 @@ export function figura(nome, alt = "") {
   const e = (x) => String(x ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
   return `<div class="item-figura"><img src="${e(url)}" alt="${e(alt || nome)}" loading="lazy" onerror="this.parentElement.remove()"/></div>`;
 }
+
+// ---------------------------------------------------------------------------
+//  Mescla os ajustes sobre a lista nativa. O item original permanece intacto;
+//  o que a administração alterou entra por cima, campo a campo.
+// ---------------------------------------------------------------------------
+export function comAjustes(lista, tipo, chaveNome = "n") {
+  const aj = (cache?.ajustes) || {};
+  return lista.map((item) => {
+    const a = aj[`${tipo}:${item[chaveNome]}`];
+    return a ? { ...item, ...a.dados_ajustados, _ajustado: true, _ajusteId: a._id } : item;
+  });
+}
+export const temAjuste = (tipo, nome) => !!(cache?.ajustes || {})[`${tipo}:${nome}`];
