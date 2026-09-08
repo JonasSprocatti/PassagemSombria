@@ -3523,8 +3523,8 @@ async function painelAdmin(voltarPara = "racas") {
             <button class="mini rm" data-hab-del="${i2}">remover habilidade</button></div>`).join("")
             : `<p class="regra"><i>Nenhuma habilidade.</i></p>`}
 
-          ${erros.length ? `<div class="ed-erros"><b>Falta ajustar:</b><ul>${erros.map((e) => `<li>${esc(e)}</li>`).join("")}</ul></div>`
-            : `<p class="regra tech-c" style="margin-top:14px">✓ Criatura válida — pronta para entrar no bestiário.</p>`}
+          <div class="ed-erros-wrap">${erros.length ? `<div class="ed-erros"><b>Falta ajustar:</b><ul>${erros.map((e) => `<li>${esc(e)}</li>`).join("")}</ul></div>`
+            : `<p class="regra tech-c" style="margin-top:14px">✓ Criatura válida — pronta para entrar no bestiário.</p>`}</div>
         </div>
         <div class="cri-rodape"><button id="ed-cancel" class="mini">Cancelar</button>
           <span class="cri-dica">${(c.habs || []).filter((h) => h.efeito).length} habilidade(s) automática(s)</span>
@@ -3632,8 +3632,19 @@ async function painelAdmin(voltarPara = "racas") {
         <div class="ed-grade ed-efeito">${camposDoEfeito(e, i)}</div>
         <button class="mini rm" data-ef-del="${i}">remover efeito</button></div>`).join("")
         : `<p class="regra"><i>Nenhum efeito automático.</i></p>`}
-      ${(() => { const erros = item.efeitos.length ? validarEfeitos(item.efeitos) : [];
-        return erros.length ? `<div class="ed-erros"><b>Ajuste antes de salvar:</b><ul>${erros.map((x) => `<li>${esc(x)}</li>`).join("")}</ul></div>` : ""; })()}`;
+<div class="ed-erros-wrap">${(() => { const erros = item.efeitos.length ? validarEfeitos(item.efeitos) : [];
+        return erros.length ? `<div class="ed-erros"><b>Ajuste antes de salvar:</b><ul>${erros.map((x) => `<li>${esc(x)}</li>`).join("")}</ul></div>` : ""; })()}</div>`;
+  };
+  // Revalida e atualiza só a caixa de erros + o botão de salvar, sem redesenhar
+  // o formulário inteiro — редesenhar a cada tecla perderia o foco do campo.
+  const revalidarEfeitos = (raiz, item) => {
+    const box = raiz.querySelector(".ed-erros-wrap");
+    const erros = (item.efeitos || []).length ? validarEfeitos(item.efeitos) : [];
+    if (box) box.innerHTML = erros.length
+      ? `<div class="ed-erros"><b>Ajuste antes de salvar:</b><ul>${erros.map((x) => `<li>${esc(x)}</li>`).join("")}</ul></div>` : "";
+    const salvarBtn = raiz.querySelector("#ed-salvar, #it-salvar");
+    if (salvarBtn) salvarBtn.disabled = erros.length > 0 || salvarBtn.dataset.semEfeito === "1";
+    return erros;
   };
   const ligarEfeitos = (raiz, item, repintar) => {
     raiz.querySelector("[data-ef-add]")?.addEventListener("click", () => {
@@ -3649,9 +3660,10 @@ async function painelAdmin(voltarPara = "racas") {
         if (["valor"].includes(c)) v = v === "" ? undefined : +v;
         if (c === "tipo") { item.efeitos[+el.dataset.ef] = { tipo: v, momento: e.momento || "ficha" }; return repintar(); }
         if (v === "" || v === undefined) delete e[c]; else e[c] = v;
-        if (grande) repintar();
+        if (grande) repintar(); else revalidarEfeitos(raiz, item);
       };
     });
+    revalidarEfeitos(raiz, item);   // estado correto assim que o formulário abre
   };
 
   // Esquema de cada tipo de conteúdo: só os campos próprios; efeitos são comuns.
@@ -3762,7 +3774,7 @@ async function painelAdmin(voltarPara = "racas") {
           ${esq.campos.filter((c) => c[2] === "kwpick").map(campo).join("")}
           ${esq.campos.filter((c) => c[2] === "area").map(campo).join("")}
           ${blocoEfeitos(it)}
-          ${faltaNome ? `<div class="ed-erros">Dê um nome ao ${esq.rot.toLowerCase()}.</div>` : ""}
+          <div class="ed-nome-erro" style="display:${faltaNome ? "" : "none"}"><div class="ed-erros">Dê um nome ao ${esq.rot.toLowerCase()}.</div></div>
         </div>
         <div class="cri-rodape"><button id="it-cancel" class="mini">Cancelar</button>
           <span class="cri-dica">${(it.efeitos || []).length} efeito(s) automático(s)</span>
@@ -3774,7 +3786,14 @@ async function painelAdmin(voltarPara = "racas") {
         const isNum = esq.campos.find((c) => c[0] === k)?.[2] === "numero";
         const ev = el.tagName === "SELECT" ? "onchange" : "oninput";
         el[ev] = () => { it[k] = isNum ? (el.value === "" ? undefined : +el.value) : el.value;
-          const bt = ov2.querySelector("#it-salvar"); if (bt && k === "n") bt.disabled = !String(it.n || "").trim(); };
+          if (k === "n") {
+            const bt = ov2.querySelector("#it-salvar");
+            const semNome = !String(it.n || "").trim();
+            if (bt) bt.disabled = semNome || ((item.efeitos || it.efeitos || []).length ? validarEfeitos(it.efeitos).length > 0 : false);
+            const avisoNome = ov2.querySelector(".ed-nome-erro");
+            if (avisoNome) avisoNome.style.display = semNome ? "" : "none";
+          }
+        };
       });
       ov2.querySelectorAll("[data-escala]").forEach((el) => el.oninput = () => {
         const nv = el.dataset.escala; const v = el.value.trim();
