@@ -173,7 +173,7 @@ export function calc(f) {
   // os quatro implantes que já estavam no cálculo clássico não podem contar duas vezes
   const jaContados = ["Chip de Expansão de RAM", "Placas Subdérmicas de Titânio"];
   fe.fontes = fe.fontes.filter((x) => !jaContados.includes(x.nome));
-  fe.aplicarNaFicha(k);
+  fe.aplicarNaFicha(k, { implantes: f.implantes || [], nivel: f.nivel || 1 });
   k.ramLivre = Math.max(0, k.ramMax - (f.ramGasta || 0));   // recalcula após os efeitos
   k.efeitos = fe;
   return k;
@@ -340,6 +340,15 @@ function abilidadesDeDescanso(f) {
   if (raca?.lendaria && f.nivel >= 10) { const fr = freqDescanso(raca.lendaria) || "longo"; out.push({ id: "lend", nome: raca.lendaria.n, origem: `${raca.nome} · Lendária`, freq: fr }); }
   return out;
 }
+// Duração de uma habilidade no nível atual (o Ven'y sobe para 5 e 8 turnos).
+function duracaoDe(h, nivel) {
+  if (!h?.duracao) return null;
+  const d2 = h.duracao; let t = d2.base || 1;
+  for (const k of Object.keys(d2).filter((x) => /^\d+$/.test(x)).map(Number).sort((a, b) => a - b))
+    if ((nivel || 1) >= k) t = d2[String(k)];
+  return t;
+}
+
 // Habilidades ativas que ficam LIGADAS (como o gás do Ven'y): devolve os
 // efeitos da opção escolhida, para o calc somá-los enquanto durar.
 function modosAtivosDe(f) {
@@ -1543,7 +1552,16 @@ async function telaMesa(id) {
   ]);
   if (!camp) return (location.hash = "#/campanhas");
   const { data: meus } = await sb.from("personagens").select("id,nome").eq("dono_id", usuario.id);
-  let meuPers = pers?.find((x) => x.dono_id === usuario.id) || null;
+  // Com mais de um personagem seu na mesma mesa, vale a escolha guardada neste
+  // dispositivo; sem escolha, o primeiro. Antes pegava sempre o primeiro e o
+  // seletor não trocava nada.
+  const chavePers = "ps-pers-" + id;
+  const meusNaMesa = () => (pers || []).filter((x) => x.dono_id === usuario.id);
+  let meuPers = (() => {
+    const meus = meusNaMesa();
+    const salvo = localStorage.getItem(chavePers);
+    return meus.find((x) => x.id === salvo) || meus[0] || null;
+  })();
   const souMestre = camp.mestre_id === usuario.id;
   let pintarMsg = null;          // aponta pro addMsg do render atual (renderização otimista)
   const historico = msgs || [];  // lista mutável de mensagens (sobrevive a re-renders)
@@ -1674,8 +1692,8 @@ async function telaMesa(id) {
           </div>
           <div class="mesa-painel" ${abaMesa === "ficha" ? "" : "hidden"}>
           <section class="sec"><header><span class="tag">◈</span><h2>Meu personagem</h2></header>
-            <select id="sel-pers">${meuPers ? "" : `<option value="">— vincular personagem —</option>`}
-              ${(meus || []).map((m) => `<option value="${m.id}" ${meuPers?.id === m.id ? "selected" : ""}>${esc(m.nome) || "sem nome"}</option>`).join("")}</select>
+            <select id="sel-pers" title="Troque de personagem sem sair da mesa">${meuPers ? "" : `<option value="">— vincular personagem —</option>`}
+              ${(meus || []).map((m) => `<option value="${m.id}" ${meuPers?.id === m.id ? "selected" : ""}>${esc(m.nome) || "sem nome"}${m.campanha_id === id ? "" : " (vincular)"}</option>`).join("")}</select>
             ${f ? `${(() => {
               const pvP = f.pvMax ? Math.max(0, Math.min(100, 100 * f.pvAtual / f.pvMax)) : 0;
               const ramP = k.ramMax ? Math.max(0, Math.min(100, 100 * k.ramLivre / k.ramMax)) : 0;
@@ -1725,10 +1743,11 @@ async function telaMesa(id) {
               ${(() => { const ats = habilidadesAtivas(f);
                 return ats.map((h) => { const usada = h.descanso && f.usos?.[h.id];
                   const modo = f.modos?.[h.nome];
-                  const op = modo && h.opcoes?.find((o) => o.n === modo);
+                  const resta = f.modosAte?.[h.nome];
+                  const op = modo && (h.opcoes?.find((o) => o.n === modo) || { ic: "★", n: h.nome.slice(0, 16), d: "" });
                   return `<button class="mini hab-ativa ${usada ? "gasta" : ""} ${op ? "ligada" : ""}" data-hab-usar="${h.id}"
                     title="${esc(h.origem)} · ${esc(h.d)}${h.descanso ? ` (1×/descanso ${h.descanso})` : ""}${op ? `\nAtivo: ${esc(op.n)} — ${esc(op.d)}` : ""}"
-                    ${usada ? "disabled" : ""}>${op ? `${op.ic} ${esc(op.n)}` : `★ ${esc(h.nome.slice(0, 20))}`}${h.descanso ? (usada ? " ✓" : " ⟳") : ""}</button>`; }).join(""); })()}
+                    ${usada ? "disabled" : ""}>${op ? `${op.ic} ${esc(op.n)}` : `★ ${esc(h.nome.slice(0, 20))}`}${modo && resta && resta < 90 ? ` <b>${resta}t</b>` : ""}${h.descanso ? (usada ? " ✓" : " ⟳") : ""}</button>`; }).join(""); })()}
               ${(f.inventario || []).filter((it) => ehConsumivel(it.nome) && (it.qtd || 1) > 0)
                 .map((it) => { const c = ehConsumivel(it.nome);
                   return `<button class="mini item-usa" data-item="${esc(it.nome)}" title="${esc(c.d)} · ${esc(c.acao)}">${c.ic} ${esc(it.nome.replace(/ de Batalha| de Campo| de Nanofibra|Kit de |Granada de |Granada /i, "").slice(0, 16))} <b>×${it.qtd || 1}</b></button>`; }).join("")}
@@ -2654,6 +2673,26 @@ async function telaMesa(id) {
       await salvarCombate(); render();
     });
     $("#cb-prox")?.addEventListener("click", async () => { let salvarNaveJunto = false; const rodAntes = camp.combate.rodada; proximoTurno(camp.combate); if (camp.combate.rodada !== rodAntes) camp.combate.agiram = []; const atual = camp.combate.ordem[camp.combate.turno];
+      // Modos temporários dos jogadores (Êxtase, Endurecer, Fúria, gás do Ven'y)
+      // contam para baixo a cada rodada e expiram sozinhos.
+      if (camp.combate.rodada !== rodAntes) {
+        for (const p2 of pers || []) {
+          const dd2 = p2.dados || {}; const ate = { ...(dd2.modosAte || {}) };
+          if (!Object.keys(ate).length) continue;
+          const modos = { ...(dd2.modos || {}) }; const expiraram = [];
+          for (const [nome, t] of Object.entries(ate)) {
+            const novo = t - 1;
+            if (novo <= 0) { delete ate[nome]; delete modos[nome]; expiraram.push(nome); }
+            else ate[nome] = novo;
+          }
+          if (expiraram.length || JSON.stringify(ate) !== JSON.stringify(dd2.modosAte)) {
+            p2.dados = { ...dd2, modos, modosAte: ate };
+            await sb.from("personagens").update({ dados: p2.dados }).eq("id", p2.id);
+            if (meuPers && meuPers.id === p2.id) meuPers.dados = p2.dados;
+            for (const nome of expiraram) await enviar("sistema", `⌛ ${p2.nome}: ${nome} acabou.`);
+          }
+        }
+      }
       if (atual) {
         // A Manobra Evasiva vale "até o próximo turno do piloto" — aqui ela expira.
         const ntv = camp.combate.nave || naveTaticaVazia();
@@ -2772,7 +2811,16 @@ async function telaMesa(id) {
       }); });
     $("#sel-pers").onchange = async (e) => {
       const pid = e.target.value; if (!pid) return;
+      const escolhido = (pers || []).find((x) => x.id === pid);
+      if (escolhido && escolhido.campanha_id === id) {
+        // já está na mesa: é só troca de personagem ativo, sem recarregar a página
+        localStorage.setItem(chavePers, pid);
+        meuPers = escolhido;
+        await enviar("sistema", `◈ ${(perfil?.apelido) || "Alguém"} agora joga como ${escolhido.nome || "sem nome"}.`);
+        return render();
+      }
       await sb.from("personagens").update({ campanha_id: id }).eq("id", pid);
+      localStorage.setItem(chavePers, pid);
       location.reload();
     };
     if (f) {
@@ -2968,6 +3016,108 @@ async function telaMesa(id) {
         const ats = habilidadesAtivas(f);
         const h = ats.find((x) => x.id === bt.dataset.habUsar); if (!h) return;
         if (h.descanso && f.usos?.[h.id]) return;
+        const hRaw = (() => {   // a declaração completa, com resolve/duracao
+          const raca = RACAS.find((r) => r.nome === f.raca), cl = CLASSES[f.classe];
+          return [...(raca?.habilidades || []), ...(cl?.hab || []), cl?.vet, raca?.lendaria]
+            .filter(Boolean).find((x) => x.n === h.nome);
+        })();
+        const turnos = duracaoDe(hRaw, f.nivel);
+        const R = hRaw?.resolve;
+
+        // ---- habilidades que resolvem sozinhas ----
+        if (R?.tipo === "tabela") {           // Êxtase da Batalha: 1d6 decide o efeito
+          const pd = parseDice(R.dado); const v = rollNd(pd.n, pd.f).reduce((x, y) => x + y, 0);
+          const op = R.opcoes.find((o) => v >= o.de && v <= o.ate);
+          const modos = { ...(meuPers.dados.modos || {}), [h.nome]: op.n };
+          const exp = { ...(meuPers.dados.modosAte || {}), [h.nome]: turnos };
+          meuPers.dados = { ...meuPers.dados, modos, modosAte: exp }; f.modos = modos;
+          await sb.from("personagens").update({ dados: meuPers.dados }).eq("id", meuPers.id);
+          await enviar("rolagem", null, { titulo: `★ ${h.nome}`, detalhe: `${R.dado} [${v}]`,
+            extra: `${op.n} — dura ${turnos} turno(s).` });
+          return render();
+        }
+        if (R?.tipo === "cura") {             // Cura Genética: dado + atributo, com crítico e falha
+          const alvos = (pers || []).map((p2) => ({ v: p2.id, l: p2.id === meuPers.id ? `${p2.nome} (você)` : p2.nome }));
+          const r2 = await modalForm({ titulo: `★ ${h.nome}`, descricao: h.d,
+            campos: [{ k: "alvo", label: "Curar quem?", tipo: "select", opcoes: alvos }], okLabel: "Curar" });
+          if (!r2?.alvo) return;
+          const alvo = (pers || []).find((p2) => p2.id === r2.alvo);
+          const pd = parseDice(R.dado); const dd2 = rollNd(pd.n, pd.f); const bruto = dd2[0];
+          let val = bruto + (R.attr ? k.attr[R.attr] : 0); let nota = "";
+          if (R.critico && bruto === R.critico.no) { val *= 2; nota = " — MÁXIMO! cura dobrada"; }
+          if (R.falha && bruto === R.falha.no) {
+            const dd3 = { ...novaFichaDados(), ...meuPers.dados };
+            dd3.pvAtual = Math.max(0, (dd3.pvAtual || 0) - R.falha.danoProprio);
+            meuPers.dados = dd3;
+            await sb.from("personagens").update({ dados: dd3 }).eq("id", meuPers.id);
+            nota = ` — rejeição! ${meuPers.nome} sofre ${R.falha.danoProprio} de dano`;
+          }
+          await enviar("cura", null, { alvo_id: alvo.id, alvo_nome: alvo.nome, valor: Math.max(0, val),
+            origem: `★ ${h.nome} de ${meuPers.nome}`, detalhe: `${R.dado} [${bruto}]${R.attr ? ` + ${R.attr}` : ""}${nota}`, aplicado: false });
+          if (h.descanso) { const usos = { ...(meuPers.dados.usos || {}), [h.id]: true };
+            meuPers.dados = { ...meuPers.dados, usos }; await sb.from("personagens").update({ dados: meuPers.dados }).eq("id", meuPers.id); }
+          return render();
+        }
+        if (R?.tipo === "transferir_pv") {    // Emprestar Vitalidade
+          const max = Math.floor((f.pvAtual || 0) * (R.maxFracao || 0.5));
+          if (max < 1) return alert("Você não tem vida suficiente para transferir.");
+          const r2 = await modalForm({ titulo: `★ ${h.nome}`, descricao: `${h.d}\n\nVocê pode transferir até ${max} PV.`,
+            campos: [
+              { k: "alvo", label: "Para quem?", tipo: "select", opcoes: (pers || []).filter((p2) => p2.id !== meuPers.id).map((p2) => ({ v: p2.id, l: p2.nome })) },
+              { k: "qtd", label: "Quantos PV", tipo: "numero", valor: Math.min(max, 5), min: 1, max },
+            ], okLabel: "Transferir" });
+          if (!r2?.alvo) return;
+          const qtd = Math.max(1, Math.min(max, +r2.qtd || 1));
+          const alvo = (pers || []).find((p2) => p2.id === r2.alvo);
+          const dd3 = { ...novaFichaDados(), ...meuPers.dados };
+          dd3.pvAtual = Math.max(0, (dd3.pvAtual || 0) - qtd);
+          meuPers.dados = dd3; f.pvAtual = dd3.pvAtual;
+          await sb.from("personagens").update({ dados: dd3 }).eq("id", meuPers.id);
+          await enviar("cura", null, { alvo_id: alvo.id, alvo_nome: alvo.nome, valor: qtd,
+            origem: `★ ${h.nome} de ${meuPers.nome}`, detalhe: `transferiu ${qtd} PV do próprio corpo`, aplicado: false });
+          return render();
+        }
+        if (R?.tipo === "disputa") {          // Invasão da Sombra: rolagem contra o Mestre
+          const nat = d(20), meu = nat + (k.attr[R.atributo] || 0);
+          const natM = d(20), mestre = natM + 2;
+          const venceu = meu > mestre;
+          let extra = venceu ? `Venceu — ${R.vitoria}.` : `Perdeu — ${meuPers.nome} sofre ${R.derrota.danoProprio} de dano.`;
+          if (!venceu) { const dd3 = { ...novaFichaDados(), ...meuPers.dados };
+            dd3.pvAtual = Math.max(0, (dd3.pvAtual || 0) - R.derrota.danoProprio);
+            meuPers.dados = dd3; await sb.from("personagens").update({ dados: dd3 }).eq("id", meuPers.id); }
+          await enviar("rolagem", null, { titulo: `★ ${h.nome}`,
+            detalhe: `você d20 [${nat}] +${k.attr[R.atributo] || 0} = ${meu} · alvo d20 [${natM}] +2 = ${mestre}`,
+            total: meu, crit: nat === 20, fumble: nat === 1, extra });
+          return render();
+        }
+        if (R?.tipo === "condicao") {         // Repulsão Cinética: derruba sem causar dano
+          const inimigos = (camp.combate?.ordem || []).filter((c2) => c2.tipo === "inimigo" && !foraDeCombate(c2));
+          const r2 = inimigos.length ? await modalForm({ titulo: `★ ${h.nome}`, descricao: h.d,
+            campos: [{ k: "alvo", label: "Em quem?", tipo: "select", opcoes: inimigos.map((c2) => ({ v: c2.id, l: c2.nome })) }], okLabel: "Empurrar" }) : { alvo: null };
+          if (inimigos.length && !r2?.alvo) return;
+          if (r2?.alvo) {
+            const alvo = camp.combate.ordem.find((c2) => c2.id === r2.alvo);
+            alvo.cond = [...(alvo.cond || []).filter((c2) => c2.n !== R.cond), { n: R.cond, turnos: R.turnos }];
+            await salvarCombate();
+            await enviar("sistema", `★ ${meuPers.nome} usa ${h.nome}: ${alvo.nome} é derrubado (${R.cond} ${R.turnos} turno) — sem dano.`);
+          } else await enviar("sistema", `★ ${meuPers.nome} usa ${h.nome} — o alvo é derrubado, sem sofrer dano.`);
+          return render();
+        }
+        if (R?.tipo === "modo" || R?.tipo === "criar") {   // Endurecer, Camuflagem, Fúria, Criogénese
+          let escolha = null;
+          if (R.opcoes) {
+            const r2 = await modalForm({ titulo: `★ ${h.nome}`, descricao: h.d,
+              campos: [{ k: "op", label: "O que criar", tipo: "select", opcoes: R.opcoes.map((o) => ({ v: o.n, l: `${o.n} — ${o.d}` })) }], okLabel: "Criar" });
+            if (!r2?.op) return; escolha = r2.op;
+          } else if (!(await confirmModal(`Usar ${h.nome}?\n\n${h.d}${turnos ? `\n\nDura ${turnos} turno(s).` : ""}${R.aviso ? `\n\n⚠ ${R.aviso}` : ""}`, { okLabel: "Ativar" }))) return;
+          const modos = { ...(meuPers.dados.modos || {}), [h.nome]: escolha || "ativo" };
+          const exp = { ...(meuPers.dados.modosAte || {}), [h.nome]: turnos || 99 };
+          meuPers.dados = { ...meuPers.dados, modos, modosAte: exp }; f.modos = modos;
+          await sb.from("personagens").update({ dados: meuPers.dados }).eq("id", meuPers.id);
+          await enviar("sistema", `★ ${meuPers.nome} ativa **${h.nome}**${escolha ? `: ${escolha}` : ""} — ${h.d}${turnos ? ` (${turnos} turnos)` : ""}${R.aviso ? ` ⚠ ${R.aviso}` : ""}`);
+          return render();
+        }
+
         // Habilidades com opções (o gás do Ven'y) ligam um modo que fica valendo.
         if (h.opcoes?.length) {
           const atual = f.modos?.[h.nome];

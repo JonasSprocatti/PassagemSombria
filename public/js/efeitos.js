@@ -106,6 +106,27 @@ export const EFEITOS = {
     rotulo: (e) => `${e.dado}: com ${e.minimo}+ acha ${e.oque}`,
     saque: (e, ctx) => { (ctx.rolagens = ctx.rolagens || []).push(e); } },
 
+  // { tipo:"reducao_dano", valor:2 } — abate dano físico recebido (Endurecer)
+  reducao_dano: {
+    rotulo: (e) => `−${e.valor} de dano físico recebido`,
+    sofrer: (e, ctx) => { ctx.reducao = (ctx.reducao || 0) + e.valor; } },
+
+  // { tipo:"por_implante", cada:3, attr:"conj", valor:1 } — escala com o cromo
+  por_implante: {
+    rotulo: (e) => `+${e.valor} em ${e.attr === "conj" ? "Conjuração" : e.attr} a cada ${e.cada} implantes`,
+    ficha: (e, k, ctx) => {
+      const n = (ctx?.implantes || []).length;
+      const b = Math.floor(n / e.cada) * e.valor;
+      if (!b) return;
+      if (e.attr === "conj") k.conj += b;
+      else if (e.pericia) k.per[e.pericia] = (k.per[e.pericia] || 0) + b;
+      else if (e.attr) k.attr[e.attr] = (k.attr[e.attr] || 0) + b;
+    } },
+
+  // { tipo:"defesa_veiculo", valor:2 } — vale para a nave pilotada, não para o corpo
+  defesa_veiculo: {
+    rotulo: (e) => `+${e.valor} na Defesa do veículo pilotado` },
+
   // { tipo:"nave", campo:"casco_max", valor:15 } — para melhorias de nave
   nave: { rotulo: (e) => `${sinal(e.valor)} de ${e.campo.replace("_max", "")}`,
     naveFicha: (e, n) => { n[e.campo] = (n[e.campo] || 0) + e.valor; } },
@@ -163,6 +184,11 @@ export class FichaEfeitos {
     if (r) fontes.push(new Portador(r.nome, r, "raça"));
     const c = CLASSES[f.classe];
     if (c) fontes.push(new Portador(f.classe, c, "classe"));
+    // A Veterana só entra a partir do nível 5; a Lendária da raça, no 10.
+    if (c?.vet && (f.nivel || 1) >= 5 && c.vet.efeitos)
+      fontes.push(new Portador(c.vet.n, { efeitos: c.vet.efeitos }, "veterana"));
+    if (r?.lendaria && (f.nivel || 1) >= 10 && r.lendaria.efeitos)
+      fontes.push(new Portador(r.lendaria.n, { efeitos: r.lendaria.efeitos }, "lendária"));
     const fi = FILOSOFIAS[f.filosofia];
     if (fi) fontes.push(new Portador(f.filosofia, fi, "filosofia"));
     for (const nome of f.implantes || []) {
@@ -184,11 +210,25 @@ export class FichaEfeitos {
 
   // Aplica sobre os valores já calculados. É aditivo: o que o calc() clássico
   // faz continua valendo, e os efeitos declarados entram por cima.
-  aplicarNaFicha(k) {
+  aplicarNaFicha(k, ctx = {}) {
     for (const fonte of this.fontes)
       for (const e of fonte.efeitosDe(MOMENTOS.FICHA))
-        EFEITOS[e.tipo]?.ficha?.(e, k);
+        EFEITOS[e.tipo]?.ficha?.(e, k, ctx);
     return k;
+  }
+
+  // Redução de dano acumulada (Endurecer e afins).
+  aoSofrer() {
+    const ctx = { reducao: 0, fontes: [] };
+    for (const fonte of this.fontes)
+      for (const e of fonte.efeitosDe(MOMENTOS.AO_SOFRER))
+        if (EFEITOS[e.tipo]?.sofrer) { EFEITOS[e.tipo].sofrer(e, ctx); ctx.fontes.push(fonte.nome); }
+    return ctx;
+  }
+  // Bônus que valem para o veículo pilotado, não para o corpo.
+  defesaVeiculo() {
+    return this.fontes.flatMap((x) => x.efeitos.filter((e) => e.tipo === "defesa_veiculo"))
+      .reduce((a, e) => a + (e.valor || 0), 0);
   }
 
   // Modificadores de um ataque. `situacao` traz o contexto do momento

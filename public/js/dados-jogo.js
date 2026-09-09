@@ -89,7 +89,7 @@ export const RACAS = [
      { "n": "Radônio", "ic": "👂", "d": "Audição amplificada: Vantagem em testes de Percepção baseados em som.",
        "efeitos": [{ "tipo": "vantagem", "em": "pericia", "pericia": "Percepção" }] }
     ]
-   }
+   ,duracao:{base:3,"9":5,"10":8}}
   ],
   "lendaria": {
    "n": "Pulmão Alquímico",
@@ -158,14 +158,14 @@ export const RACAS = [
    ,
     "tipo": "Ativa",
     "freq": "curto"
-   },
+   ,acao:"Ação Livre",duracao:{base:4},resolve:{tipo:"tabela",dado:"1d6",opcoes:[{de:1,ate:3,n:"Adrenalina de Phobos",efeitos:[{tipo:"dano",valor:2,momento:"ao_atacar"},{tipo:"deslocamento",valor:3}]},{de:4,ate:6,n:"DHEA de Deimos",efeitos:[{tipo:"acerto",valor:2,contra:"fogo",momento:"ao_atacar"}]}]}},
    {
     "n": "Endurecer",
     "d": "Como Ação de Movimento, enrijece os músculos. Recebe redução de dano de -2 contra qualquer ataque físico por 4 turnos."
    ,
     "tipo": "Ativa",
     "freq": "combate"
-   }
+   ,acao:"Ação de Movimento",duracao:{base:4},resolve:{tipo:"modo",efeitos:[{tipo:"reducao_dano",valor:2,momento:"ao_sofrer"}]}}
   ],
   "lendaria": {
    "n": "Senhor da Guerra Avatar",
@@ -243,21 +243,21 @@ export const RACAS = [
    ,
     "tipo": "Ativa",
     "freq": "longo"
-   },
+   ,acao:"Ação Principal",resolve:{tipo:"cura",dado:"1d8",attr:"Sab",critico:{no:8,dobra:true},falha:{no:1,danoProprio:2}}},
    {
     "n": "Camuflagem Cromática",
     "d": "O Sata gasta a sua Ação Principal para alterar os pigmentos da sua pele, ganhando +5 em Furtividade enquanto se mantiver imóvel ou se mover a metade da velocidade."
    ,
     "tipo": "Ativa",
     "freq": "combate"
-   },
+   ,acao:"Ação Principal",duracao:{base:99},resolve:{tipo:"modo",efeitos:[{tipo:"pericia",pericia:"Furtividade",valor:5}]}},
    {
     "n": "Emprestar Vitalidade",
     "d": "Como Ação Livre, o Sata pode transferir até metade dos seus próprios Pontos de Vida atuais para curar um aliado em quem toque, sofrendo dano equivalente."
    ,
     "tipo": "Ativa",
     "freq": "livre"
-   }
+   ,acao:"Ação Livre",resolve:{tipo:"transferir_pv",maxFracao:0.5}}
   ],
   "lendaria": {
    "n": "Milagre do Anel Primordial",
@@ -295,7 +295,7 @@ export const RACAS = [
    ,
     "tipo": "Ativa",
     "freq": "combate"
-   },
+   ,acao:"Ação Principal",duracao:{base:6},resolve:{tipo:"criar",opcoes:[{n:"Escudo de gelo",d:"+2 de Defesa enquanto durar",efeitos:[{tipo:"defesa",valor:2}]},{n:"Martelo de gelo",d:"Arma improvisada 1d8, quebra ao fim",efeitos:[{tipo:"dano",valor:2,contra:"branca",momento:"ao_atacar"}]},{n:"Chave / ferramenta",d:"Abre o que precisa ser aberto",efeitos:[{tipo:"pericia",pericia:"Prestidigitação",valor:3}]},{n:"Ponte / apoio",d:"Objeto médio para atravessar ou escalar",efeitos:[{tipo:"vantagem",em:"pericia",pericia:"Atletismo"}]}]}},
    {
     "n": "Resistência ao Frio",
     "d": "Sobrevivem no vácuo espacial gelado. Contra: Acima de 15°C ficam stressados (-1 em testes mentais); acima de 40°C sofrem 1 de dano fixo por turno se não usarem trajes refrigerados."
@@ -341,7 +341,7 @@ export const RACAS = [
    ,
     "tipo": "Ativa",
     "freq": "longo"
-   }
+   ,acao:"Ação Principal",resolve:{tipo:"disputa",atributo:"Sab",vitoria:"dita a próxima Ação Principal do alvo",derrota:{danoProprio:2}}}
   ],
   "lendaria": {
    "n": "Soberania Telepática",
@@ -388,7 +388,7 @@ export const RACAS = [
    ,
     "tipo": "Ativa",
     "freq": "curto"
-   }
+   ,acao:"Reação",duracao:{base:5},resolve:{tipo:"modo",aviso:"Não distingue aliados de inimigos!",efeitos:[{tipo:"atributo",attr:"For",valor:2},{tipo:"atributo",attr:"Des",valor:2},{tipo:"atributo",attr:"Con",valor:2},{tipo:"acerto",valor:3,momento:"ao_atacar"},{tipo:"dano",valor:3,momento:"ao_atacar"}]}}
   ],
   "lendaria": {
    "n": "Colosso do Vácuo",
@@ -1023,13 +1023,13 @@ export const CLASSES = {
  "Soldado":{pv:10,pericias:{"Armas de Fogo":4,"Armas Brancas":3,"Explosivos":2,"Pilotagem":1,"Sobrevivência":1,"Furtividade":1},hab:[{n:"Memória Muscular",tipo:"Passiva",freq:"passiva",d:"Não sofre a penalidade de −2 com armas Pesadas.",efeitos:[{tipo:"imunidade",a:"penalidade de -2 com armas Pesadas"}]},{n:"Fogo de Supressão",tipo:"Ativa",freq:"livre",d:"Ação Principal: alvo testa Sabedoria; falhou → acovardado e ataca com Desvantagem. (NV5: cone de 5m.)"}],vet:{n:"Rajada Disciplinada",freq:"combate",d:"1x/combate: dois ataques com a mesma arma na Ação Principal."}},
  "Starlord":{pv:8,pericias:{"Lábia / Persuasão":5,"Armas de Fogo":2,"Tecnomancia":2,"Pilotagem":2,"Furtividade":1},hab:[{n:"Charme Malandro",tipo:"Passiva",freq:"combate",d:"1x/encontro social: re-rola um teste de Lábia / Persuasão falhado.",efeitos:[{tipo:"recurso",n:"Re-rolar Lábia/Persuasão",freq:"sessao"}]},{n:"\u201cDeixem isto comigo!\u201d",tipo:"Ativa",freq:"livre",d:"Ação Livre: o próximo aliado a atacar ganha Vantagem. (NV5: os dois próximos.)"}],vet:{n:"Palavra de Capitão",freq:"longo",d:"1x/desc. longo: cede o turno para dar um turno completo extra a um aliado."}},
  "Franco-atirador":{pv:6,pericias:{"Armas de Fogo":5,"Sobrevivência":3,"Furtividade":2,"Investigação":2},hab:[{n:"Foco à Distância",tipo:"Ativa",freq:"livre",d:"Analisa 1 turno; no próximo, acerto E dano com Vantagem. (NV5: Ação de Movimento.)"},{n:"Tiro Incapacitante",tipo:"Passiva",freq:"livre",d:"Mira num membro: metade do dano, alvo com deslocamento 0 (ou derruba a arma) por 1 turno.",efeitos:[{tipo:"recurso",n:"Tiro que imobiliza",freq:"curto"}]}],vet:{n:"Geometria da Morte",freq:"combate",d:"1x/combate: um disparo ignora completamente qualquer cobertura."}},
- "Músico":{pv:4,pericias:{"Tecnomancia":5,"Performance / Arte":4,"Lábia / Persuasão":2,"Armas Brancas":1},hab:[{n:"Ouvido Absoluto",tipo:"Passiva",freq:"passiva",d:"+2 na CD contra controle mental, ilusões e dano sônico.",efeitos:[{tipo:"defesa",valor:2}]},{n:"Frequência de Inspiração/Ressonância",tipo:"Ativa",freq:"livre",d:"Aura 10m: aliados +2 acerto OU inimigos −2 CD. Dura enquanto não sofrer dano (NV5: Performance CD12 sustenta)."}],vet:{n:"Maestro de Guerra — Acorde Duplo",freq:"combate",d:"1x/combate: os DOIS efeitos simultâneos por 2 turnos."}},
+ "Músico":{pv:4,pericias:{"Tecnomancia":5,"Performance / Arte":4,"Lábia / Persuasão":2,"Armas Brancas":1},hab:[{n:"Ouvido Absoluto",tipo:"Passiva",freq:"passiva",d:"+1 na CD (resistência a controle mental, ilusões e dano sônico).",efeitos:[{tipo:"defesa",valor:1}]},{n:"Frequência de Inspiração/Ressonância",tipo:"Ativa",freq:"livre",d:"Aura 10m: aliados +2 acerto OU inimigos −2 CD. Dura enquanto não sofrer dano (NV5: Performance CD12 sustenta)."}],vet:{n:"Maestro de Guerra — Acorde Duplo",freq:"combate",d:"1x/combate: os DOIS efeitos simultâneos por 2 turnos."}},
  "Espião":{pv:4,pericias:{"Enganação":4,"Lábia / Persuasão":4,"Furtividade":2,"Acrobacia":1,"Intimidação":1},hab:[{n:"Rosto na Multidão",tipo:"Passiva",freq:"passiva",d:"Vantagem absoluta em Persuasão/Enganação quando disfarçado de uma facção.",efeitos:[{tipo:"vantagem",em:"pericia",pericia:"Lábia / Persuasão"}]},{n:"Ponto Cego",tipo:"Ativa",freq:"livre",d:"Ação de Mov.: mistura-se; inimigos o ignoram até você atacar. (NV5: persiste 1 turno após atacar.)"}],vet:{n:"Identidade Profunda",freq:"passiva",d:"Terceira identidade blindada — resiste a verificações formais da Confederação."}},
  "Catador":{pv:6,pericias:{"Lábia / Persuasão":3,"Investigação":2,"Sobrevivência":2,"Mecânica":2,"Pilotagem":2,"Armas de Fogo":1},hab:[{n:"Olho para o Ouro",tipo:"Passiva",freq:"livre",d:"Ao investigar: 1d6; com 4–6 (NV5: 3–6) acha item valioso extra.",efeitos:[{tipo:"chance_extra",dado:"1d6",minimo:4,oque:"item valioso",momento:"ao_saquear"}]},{n:"Desmanche Rápido",tipo:"Ativa",freq:"combate",d:"1x/combate: arranca placa de inimigo mecânico — 1d8 e −1 CD permanente. (NV5: rouba módulo instalado.)"}],vet:{n:"Olho Clínico",freq:"passiva",d:"Olho para o Ouro com 3–6; Desmanche rouba módulos."}},
- "Piloto":{pv:6,pericias:{"Pilotagem":5,"Mecânica":2,"Lábia / Persuasão":2,"Sobrevivência":2,"Armas de Fogo":1},hab:[{n:"Instinto Evasivo",tipo:"Passiva",freq:"passiva",d:"+2 na CD de qualquer veículo pilotado. (NV5: +4.)",efeitos:[{tipo:"defesa",valor:2}]},{n:"Sobrecarga de Propulsores",tipo:"Ativa",freq:"livre",d:"Pilotagem com Vantagem para escapar; nave sofre 1d4. (NV5: 1x/combate sem dano.)"}],vet:{n:"Um com a Máquina",freq:"combate",d:"1x/combate espacial: Sobrecarga sem dano à estrutura."}},
+ "Piloto":{pv:6,pericias:{"Pilotagem":5,"Mecânica":2,"Lábia / Persuasão":2,"Sobrevivência":2,"Armas de Fogo":1},hab:[{n:"Instinto Evasivo",tipo:"Passiva",freq:"passiva",d:"+2 na CD de qualquer veículo pilotado. (NV5: +4.)",efeitos:[{tipo:"defesa_veiculo",valor:2}]},{n:"Sobrecarga de Propulsores",tipo:"Ativa",freq:"livre",d:"Pilotagem com Vantagem para escapar; nave sofre 1d4. (NV5: 1x/combate sem dano.)"}],vet:{n:"Um com a Máquina",freq:"combate",d:"1x/combate espacial: Sobrecarga sem dano à estrutura."}},
  "Batedor":{pv:8,pericias:{"Sobrevivência":4,"Armas de Fogo":3,"Investigação":3,"Furtividade":1,"Explosivos":1},hab:[{n:"Sentidos Alertas",tipo:"Passiva",freq:"passiva",d:"Imune a surpresa no 1º turno; +2 Iniciativa.",efeitos:[{tipo:"iniciativa",valor:2},{tipo:"imunidade",a:"ser surpreendido no 1º turno"}]},{n:"Marca do Caçador",tipo:"Ativa",freq:"livre",d:"Marca inimigo visível: aliados sabem a posição e ignoram cobertura média. (NV5: +1d4 de dano dos aliados.)"}],vet:{n:"Predador Paciente",freq:"passiva",d:"Ataques de aliados contra o marcado: +1d4 de dano."}},
  "Explorador":{pv:6,pericias:{"Investigação":4,"Sobrevivência":4,"História / Cultura":3,"Lábia / Persuasão":1},hab:[{n:"Mapeamento Tático",tipo:"Passiva",freq:"passiva",d:"Você e aliados a 10m ignoram terreno difícil.",efeitos:[{tipo:"imunidade",a:"terreno difícil"}]},{n:"Vulnerabilidade Exposta",tipo:"Ativa",freq:"livre",d:"Teste de Investigação/Sobrevivência revela fraqueza; próximo ataque do grupo +1d6. (NV5: Ação de Mov., dois ataques.)"}],vet:{n:"Cartógrafo do Impossível",freq:"passiva",d:"Vira Ação de Movimento e vale dois ataques."}},
- "Cinético":{pv:6,cinetico:true,pericias:{"Tecnomancia":5,"Medicina":3,"Atletismo":2,"Acrobacia":2},hab:[{n:"Bio-feedback",tipo:"Passiva",freq:"passiva",d:"Ao curar um aliado com Script, você recupera 2 PV.",efeitos:[{tipo:"cura_reflexa",valor:2,momento:"ao_curar"}]},{n:"Simbiose Sintética",tipo:"Passiva",freq:"passiva",d:"Limite Cibernético = 2 + INT. Implantes acima de 2 + CON ocupam 1 Slot de RAM cada.",efeitos:[{tipo:"imunidade",a:"limite cibernético por Constituição (usa Int)"}]},{n:"Repulsão Cinética",tipo:"Ativa",freq:"livre",ram:1,d:"Onda de força: adjacentes empurrados 3m; testam Força ou caem."}],vet:{n:"Ressonância de Cromo",freq:"passiva",d:"+1 na conjuração por cada 3 implantes instalados."}},
+ "Cinético":{pv:6,cinetico:true,pericias:{"Tecnomancia":5,"Medicina":3,"Atletismo":2,"Acrobacia":2},hab:[{n:"Bio-feedback",tipo:"Passiva",freq:"passiva",d:"Ao curar um aliado com Script, você recupera 2 PV.",efeitos:[{tipo:"cura_reflexa",valor:2,momento:"ao_curar"}]},{n:"Simbiose Sintética",tipo:"Passiva",freq:"passiva",d:"Limite Cibernético = 2 + INT. Implantes acima de 2 + CON ocupam 1 Slot de RAM cada.",efeitos:[{tipo:"imunidade",a:"limite cibernético por Constituição (usa Int)"}]},{n:"Repulsão Cinética",tipo:"Ativa",freq:"livre",ram:1,d:"Onda de força: adjacentes empurrados 3m; testam Força ou caem.",acao:"Ação Principal",resolve:{tipo:"condicao",cond:"Caído",turnos:1,alvo:"inimigo",semDano:true}}],vet:{n:"Ressonância de Cromo",tipo:"Passiva",freq:"passiva",d:"+1 na conjuração por cada 3 implantes instalados.",efeitos:[{tipo:"por_implante",cada:3,attr:"conj",valor:1}]}},
  "Prospector":{pv:4,pericias:{"Lábia / Persuasão":5,"Intuição":4,"Tecnomancia":3},hab:[{n:"Contrato Lucrativo",tipo:"Passiva",freq:"passiva",d:"Recompensas de missão +20% (NV5: +30%).",efeitos:[{tipo:"bonus_recompensa",pct:20,momento:"ao_saquear"}]},{n:"\u201cEspere, podemos resolver isto\u201d",tipo:"Ativa",freq:"combate",d:"1x/combate: inimigo que o entenda hesita e perde a Ação Principal."}],vet:{n:"Cláusula de Contingência",freq:"sessao",d:"1x/sessão: contato corporativo — informação, porta, embarque."}},
  "Pirata":{pv:10,pericias:{"Armas de Fogo":3,"Armas Brancas":3,"Intimidação":3,"Sobrevivência":2,"Pilotagem":1},hab:[{n:"Brutalidade de Abordagem",tipo:"Passiva",freq:"passiva",d:"Ignora espaços confinados; +1 de dano dentro de naves.",efeitos:[{tipo:"dano",valor:1,quando:"em_nave",momento:"ao_atacar"},{tipo:"imunidade",a:"penalidade de espaços confinados"}]},{n:"Grito de Saqueador",tipo:"Ativa",freq:"livre",d:"Inimigos a 5m testam Sabedoria (NV5: Desvantagem) ou Amedrontados 2 turnos."}],vet:{n:"Terror Nominal",freq:"passiva",d:"Amedrontados sofrem +2 de dano dos seus ataques."}},
 };
