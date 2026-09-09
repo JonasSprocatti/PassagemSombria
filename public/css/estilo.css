@@ -1235,3 +1235,5 @@ html,body{max-width:100%;overflow-x:hidden}
 .hab-ativa{border-color:var(--sombra)!important;color:var(--sombra)!important}
 .hab-ativa:hover:not(:disabled){background:rgba(167,139,250,.14)!important}
 .hab-ativa.gasta{opacity:.4;text-decoration:line-through}
+.hab-ativa.ligada{border-color:var(--tech)!important;color:var(--tech)!important;
+  background:rgba(89,227,200,.14)!important;box-shadow:0 0 0 1px var(--tech)}

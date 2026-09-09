@@ -18,10 +18,21 @@ export const MOMENTOS = {
   FICHA: "ficha",             // ao derivar os números da ficha (CD, RAM, iniciativa…)
   AO_ATACAR: "ao_atacar",     // modifica acerto e dano de um ataque
   AO_SOFRER: "ao_sofrer",     // quando o personagem sofre dano
+  AO_CURAR: "ao_curar",       // quando cura um aliado (Bio-feedback do Cinético)
+  AO_SAQUEAR: "ao_saquear",   // ao receber créditos ou vasculhar (Catador, Prospector)
   INICIO_COMBATE: "inicio_combate",
   INICIO_TURNO: "inicio_turno",
   DESCANSO_CURTO: "descanso_curto",
   DESCANSO_LONGO: "descanso_longo",
+};
+
+// CONDIÇÕES DE ALVO — quando um efeito de ataque só vale em certas situações.
+// É o que faltava para o Assassino, o Pirata e o Espião funcionarem sozinhos.
+export const CONDICOES_ALVO = {
+  desprevenido: { rot: "contra alvo desprevenido ou que ainda não agiu" },
+  em_nave: { rot: "dentro de naves e espaços confinados" },
+  disfarcado: { rot: "quando disfarçado" },
+  social: { rot: "em cena social" },
 };
 
 // ---------------------------------------------------------------------------
@@ -56,13 +67,14 @@ export const EFEITOS = {
   conjuracao: { rotulo: (e) => `${sinal(e.valor)} na Conjuração`,
     ficha: (e, k) => { k.conj += e.valor; } },
 
-  // { tipo:"dano", valor:2, contra:"branca"|"fogo"|"robos" }
-  dano: { rotulo: (e) => `${sinal(e.valor)} de dano${e.contra ? ` com ${rotContra(e.contra)}` : ""}`,
-    ataque: (e, ctx) => { if (!e.contra || ctx.combina(e.contra)) ctx.dano += e.valor; } },
+  // { tipo:"dano", valor:2, contra:"branca"|"fogo"|"robos", quando:"desprevenido" }
+  // `contra` filtra por tipo de arma/alvo; `quando` filtra pela situação do momento.
+  dano: { rotulo: (e) => `${sinal(e.valor)} de dano${e.contra ? ` com ${rotContra(e.contra)}` : ""}${e.quando ? ` ${CONDICOES_ALVO[e.quando]?.rot || ""}` : ""}`,
+    ataque: (e, ctx) => { if (!aplicaAqui(e, ctx)) return; ctx.dano += e.valor; } },
 
-  // { tipo:"acerto", valor:2, contra:"fogo" }
-  acerto: { rotulo: (e) => `${sinal(e.valor)} no acerto${e.contra ? ` com ${rotContra(e.contra)}` : ""}`,
-    ataque: (e, ctx) => { if (!e.contra || ctx.combina(e.contra)) ctx.acerto += e.valor; } },
+  // { tipo:"acerto", valor:2, contra:"fogo", quando:"desprevenido" }
+  acerto: { rotulo: (e) => `${sinal(e.valor)} no acerto${e.contra ? ` com ${rotContra(e.contra)}` : ""}${e.quando ? ` ${CONDICOES_ALVO[e.quando]?.rot || ""}` : ""}`,
+    ataque: (e, ctx) => { if (!aplicaAqui(e, ctx)) return; ctx.acerto += e.valor; } },
 
   // { tipo:"vantagem", em:"ataque"|"pericia", pericia:"Atletismo" }
   vantagem: { rotulo: (e) => `Vantagem em ${e.pericia || e.em || "testes"}`,
@@ -74,11 +86,37 @@ export const EFEITOS = {
   // { tipo:"recurso", n:"Fôlego de Aço", freq:"curto"|"longo"|"sessao" }
   recurso: { rotulo: (e) => `${e.n} — 1×/${rotFreq(e.freq)}` },
 
+  // { tipo:"multiplicar_dano", fator:2, quando:"desprevenido" } — o dano dobra
+  multiplicar_dano: {
+    rotulo: (e) => `dano ×${e.fator} ${CONDICOES_ALVO[e.quando]?.rot || ""}`,
+    ataque: (e, ctx) => { if (ctx.situacao?.[e.quando]) ctx.multDano = Math.max(ctx.multDano || 1, e.fator); } },
+
+  // { tipo:"cura_reflexa", valor:2 } — cura a si ao curar outro
+  cura_reflexa: {
+    rotulo: (e) => `recupera ${e.valor} PV ao curar um aliado`,
+    curar: (e, ctx) => { ctx.curaPropria = (ctx.curaPropria || 0) + e.valor; } },
+
+  // { tipo:"bonus_recompensa", pct:20 } — recompensas maiores
+  bonus_recompensa: {
+    rotulo: (e) => `+${e.pct}% em recompensas de missão`,
+    saque: (e, ctx) => { ctx.pct = (ctx.pct || 0) + e.pct; } },
+
+  // { tipo:"chance_extra", dado:"1d6", minimo:4, oque:"item valioso" }
+  chance_extra: {
+    rotulo: (e) => `${e.dado}: com ${e.minimo}+ acha ${e.oque}`,
+    saque: (e, ctx) => { (ctx.rolagens = ctx.rolagens || []).push(e); } },
+
   // { tipo:"nave", campo:"casco_max", valor:15 } — para melhorias de nave
   nave: { rotulo: (e) => `${sinal(e.valor)} de ${e.campo.replace("_max", "")}`,
     naveFicha: (e, n) => { n[e.campo] = (n[e.campo] || 0) + e.valor; } },
 };
 
+// Um efeito de ataque só entra se o tipo de arma/alvo bater E a situação bater.
+const aplicaAqui = (e, ctx) => {
+  if (e.contra && !ctx.combina(e.contra)) return false;
+  if (e.quando && !ctx.situacao?.[e.quando]) return false;
+  return true;
+};
 const sinal = (v) => (v >= 0 ? `+${v}` : `${v}`);
 const rotFreq = (f) => ({ curto: "descanso curto", longo: "descanso longo", sessao: "sessão" }[f] || f);
 const rotContra = (c) => ({ branca: "armas brancas", fogo: "armas de fogo", robos: "robôs e sintéticos" }[c] || c);
@@ -119,7 +157,7 @@ export const efeitosDeHabilidades = (habs = []) =>
 export class FichaEfeitos {
   constructor(fontes = []) { this.fontes = fontes.filter(Boolean); }
 
-  static de(f, { RACAS, CLASSES, FILOSOFIAS, IMPLANTES, ARMADURAS, chavesDeArmasEquipadas = [] }) {
+  static de(f, { RACAS, CLASSES, FILOSOFIAS, IMPLANTES, ARMADURAS, chavesDeArmasEquipadas = [], modosAtivos = [] }) {
     const fontes = [];
     const r = RACAS.find((x) => x.nome === f.raca);
     if (r) fontes.push(new Portador(r.nome, r, "raça"));
@@ -138,6 +176,9 @@ export class FichaEfeitos {
     // (Aparar concede +1 de Defesa; Aderência dá Vantagem em Atletismo.)
     for (const w of chavesDeArmasEquipadas || [])
       fontes.push(new Portador(w.nome, { efeitos: w.efeitos }, "arma"));
+    // Modos ligados no momento (gás respirado, postura assumida…).
+    for (const mo of modosAtivos || [])
+      fontes.push(new Portador(mo.nome, { efeitos: mo.efeitos }, "modo ativo"));
     return new FichaEfeitos(fontes);
   }
 
@@ -150,9 +191,10 @@ export class FichaEfeitos {
     return k;
   }
 
-  // Modificadores de um ataque. ctx.combina(cat) diz se o efeito se aplica.
-  modificarAtaque({ acerto = 0, dano = 0, arma = null, alvo = null } = {}) {
-    const ctx = { acerto, dano, vantagem: false,
+  // Modificadores de um ataque. `situacao` traz o contexto do momento
+  // (alvo desprevenido, luta dentro de nave…) para efeitos condicionais.
+  modificarAtaque({ acerto = 0, dano = 0, arma = null, alvo = null, situacao = {} } = {}) {
+    const ctx = { acerto, dano, vantagem: false, multDano: 1, situacao,
       combina: (contra) => {
         if (contra === "branca" || contra === "fogo") return arma?.tipo === contra;
         if (contra === "robos") return /rob|sintét|drone|andr/i.test(`${alvo?.nome || ""} ${alvo?.categoria || ""}`);
@@ -161,6 +203,24 @@ export class FichaEfeitos {
     for (const fonte of this.fontes)
       for (const e of fonte.efeitosDe(MOMENTOS.AO_ATACAR))
         EFEITOS[e.tipo]?.ataque?.(e, ctx);
+    return ctx;
+  }
+
+  // Quando o personagem cura um aliado — devolve o que ele mesmo recupera.
+  aoCurar() {
+    const ctx = { curaPropria: 0, fontes: [] };
+    for (const fonte of this.fontes)
+      for (const e of fonte.efeitosDe(MOMENTOS.AO_CURAR))
+        if (EFEITOS[e.tipo]?.curar) { EFEITOS[e.tipo].curar(e, ctx); ctx.fontes.push(fonte.nome); }
+    return ctx;
+  }
+
+  // Ao receber recompensa ou vasculhar destroços.
+  aoSaquear() {
+    const ctx = { pct: 0, rolagens: [], fontes: [] };
+    for (const fonte of this.fontes)
+      for (const e of fonte.efeitosDe(MOMENTOS.AO_SAQUEAR))
+        if (EFEITOS[e.tipo]?.saque) { EFEITOS[e.tipo].saque(e, ctx); ctx.fontes.push(fonte.nome); }
     return ctx;
   }
 
@@ -193,6 +253,10 @@ export function validarEfeitos(efs) {
     if (e.tipo === "atributo" && !e.attr) erros.push("efeito de atributo não diz qual");
     if (e.tipo === "pericia" && !e.pericia) erros.push("efeito de perícia não diz qual");
     if (e.tipo === "recurso" && !e.n) erros.push("recurso sem nome");
+    if (e.tipo === "multiplicar_dano" && !e.fator) erros.push("multiplicar dano sem fator");
+    if (e.tipo === "multiplicar_dano" && !CONDICOES_ALVO[e.quando]) erros.push(`situação desconhecida: ${e.quando}`);
+    if (e.tipo === "bonus_recompensa" && typeof e.pct !== "number") erros.push("bônus de recompensa sem percentual");
+    if (e.tipo === "chance_extra" && !e.dado) erros.push("chance extra sem dado");
   }
   return erros;
 }

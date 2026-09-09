@@ -164,6 +164,7 @@ export function calc(f) {
     FILOSOFIAS: CONTEUDO_EXTRA.filosofias || FILOSOFIAS,
     IMPLANTES: CONTEUDO_EXTRA.implantesTodos || IMPLANTES,
     ARMADURAS: CONTEUDO_EXTRA.armadurasTodas || ARMADURAS,
+    modosAtivos: modosAtivosDe(f),
     chavesDeArmasEquipadas: (f.inventario || [])
       .filter((i) => i.equip && i.tipo === "arma")
       .flatMap((i) => { const w = (CONTEUDO_EXTRA.armasTodas || ARMAS).find((x) => x.n === i.nome);
@@ -339,6 +340,20 @@ function abilidadesDeDescanso(f) {
   if (raca?.lendaria && f.nivel >= 10) { const fr = freqDescanso(raca.lendaria) || "longo"; out.push({ id: "lend", nome: raca.lendaria.n, origem: `${raca.nome} · Lendária`, freq: fr }); }
   return out;
 }
+// Habilidades ativas que ficam LIGADAS (como o gás do Ven'y): devolve os
+// efeitos da opção escolhida, para o calc somá-los enquanto durar.
+function modosAtivosDe(f) {
+  const out = [];
+  const raca = RACAS.find((r) => r.nome === f.raca), classe = CLASSES[f.classe];
+  const fontes = [...(raca?.habilidades || []), ...(classe?.hab || [])];
+  for (const [id, escolha] of Object.entries(f.modos || {})) {
+    const h = fontes.find((x) => x.n === id);
+    const op = h?.opcoes?.find((o) => o.n === escolha);
+    if (op?.efeitos?.length) out.push({ nome: `${h.n}: ${op.n}`, efeitos: op.efeitos });
+  }
+  return out;
+}
+
 // Habilidades ATIVAS do personagem — as que ele declara usar em combate.
 // Reúne raça, classe, veterana e filosofia num formato único para a mesa.
 function habilidadesAtivas(f) {
@@ -347,7 +362,7 @@ function habilidadesAtivas(f) {
   const add = (id, h, origem) => {
     if (!h || h.tipo === "Passiva") return;
     out.push({ id, nome: h.n, d: h.d || "", origem, freq: h.freq || "livre",
-               descanso: freqDescanso(h) });
+               descanso: freqDescanso(h), opcoes: h.opcoes || null });
   };
   (classe?.hab || []).forEach((h, i) => add(`cl${i}`, h, f.classe));
   if (classe?.vet && f.nivel >= 5) add("vet", classe.vet, `${f.classe} · Veterana`);
@@ -388,6 +403,7 @@ function aplicarDescanso(f, tipo) {
     pvRec = Math.max(0, (f.pvMax || 0) - (f.pvAtual || 0));
     f.pvAtual = f.pvMax || 0;
     ramRec = f.ramGasta || 0; f.ramGasta = 0;
+    f.modos = {};                       // o ar volta ao normal: modos ligados se desfazem
     const totPentes = reporPentes(f);
     cat.forEach((a) => { if (f.usos[a.id]) { delete f.usos[a.id]; habsReset++; } });
     notas.push(pvRec ? `+${pvRec} PV (cheio)` : "PV já cheio", ramRec ? `RAM recarregada (+${ramRec})` : "RAM já cheia", `${totPentes} pente(s) repostos`, `${cat.length} habilidade(s) reiniciada(s)`);
@@ -1708,9 +1724,11 @@ async function telaMesa(id) {
               <button id="conjurar" class="mini">⚡ CONJURAR</button>
               ${(() => { const ats = habilidadesAtivas(f);
                 return ats.map((h) => { const usada = h.descanso && f.usos?.[h.id];
-                  return `<button class="mini hab-ativa ${usada ? "gasta" : ""}" data-hab-usar="${h.id}"
-                    title="${esc(h.origem)} · ${esc(h.d)}${h.descanso ? ` (1×/descanso ${h.descanso})` : ""}"
-                    ${usada ? "disabled" : ""}>★ ${esc(h.nome.slice(0, 20))}${h.descanso ? (usada ? " ✓" : " ⟳") : ""}</button>`; }).join(""); })()}
+                  const modo = f.modos?.[h.nome];
+                  const op = modo && h.opcoes?.find((o) => o.n === modo);
+                  return `<button class="mini hab-ativa ${usada ? "gasta" : ""} ${op ? "ligada" : ""}" data-hab-usar="${h.id}"
+                    title="${esc(h.origem)} · ${esc(h.d)}${h.descanso ? ` (1×/descanso ${h.descanso})` : ""}${op ? `\nAtivo: ${esc(op.n)} — ${esc(op.d)}` : ""}"
+                    ${usada ? "disabled" : ""}>${op ? `${op.ic} ${esc(op.n)}` : `★ ${esc(h.nome.slice(0, 20))}`}${h.descanso ? (usada ? " ✓" : " ⟳") : ""}</button>`; }).join(""); })()}
               ${(f.inventario || []).filter((it) => ehConsumivel(it.nome) && (it.qtd || 1) > 0)
                 .map((it) => { const c = ehConsumivel(it.nome);
                   return `<button class="mini item-usa" data-item="${esc(it.nome)}" title="${esc(c.d)} · ${esc(c.acao)}">${c.ic} ${esc(it.nome.replace(/ de Batalha| de Campo| de Nanofibra|Kit de |Granada de |Granada /i, "").slice(0, 16))} <b>×${it.qtd || 1}</b></button>`; }).join("")}
@@ -1911,7 +1929,19 @@ async function telaMesa(id) {
         (async () => {
           const dados = { ...novaFichaDados(), ...meuPers.dados }; const p = m.payload || {}; const notas = [];
           if (p.xp) { dados.xp = (dados.xp || 0) + p.xp; notas.push(`+${p.xp} XP (${dados.xp}/${dados.xpMeta})`); }
-          if (p.creditos) { dados.creditos = (dados.creditos || 0) + p.creditos; notas.push(`+${p.creditos} CG (${dados.creditos})`); }
+          if (p.creditos) {
+            const kk = calc(dados);
+            const rs = kk.efeitos?.aoSaquear();
+            let ganho = p.creditos;
+            if (rs?.pct) { const extra = Math.round(p.creditos * rs.pct / 100); ganho += extra;
+              notas.push(`+${extra} CG extra (${rs.fontes[0]}: +${rs.pct}%)`); }
+            for (const r of rs?.rolagens || []) {
+              const pd2 = parseDice(r.dado); const v2 = rollNd(pd2.n, pd2.f).reduce((x, y) => x + y, 0);
+              notas.push(v2 >= r.minimo ? `🎲 ${r.dado} [${v2}] — achou ${r.oque}!` : `🎲 ${r.dado} [${v2}] — nada além do previsto`);
+            }
+            dados.creditos = (dados.creditos || 0) + ganho;
+            notas.push(`+${ganho} CG (${dados.creditos})`);
+          }
           if (p.item) {
             dados.inventario = dados.inventario || [];
             const ja = dados.inventario.find((x) => x.nome === p.item.nome);
@@ -2809,9 +2839,12 @@ async function telaMesa(id) {
         const sets = 1 + (nat === 20 ? 1 : 0) + (furtivo && assassino ? 1 : 0);
         let dados = rollNd(pd.n * sets, pd.f);
         if (pr.brutal) { const d2 = rollNd(pd.n * sets, pd.f); if (d2.reduce((x, y) => x + y, 0) > dados.reduce((x, y) => x + y, 0)) dados = d2; } // Brutal: vantagem no dano
+        // Situação do ataque: o que o motor precisa saber para efeitos condicionais.
+        const situacao = { desprevenido: !!furtivo, em_nave: !!camp.combate?.naveEmCena };
+        const modAtq = k.efeitos ? k.efeitos.modificarAtaque({ acerto: 0, dano: 0, arma: cat, situacao }) : { acerto: 0, dano: 0, multDano: 1 };
         const modKw = (pr.efeitos || []).filter((e) => e.momento === "ao_atacar" && e.tipo === "dano" && !e.contra)
           .reduce((x, e) => x + (e.valor || 0), 0);
-        const danoMod = k.attr[atkAttr] + modKw + (cat.tipo === "branca" && f.implantes.includes("Braço Mecânico Hidráulico") ? 2 : 0);
+        const danoMod = k.attr[atkAttr] + modKw + modAtq.dano + (cat.tipo === "branca" && f.implantes.includes("Braço Mecânico Hidráulico") ? 2 : 0);
         const marcadores = [nat === 20 ? "CRÍTICO ×2" : "", furtivo && assassino ? "FURTIVO ×2" : furtivo ? "furtivo +2 acerto" : "", pr.agil ? `Ágil (${atkAttr})` : "", pr.brutal ? "Brutal (vantagem)" : ""].filter(Boolean).join(" · ");
         // Palavras-chave declaradas: condições ao acertar e perfuração de armadura.
         let efeitoKw = "";
@@ -2935,6 +2968,25 @@ async function telaMesa(id) {
         const ats = habilidadesAtivas(f);
         const h = ats.find((x) => x.id === bt.dataset.habUsar); if (!h) return;
         if (h.descanso && f.usos?.[h.id]) return;
+        // Habilidades com opções (o gás do Ven'y) ligam um modo que fica valendo.
+        if (h.opcoes?.length) {
+          const atual = f.modos?.[h.nome];
+          const r = await modalForm({ titulo: `★ ${h.nome}`, descricao: h.d,
+            campos: [{ k: "op", label: atual ? `Respirando: ${atual}` : "O que respirar", tipo: "select",
+              opcoes: [{ v: "", l: atual ? "— parar de respirar (desligar) —" : "— escolha —" },
+                ...h.opcoes.map((o) => ({ v: o.n, l: `${o.ic} ${o.n} — ${o.d}` }))] }],
+            okLabel: "Aplicar" });
+          if (!r) return;
+          const modos = { ...(meuPers.dados.modos || {}) };
+          if (r.op) modos[h.nome] = r.op; else delete modos[h.nome];
+          meuPers.dados = { ...meuPers.dados, modos }; f.modos = modos;
+          await sb.from("personagens").update({ dados: meuPers.dados }).eq("id", meuPers.id);
+          const op2 = h.opcoes.find((o) => o.n === r.op);
+          await enviar("sistema", r.op
+            ? `${op2.ic} ${meuPers.nome} respira **${r.op}** — ${op2.d}`
+            : `💨 ${meuPers.nome} volta a respirar o ar normal (${h.nome} desligado).`);
+          return render();
+        }
         if (!(await confirmModal(`Usar ${h.nome}?\n\n${h.d}${h.descanso ? `\n\nRecarrega no descanso ${h.descanso}.` : ""}`, { okLabel: "Usar" }))) return;
         if (h.descanso) {                       // marca como gasta até o descanso
           const usos = { ...(meuPers.dados.usos || {}), [h.id]: true };
@@ -3021,6 +3073,18 @@ async function telaMesa(id) {
             const val = ds.reduce((x, y) => x + y, 0) + pd.mod + bonus;
             await enviar("cura", null, { alvo_id: alvo.id, alvo_nome: alvo.nome, valor: val,
               origem: `◈ ${s.n} de ${meuPers.nome}`, detalhe: `${mCura[1]} [${ds.join(", ")}]${bonus ? ` ${sign(bonus)} ${mCura[2]}` : ""}`, aplicado: false });
+            // Bio-feedback e afins: quem cura também recebe algo de volta.
+            const rc = k.efeitos?.aoCurar();
+            if (rc?.curaPropria && alvo.id !== meuPers.id) {
+              const dd = { ...novaFichaDados(), ...meuPers.dados };
+              const antes = dd.pvAtual || 0;
+              dd.pvAtual = Math.min(dd.pvMax || 0, antes + rc.curaPropria);
+              if (dd.pvAtual !== antes) {
+                meuPers.dados = dd;
+                await sb.from("personagens").update({ dados: dd }).eq("id", meuPers.id);
+                await enviar("sistema", `♻ ${meuPers.nome} — ${rc.fontes[0]}: recupera ${dd.pvAtual - antes} PV ao curar um aliado.`);
+              }
+            }
             return render();
           }
         }
