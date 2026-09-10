@@ -533,6 +533,21 @@ function aplicarCond(alvo, cond, turnos = 1) {
   else alvo.cond.push({ n: cond, turnos: alvoTurnos });
 }
 const combateVazio = () => ({ ativo: false, rodada: 1, turno: 0, ordem: [], avarias: [], agiram: [], nave: naveTaticaVazia() });
+// ---- Campo tático (grade 2D rasa: X em metros × 3 pistas de profundidade) ----
+const CAMPO_LARGURA = 40;   // metros de frente
+const CAMPO_PISTAS = 3;     // frente / meio / fundo
+const PISTA_M = 2.5;        // separação entre pistas, em metros, para o cálculo de distância
+// Distância entre dois combatentes no campo, em metros (null se algum não tem posição).
+const distCombate = (a, b) => (a?.pos && b?.pos)
+  ? Math.hypot(a.pos.x - b.pos.x, (a.pos.lane - b.pos.lane) * PISTA_M) : null;
+// Posição inicial: aliados à esquerda, inimigos à direita, espalhados nas pistas.
+const posInicial = (ordem, tipo) => {
+  const aliado = tipo === "jogador";
+  const mesmos = (ordem || []).filter((o) => o.pos && (o.tipo === "jogador") === aliado).length;
+  const lane = mesmos % CAMPO_PISTAS;
+  const fila = Math.floor(mesmos / CAMPO_PISTAS);
+  return { x: aliado ? 6 + fila * 3 : CAMPO_LARGURA - 6 - fila * 3, lane };
+};
 // Estado tático da nave da tripulação durante o combate (Cap. 12).
 // A nave NÃO tem turno: ela é o cenário. Quem age são os tripulantes, nos seus postos.
 const naveTaticaVazia = () => ({ evasiva: null, evasivaDe: null, alinhado: false, fraqueza: false, bloqueados: [] });
@@ -1729,7 +1744,12 @@ async function telaMesa(id) {
     const salvo = localStorage.getItem(chavePers);
     return meus.find((x) => x.id === salvo) || meus[0] || null;
   })();
-  const souMestre = camp.mestre_id === usuario.id;
+  const ehMestreReal = camp.mestre_id === usuario.id;
+  const chaveModoJog = "ps-modojog-" + id;
+  let modoJogador = localStorage.getItem(chaveModoJog) === "1";
+  // souMestre é o "Mestre efetivo": some quando o Mestre liga o Modo Jogador,
+  // para testar (ou jogar) como um tripulante comum. Reatribuído no toggle.
+  let souMestre = ehMestreReal && !modoJogador;
   let pintarMsg = null;          // aponta pro addMsg do render atual (renderização otimista)
   const historico = msgs || [];  // lista mutável de mensagens (sobrevive a re-renders)
   let mapaCtrl = null;           // controlador do mapa aberto (para sync via realtime)
@@ -1749,6 +1769,8 @@ async function telaMesa(id) {
   const salvarCampanha = (campos) => { marcarGravacao(); return sb.from("campanhas").update(campos); };
   const salvarMapa = async (mapa) => { camp.mapa = mapa; const { error } = await salvarCampanha({ mapa }).eq("id", id); if (error) alert("Não consegui salvar o mapa: " + error.message); };
   if (!camp.combate || typeof camp.combate !== "object" || !("ordem" in camp.combate)) camp.combate = combateVazio();
+  // Migração: combates antigos não têm posição no campo. Persiste no próximo salvamento.
+  for (const c of camp.combate.ordem || []) if (!ehNave(c) && !c.pos) c.pos = posInicial(camp.combate.ordem, c.tipo);
   const snapshot = (rotulo) => { pilhaUndo.push({ rotulo, combate: JSON.parse(JSON.stringify(camp.combate || {})), nave: JSON.parse(JSON.stringify(camp.nave || null)), combate_nave: JSON.parse(JSON.stringify(camp.combate_nave || {})) }); if (pilhaUndo.length > 10) pilhaUndo.shift(); };
   const salvarCombate = async () => { const { error } = await salvarCampanha({ combate: camp.combate }).eq("id", id); if (error) alert("Não consegui salvar o combate: " + error.message); };
   // Espelha na ficha do jogador a variação de PV sofrida no rastreador.
@@ -1952,7 +1974,7 @@ async function telaMesa(id) {
     const cbn = camp.combate_nave || combateNaveVazio();
     shell("mesa", `
       <nav class="topo"><a class="btn-ghost" href="#/campanhas">← CAMPANHAS</a>
-        <div class="topo-status">${esc(camp.nome)} · código <b class="chrome">${camp.codigo}</b></div><span style="display:flex;gap:6px"><button id="atalhos" class="btn-ghost so-desktop" title="Atalhos de teclado (?)">⌨</button><button id="abrir-diario" class="btn-ghost" title="Diário da campanha">📔 DIÁRIO</button>${souMestre ? `<button id="abrir-mestre" class="btn-ghost" title="Tela do Mestre">🎛 MESTRE</button>` : ""}<button id="abrir-mapa" class="btn-ghost" title="Mapa do sistema (compartilhado)">🗺 MAPA</button></span></nav>
+        <div class="topo-status">${esc(camp.nome)} · código <b class="chrome">${camp.codigo}</b></div><span style="display:flex;gap:6px"><button id="atalhos" class="btn-ghost so-desktop" title="Atalhos de teclado (?)">⌨</button><button id="abrir-diario" class="btn-ghost" title="Diário da campanha">📔 DIÁRIO</button>${ehMestreReal ? `<button id="modo-jogador" class="btn-ghost ${modoJogador ? "on" : ""}" title="${modoJogador ? "Você está jogando como tripulante. Clique para voltar a ser Mestre." : "Testar/jogar como um tripulante comum — some as ferramentas e os privilégios de Mestre."}">${modoJogador ? "🎭 MODO JOGADOR" : "👑 MESTRE"}</button>` : ""}${souMestre ? `<button id="abrir-mestre" class="btn-ghost" title="Tela do Mestre">🎛 MESTRE</button>` : ""}<button id="abrir-mapa" class="btn-ghost" title="Mapa do sistema (compartilhado)">🗺 MAPA</button></span></nav>
       <div class="mesa">
         <div class="mesa-lateral">
           <nav class="mesa-abas" role="tablist">
@@ -1983,10 +2005,22 @@ async function telaMesa(id) {
                   const bloq = (camp.combate.avarias || []).some((av) => av.bloqueia === pk);
                   return `<span class="posto ${agiu ? "ok" : ""} ${quem ? "" : "vazio"} ${bloq ? "bloq" : ""}" title="${bloq ? "Posto inacessível por avaria" : quem ? esc(quem.perfis?.apelido || "") : "vago"}">${esc(ESTACOES[pk].n.split(" ")[0])}${bloq ? " ⛔" : agiu ? " ✓" : ""}</span>`; }).join("")}</div>
               </div>`; })() : ""}
+            ${camp.combate.ordem.some((c) => !ehNave(c)) ? `<div class="cb-campo" id="cb-campo" title="Campo tático — arraste o seu token no seu turno">
+              ${Array.from({ length: CAMPO_PISTAS }, (_, lane) => `<div class="cb-pista" data-lane="${lane}" data-rot="${["frente", "meio", "fundo"][lane] || ""}">${camp.combate.ordem.map((c) => {
+                if (ehNave(c) || (c.pos?.lane ?? 1) !== lane) return "";
+                const px = ((c.pos?.x ?? 20) / CAMPO_LARGURA) * 100;
+                const meu = c.personagem_id && c.personagem_id === meuPers?.id;
+                const vez = camp.combate.ordem[camp.combate.turno]?.id === c.id;
+                const movivel = souMestre || (meu && vez);
+                const lado = (c.tipo === "inimigo" || c.lado === "inimiga") ? "inim" : "aliado";
+                return `<span class="cb-token ${lado} ${foraDeCombate(c) ? "morto" : ""} ${vez ? "vez" : ""} ${movivel ? "movivel" : ""}" data-token="${c.id}" style="left:${px.toFixed(1)}%" title="${esc(c.nome)} · x${Math.round(c.pos?.x ?? 20)}m · pista ${(c.pos?.lane ?? 1) + 1}">${esc(c.nome.replace(/ #\d+$/, "").slice(0, 4))}</span>`;
+              }).join("")}</div>`).join("")}
+              <div class="cb-regua">${[0, 10, 20, 30, 40].map((m) => `<span style="left:${(m / CAMPO_LARGURA) * 100}%">${m}</span>`).join("")}</div>
+            </div>` : ""}
             <div class="cb-lista">${camp.combate.ordem.map((c, i) => `
               <div class="cb-linha ${i === camp.combate.turno ? "cb-atual" : ""} ${foraDeCombate(c) ? "cb-morto" : ""} ${ehNave(c) ? "cb-nave" : ""}">
                 <span class="cb-ini" title="Iniciativa">${c.ini}</span>
-                <span class="cb-nome">${i === camp.combate.turno ? "▶ " : ""}${ehNave(c) ? "🚀 " : ""}${esc(c.nome)}${c.tipo === "inimigo" ? ` <i class="dim">${esc(c.ameaca || "")}</i>` : ""}${ehNave(c) ? ` <i class="dim">Def ${10 + (c.manobra || 0)}</i>` : ""}${(c.cond && c.cond.length) ? `<span class="cb-conds">${c.cond.map((cd) => `<span class="cb-cond ${infoCond(cd.n)?.dano ? "sangra" : ""}" title="${esc(cd.n)} · ${cd.turnos} turno(s)${infoCond(cd.n) ? " — " + esc(infoCond(cd.n).d) : ""}">${infoCond(cd.n)?.ic || "🏷"} ${esc(cd.n)} ${cd.turnos}</span>`).join("")}</span>` : ""}</span>
+                <span class="cb-nome">${i === camp.combate.turno ? "▶ " : ""}${ehNave(c) ? "🚀 " : ""}${esc(c.nome)}${c.tipo === "inimigo" ? ` <i class="dim">${esc(c.ameaca || "")}</i>` : ""}${ehNave(c) ? ` <i class="dim">Def ${10 + (c.manobra || 0)}</i>` : ""}</span>${(c.cond && c.cond.length) ? `<span class="cb-conds">${c.cond.map((cd) => `<span class="cb-cond ${infoCond(cd.n)?.dano ? "sangra" : "estado"}" title="${esc(cd.n)} · ${cd.turnos} turno(s)${infoCond(cd.n) ? " — " + esc(infoCond(cd.n).d) : ""}">${infoCond(cd.n)?.ic || "🏷"} ${esc(cd.n)} ${cd.turnos}</span>`).join("")}</span>` : ""}
                 <span class="cb-hp" data-barra="${c.id}" title="${ehNave(c) ? "Casco" : "Vida"}"><span class="rastro"></span><span class="cb-hp-barra" style="width:${Math.max(0, Math.min(100, vidaMax(c) ? vidaAtual(c) / vidaMax(c) * 100 : 0))}%;background:${(c.tipo === "inimigo" || c.lado === "inimiga") ? "var(--perigo)" : ehNave(c) ? "var(--chrome)" : "var(--tech)"}"></span><b>${vidaAtual(c)}/${vidaMax(c)}</b></span>${ehNave(c) ? `<span class="cb-hp" title="Escudos"><span class="rastro"></span><span class="cb-hp-barra" style="width:${Math.max(0, Math.min(100, c.escudos_max ? c.escudos / c.escudos_max * 100 : 0))}%;background:var(--tech)"></span><b>${c.escudos}/${c.escudos_max}</b></span>` : ""}
                 ${souMestre ? `<span class="cb-acoes">${(() => { const _atq = ataquesDoCombatente(c); return _atq ? _atq.map((atk, ai) => `<button class="cb-atk" data-cb="${c.id}" data-atk="${ai}" title="Rolar ${esc(atk.n)}${c.personagem_id ? ` por ${esc(c.nome)}` : ""}">⚔${_atq.length > 1 ? ai + 1 : ""}</button>`).join("") : ""; })()}${(ehNave(c) && c.lado === "inimiga") ? `<button class="cb-atk" data-cb-nave="${c.id}" title="Esta nave dispara">⚔</button>` : ""}<button class="cb-dmg" data-cb="${c.id}" data-d="-5">−5</button><button class="cb-dmg" data-cb="${c.id}" data-d="5">+5</button><input class="cb-hpset" data-cb="${c.id}" type="number" value="${vidaAtual(c)}" style="width:46px" title="${ehNave(c) ? "definir Casco" : "definir HP"}"><button class="cb-hpset-lbl cb-cond-add" data-cb="${c.id}" title="Adicionar condição">🏷</button><button class="cb-rm" data-cb="${c.id}" title="remover">✕</button></span>` : ""}
               </div>`).join("")}</div>
@@ -2467,6 +2501,12 @@ async function telaMesa(id) {
       ov.querySelector("#ins-x").onclick = fechar;
       ov.addEventListener("click", (e) => { if (e.target === ov) fechar(); });
       ov.addEventListener("keydown", (e) => { if (e.key === "Escape") fechar(); });
+    });
+    $("#modo-jogador")?.addEventListener("click", () => {
+      modoJogador = !modoJogador;
+      try { localStorage.setItem(chaveModoJog, modoJogador ? "1" : "0"); } catch (e) {}
+      souMestre = ehMestreReal && !modoJogador;
+      render();
     });
     $("#abrir-mestre")?.addEventListener("click", async () => {
       if (!camp.faccoes || typeof camp.faccoes !== "object") camp.faccoes = {};
@@ -2988,6 +3028,43 @@ async function telaMesa(id) {
       await enviar("sistema", `${inf?.ic || "🏷"} ${c.nome} está ${r.cond} por ${r.turnos} turno(s).${inf?.dano ? ` Sofrerá ${inf.dano} no início de cada turno.` : ""}`);
       await salvarCombate(); render();
     });
+    // ---- Campo tático: arrastar o próprio token no turno (o Mestre move qualquer um) ----
+    const campoEl = $("#cb-campo");
+    if (campoEl) campoEl.querySelectorAll(".cb-token.movivel").forEach((tok) => {
+      tok.addEventListener("pointerdown", (ev) => {
+        ev.preventDefault();
+        const c = cbFind(tok.dataset.token); if (!c?.pos) return;
+        const rect = campoEl.getBoundingClientRect();
+        const pistas = [...campoEl.querySelectorAll(".cb-pista")];
+        const origem = { x: c.pos.x, lane: c.pos.lane };
+        const conds = (c.cond || []).map((x) => x.n.toLowerCase());
+        let maxMov = souMestre ? 9999 : (k?.deslocamento || 6);
+        if (!souMestre) {
+          if (conds.some((n) => /paralisado|congelado/.test(n))) return alert(`${c.nome} não pode se mover (${conds.find((n) => /paralisado|congelado/.test(n))}).`);
+          if (conds.some((n) => /caído|lento/.test(n))) maxMov = Math.floor(maxMov / 2);
+        }
+        tok.classList.add("arrastando");
+        let nx = c.pos.x, nlane = c.pos.lane;
+        const mover = (e) => {
+          nx = Math.max(0, Math.min(CAMPO_LARGURA, ((e.clientX - rect.left) / rect.width) * CAMPO_LARGURA));
+          const li = pistas.findIndex((el) => { const r2 = el.getBoundingClientRect(); return e.clientY >= r2.top - 8 && e.clientY <= r2.bottom + 8; });
+          if (li >= 0) nlane = li;
+          tok.style.left = ((nx / CAMPO_LARGURA) * 100).toFixed(1) + "%";
+          if (pistas[nlane] && tok.parentElement !== pistas[nlane]) pistas[nlane].appendChild(tok);
+        };
+        const soltar = async () => {
+          window.removeEventListener("pointermove", mover); window.removeEventListener("pointerup", soltar);
+          tok.classList.remove("arrastando");
+          const andou = Math.hypot(nx - origem.x, (nlane - origem.lane) * PISTA_M);
+          if (andou < 0.4) return render();   // clique sem arrastar: volta ao lugar
+          if (andou > maxMov + 0.01) { alert(`${c.nome} só anda ${maxMov}m neste turno (tentou ${Math.round(andou)}m).`); return render(); }
+          snapshot("mover no campo");
+          c.pos = { x: Math.round(nx * 10) / 10, lane: nlane };
+          await salvarCombate(); render();
+        };
+        window.addEventListener("pointermove", mover); window.addEventListener("pointerup", soltar);
+      });
+    });
     $("#cb-prox")?.addEventListener("click", async () => { let salvarNaveJunto = false; const rodAntes = camp.combate.rodada; proximoTurno(camp.combate); if (camp.combate.rodada !== rodAntes) camp.combate.agiram = []; const atual = camp.combate.ordem[camp.combate.turno];
       // Modos temporários dos jogadores (Êxtase, Endurecer, Fúria, gás do Ven'y)
       // contam para baixo a cada rodada e expiram sozinhos.
@@ -3081,18 +3158,56 @@ async function telaMesa(id) {
         const iguais = camp.combate.ordem.filter((x) => x.nome.replace(/ #\d+$/, "") === b.n).length;
         camp.combate.ordem.push({ id: cbId(), nome: iguais ? `${b.n} #${iguais + 1}` : b.n, ini: d(20), hp: b.hp, hp_max: b.hp, cd: b.cd, tipo: "inimigo", ameaca: b.ameaca, ataques: b.ataques, habs: b.habs || [] });
       }
+      const novoCb = camp.combate.ordem[camp.combate.ordem.length - 1];
+      if (novoCb && !ehNave(novoCb) && !novoCb.pos) novoCb.pos = posInicial(camp.combate.ordem, novoCb.tipo);
       ordenarCombate(camp.combate); await salvarCombate(); render();
     });
     app.querySelectorAll(".cb-atk").forEach((b) => b.onclick = async () => {
-      const c = cbFind(b.dataset.cb); const lista = ataquesDoCombatente(c); if (!c || !lista) return; const atk = lista[+b.dataset.atk]; if (!atk) return;
-      let nat = null, detVant = "", acerto = null;
-      if (atk.bonus != null) { if (vantagem !== 0) { const r1 = d(20), r2 = d(20); nat = vantagem > 0 ? Math.max(r1, r2) : Math.min(r1, r2); detVant = ` [${vantagem > 0 ? "vant" : "desv"} ${r1}/${r2}]`; } else nat = d(20); acerto = nat + atk.bonus; }
-      const pd = parseDice(atk.dano); let danoTxt = "", danoTotal = null;
-      if (pd) { const mult = nat === 20 ? 2 : 1; const ds = rollNd(pd.n * mult, pd.f); danoTotal = ds.reduce((x, y) => x + y, 0) + pd.mod; danoTxt = ` · dano ${atk.dano}${mult > 1 ? "×2" : ""} [${ds.join(", ")}]${pd.mod ? sign(pd.mod) : ""} = ${danoTotal}`; }
-      enviar("rolagem", null, { titulo: `${c.personagem_id ? "🎯" : "👹"} ${c.nome} — ${atk.n}`,
-        detalhe: `${nat != null ? `d20 [${nat}]${detVant} ${sign(atk.bonus)} = acerto ${acerto}` : "efeito automático"}${danoTxt}`,
+      const c = cbFind(b.dataset.cb); const lista = ataquesDoCombatente(c); if (!c || !lista) return;
+      const atk = lista[+b.dataset.atk]; if (!atk) return;
+      const pd = parseDice(atk.dano);
+      // Ataque sem rolagem de acerto (efeito automático / teste de resistência): só posta o dado.
+      if (atk.bonus == null) {
+        let danoTxt = "", danoTotal = null;
+        if (pd) { const ds = rollNd(pd.n, pd.f); danoTotal = ds.reduce((x, y) => x + y, 0) + pd.mod; danoTxt = ` · dano ${atk.dano} [${ds.join(", ")}] = ${danoTotal}`; }
+        return enviar("rolagem", null, { titulo: `${c.personagem_id ? "🎯" : "👹"} ${c.nome} — ${atk.n}`,
+          detalhe: `efeito automático${danoTxt}`, extra: atk.extra || "", ...(danoTotal != null ? { dano_total: danoTotal } : {}) });
+      }
+      // Mira um alvo do rastreador — o acerto e o dano se resolvem sozinhos.
+      const alvos = camp.combate.ordem.filter((x) => !foraDeCombate(x) && x.id !== c.id && !x.nave_party);
+      const padrao = (alvos.find((x) => (x.tipo === "jogador") !== (c.tipo === "jogador")) || alvos[0])?.id || "";
+      const r = alvos.length ? await modalForm({ titulo: `⚔ ${c.nome} — ${atk.n}`,
+        campos: [{ k: "alvo", label: "Alvo", tipo: "select", valor: padrao, opcoes: [
+          ...alvos.map((x) => ({ v: x.id, l: ehNave(x) ? `🚀 ${x.nome} — casco ${x.casco}/${x.casco_max}` : `${x.nome} — ${vidaAtual(x)}/${vidaMax(x)} PV, Def ${x.cd ?? 10}` })),
+          { v: "", l: "— só rolar (Mestre resolve) —" } ] }], okLabel: "Atacar" }) : { alvo: "" };
+      if (!r) return;
+      const alvo = r.alvo ? camp.combate.ordem.find((x) => x.id === r.alvo) : null;
+      const condsAlvo = (alvo?.cond || []).map((x) => x.n.toLowerCase());
+      const bonusMarcado = condsAlvo.includes("marcado") ? 2 : 0;
+      const alvoAberto = condsAlvo.some((n) => /atordoado|paralisado|caído|cego/.test(n));
+      const vSoma = (vantagem || 0) + (alvoAberto ? 1 : 0);
+      const vv = vSoma > 0 ? 1 : vSoma < 0 ? -1 : 0;
+      let nat, detVant = "";
+      if (vv !== 0) { const r1 = d(20), r2 = d(20); nat = vv > 0 ? Math.max(r1, r2) : Math.min(r1, r2); detVant = ` [${vv > 0 ? "vant" : "desv"} ${r1}/${r2}]`; } else nat = d(20);
+      const acerto = nat + atk.bonus + bonusMarcado;
+      const mult = nat === 20 ? 2 : 1;
+      const ds = pd ? rollNd(pd.n * mult, pd.f) : [];
+      const danoTotal = pd ? ds.reduce((x, y) => x + y, 0) + pd.mod : 0;
+      const danoTxt = pd ? ` · dano ${atk.dano}${mult > 1 ? "×2" : ""} [${ds.join(", ")}] = ${danoTotal}` : "";
+      await enviar("rolagem", null, { titulo: `${c.personagem_id ? "🎯" : "👹"} ${c.nome} — ${atk.n}`,
+        detalhe: `d20 [${nat}]${detVant} ${sign(atk.bonus)}${bonusMarcado ? ` +${bonusMarcado} Marcado` : ""} = acerto ${acerto}${danoTxt}`,
         total: acerto, crit: nat === 20, fumble: nat === 1,
-        extra: `${atk.extra ? atk.extra : ""}`, ...(danoTotal != null ? { dano_total: danoTotal } : {}) });
+        extra: atk.extra || "", ...(danoTotal ? { dano_total: danoTotal } : {}), ...(alvo ? { alvo_resolvido: true } : {}) });
+      if (alvo && danoTotal) {
+        const def = alvo.cd ?? 10;
+        if (nat === 20 || (nat !== 1 && acerto >= def)) {
+          snapshot("ataque no rastreador");
+          const rd = await aplicarDanoAlvo(alvo, danoTotal);
+          await salvarCombate();
+          await enviar("sistema", `💥 ${c.nome} acerta ${alvo.nome} (Def ${def}): ${rd.msg}.${!ehNave(alvo) && foraDeCombate(alvo) ? " 💀 CAIU!" : ""}`);
+        } else await enviar("sistema", `❌ ${c.nome} erra ${alvo.nome} (Def ${def}).`);
+        render();
+      }
     });
     app.querySelectorAll(".cb-dmg").forEach((b) => b.onclick = async () => { const c = cbFind(b.dataset.cb); if (!c) return; snapshot("dano/cura no rastreador"); const delta = +b.dataset.d;
       if (ehNave(c)) {
