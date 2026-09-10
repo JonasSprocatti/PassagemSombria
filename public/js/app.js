@@ -3346,36 +3346,29 @@ async function telaMesa(id) {
         }
         if (R?.tipo === "disputa") {          // Invasão da Sombra: disputa de rolagem contra o alvo
           const meuBonus = k.attr[R.atributo] || 0;
-          // Escolhe um combatente do rastreador; fora de combate, o Mestre rola pelo alvo.
+          // Precisa de um alvo no rastreador — sem isso, não rola.
           const cands = (camp.combate?.ativo ? camp.combate.ordem : []).filter((c2) => !ehNave(c2) && !foraDeCombate(c2) && c2.personagem_id !== meuPers.id);
-          let alvo = null;
-          if (cands.length) {
-            const r2 = await modalForm({ titulo: `★ ${h.nome}`, descricao: h.d,
-              campos: [{ k: "alvo", label: "Invadir a mente de quem?", tipo: "select",
-                opcoes: [{ v: "", l: "— alvo abstrato (Mestre rola) —" }, ...cands.map((c2) => ({ v: c2.id, l: `${c2.nome} — ${vidaAtual(c2)}/${vidaMax(c2)} PV` }))] }], okLabel: "Invadir" });
-            if (r2 === null) return;
-            if (r2.alvo) alvo = cands.find((c2) => c2.id === r2.alvo);
-          }
+          if (!cands.length) return alert(`${h.nome} precisa de um alvo. Adicione o inimigo ao rastreador de combate primeiro.`);
+          const r2 = await modalForm({ titulo: `★ ${h.nome}`, descricao: h.d,
+            campos: [{ k: "alvo", label: "Invadir a mente de quem?", tipo: "select",
+              opcoes: cands.map((c2) => ({ v: c2.id, l: `${c2.nome} — ${vidaAtual(c2)}/${vidaMax(c2)} PV` })) }], okLabel: "Invadir" });
+          if (!r2 || !r2.alvo) return;   // fechou sem escolher = não rola
+          const alvo = cands.find((c2) => c2.id === r2.alvo);
+          if (!alvo) return;
           // Bônus do alvo no atributo disputado: personagem usa o valor real; inimigo
           // usa a ordem da ameaça (Lacaio 0 … Colossal 6), ou a Defesa − 10 se não houver.
-          let alvoBonus = 2, alvoNome = "o alvo";
-          if (alvo) {
-            alvoNome = alvo.nome;
-            if (alvo.personagem_id) {
-              const pj = (pers || []).find((p2) => p2.id === alvo.personagem_id);
-              alvoBonus = pj ? (calc({ ...novaFichaDados(), ...pj.dados }).attr[R.atributo] || 0) : 2;
-            } else {
-              alvoBonus = NIVEIS_AMEACA[alvo.ameaca]?.ordem ?? Math.max(0, (alvo.cd ?? 10) - 10);
-            }
-          }
+          const alvoNome = alvo.nome;
+          const alvoBonus = alvo.personagem_id
+            ? (calc({ ...novaFichaDados(), ...((pers || []).find((p2) => p2.id === alvo.personagem_id)?.dados || {}) }).attr[R.atributo] || 0)
+            : (NIVEIS_AMEACA[alvo.ameaca]?.ordem ?? Math.max(0, (alvo.cd ?? 10) - 10));
           const nat = d(20), meu = nat + meuBonus;
           const natA = d(20), contra = natA + alvoBonus;
           const venceu = meu > contra;   // empate: o alvo resiste
           let extra;
           if (venceu) {
             extra = `Venceu a disputa (${meu} × ${contra}) — ${R.vitoria}.`;
-            if (alvo) { alvo.cond = [...(alvo.cond || []).filter((c2) => c2.n !== "dominado"), { n: "dominado", turnos: 1 }];
-              await salvarCombate(); }
+            alvo.cond = [...(alvo.cond || []).filter((c2) => c2.n !== "dominado"), { n: "dominado", turnos: 1 }];
+            await salvarCombate();
           } else {
             extra = `Perdeu a disputa (${meu} × ${contra}) — ${meuPers.nome} sofre ${R.derrota.danoProprio} de dano.`;
             const dd3 = { ...novaFichaDados(), ...meuPers.dados };
