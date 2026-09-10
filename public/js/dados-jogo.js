@@ -1377,3 +1377,81 @@ export const UPGRADES_NAVE = [
   { n: "Camuflagem Térmica", p: 3800, e: "+2 na Defesa da nave contra o primeiro ataque de cada combate.", campo: null, passiva: "furtiva" },
   { n: "Célula de Dobra Extra", p: 2000, e: "Um salto de dobra adicional sem consumir Célula de Matéria.", campo: null, passiva: "dobra" },
 ];
+
+// ---------------- MODIFICAÇÕES DE ARMA ----------------
+// Peças instaláveis em slots. Removíveis, mas trocar em combate custa turnos.
+// Palavras-chave são caras de propósito: aplicar Sangramento numa arma que não
+// tem muda o combate, e isso tem que doer no bolso.
+export const SLOTS_ARMA = {
+  fogo:   ["mira", "cano", "coronha", "carregador", "revestimento"],
+  branca: ["fio", "nucleo", "empunhadura", "revestimento"],
+};
+export const SLOTS_POR_ARMA = (cat) => {
+  if (!cat || cat.nano) return [];                 // nano-tatuagens não aceitam peças
+  const base = SLOTS_ARMA[cat.tipo] || [];
+  const pesada = /pesada|artilharia|destruidora/i.test(cat.kw || "");
+  return pesada ? base : base.slice(0, cat.tipo === "fogo" ? 4 : 3);
+};
+
+export const MODS_ARMA = [
+  // --- MIRA (fogo) ---
+  { n: "Mira Reflex", slot: "mira", p: 250, ic: "🎯", turnos: 1,
+    d: "Ponto vermelho simples. +1 no acerto.", efeitos: [{ tipo: "acerto", valor: 1, momento: "ao_atacar" }] },
+  { n: "Mira Smart-Link", slot: "mira", p: 900, ic: "🎯", turnos: 1,
+    d: "Ligada ao córtex: +2 no acerto e ignora cobertura leve.",
+    efeitos: [{ tipo: "acerto", valor: 2, momento: "ao_atacar" }] },
+  { n: "Luneta de Longo Alcance", slot: "mira", p: 700, ic: "🔭", turnos: 2,
+    d: "+2 no acerto se você não se moveu no turno. Alcance estendido.",
+    efeitos: [{ tipo: "acerto", valor: 2, momento: "ao_atacar" }], kw: "Telescópica" },
+
+  // --- CANO (fogo) ---
+  { n: "Cano Estriado", slot: "cano", p: 400, ic: "🔩", turnos: 2,
+    d: "Raiamento de precisão: +1 de dano.", efeitos: [{ tipo: "dano", valor: 1, momento: "ao_atacar" }] },
+  { n: "Cano Pesado de Tungstênio", slot: "cano", p: 1100, ic: "🔩", turnos: 3,
+    d: "+2 de dano, mas a arma fica pesada: −1 no acerto.",
+    efeitos: [{ tipo: "dano", valor: 2, momento: "ao_atacar" }, { tipo: "acerto", valor: -1, momento: "ao_atacar" }] },
+  { n: "Supressor Sônico", slot: "cano", p: 600, ic: "🔇", turnos: 1,
+    d: "Disparo silencioso: não denuncia a sua posição.", kw: "Silenciosa" },
+  { n: "Acelerador Magnético", slot: "cano", p: 2400, ic: "⚡", turnos: 3,
+    d: "Perfura blindagem: ignora 2 de armadura do alvo.", kw: "Perfurante" },
+
+  // --- CORONHA / EMPUNHADURA ---
+  { n: "Coronha Estabilizada", slot: "coronha", p: 350, ic: "🪝", turnos: 1,
+    d: "Absorve recuo: +1 no acerto com Rajada.",
+    efeitos: [{ tipo: "acerto", valor: 1, contra: "fogo", momento: "ao_atacar" }] },
+  { n: "Empunhadura Ergonômica", slot: "empunhadura", p: 300, ic: "🤲", turnos: 1,
+    d: "Equilíbrio perfeito: pode usar Destreza no lugar de Força.", kw: "Ágil" },
+  { n: "Contrapeso de Combate", slot: "empunhadura", p: 500, ic: "⚖", turnos: 2,
+    d: "+1 de dano em armas brancas.",
+    efeitos: [{ tipo: "dano", valor: 1, contra: "branca", momento: "ao_atacar" }] },
+
+  // --- CARREGADOR (fogo) ---
+  { n: "Pente Estendido", slot: "carregador", p: 450, ic: "▮", turnos: 1,
+    d: "O pente passa a levar 5 tiros em vez de 3.", tirosExtra: 2 },
+  { n: "Alimentador Duplo", slot: "carregador", p: 1300, ic: "▮", turnos: 2,
+    d: "Pente de 4 tiros e a troca vira Ação Livre.", tirosExtra: 1, trocaLivre: true },
+
+  // --- FIO / NÚCLEO (branca) ---
+  { n: "Fio Monomolecular", slot: "fio", p: 1800, ic: "🗡", turnos: 2,
+    d: "Corte impossível: ignora 2 de armadura.", kw: "Perfurante" },
+  { n: "Serrilha de Combate", slot: "fio", p: 2600, ic: "🩸", turnos: 2,
+    d: "Dentes vibratórios rasgam a carne: aplica Sangramento ao acertar.", kw: "Sangramento" },
+  { n: "Núcleo Térmico", slot: "nucleo", p: 2200, ic: "🔥", turnos: 3,
+    d: "A lâmina esquenta ao branco: o alvo pega fogo ao ser acertado.", kw: "Em chamas" },
+  { n: "Injetor de Neurotoxina", slot: "nucleo", p: 3200, ic: "🧪", turnos: 2,
+    d: "Reservatório na guarda: aplica Envenenado ao acertar.", kw: "Tóxica" },
+  { n: "Descarga de Choque", slot: "nucleo", p: 2800, ic: "💫", turnos: 2,
+    d: "Capacitor no punho: pode Atordoar o alvo ao acertar.", kw: "Atordoante" },
+
+  // --- REVESTIMENTO (ambos) ---
+  { n: "Revestimento Anti-Sintético", slot: "revestimento", p: 1500, ic: "🤖", turnos: 2,
+    d: "Ligas que corroem circuitos: +2 de dano contra robôs e androides.", kw: "Anti-Sintético" },
+  { n: "Verniz Furtivo", slot: "revestimento", p: 800, ic: "🌑", turnos: 1,
+    d: "Absorve luz e sinais: a arma passa por revistas comuns.", kw: "Oculta" },
+  { n: "Placas de Aparo", slot: "revestimento", p: 1600, ic: "🛡", turnos: 2,
+    d: "Guarda reforçada: +1 de Defesa enquanto empunhada.", kw: "Aparar" },
+];
+
+export const modsDoSlot = (slot, tipoArma) => MODS_ARMA.filter((m) =>
+  m.slot === slot && (SLOTS_ARMA[tipoArma] || []).includes(m.slot));
+export const acharMod = (nome) => MODS_ARMA.find((m) => m.n === nome);

@@ -156,7 +156,7 @@ export const REFERENCIA = {
     ["Pesadas (+3 a +8)", "Não soma Destreza: apenas 10 + Bônus."],
   ]},
   criticos: { n: "Críticos, Falhas e Munição", ic: "💥", linhas: [
-    ["Crítico (20 natural)", "Acerto automático; dobra os dados de dano (não os bônus fixos)."],
+    ["Crítico (20 natural)", "Acerto automático; rola o dano normalmente e multiplica o TOTAL por 2 (dados + bônus). O Assassino em furtivo chega a ×4."],
     ["Falha Crítica (1 natural)", "A arma emperra ou superaquece: custa a Ação de Movimento do próximo turno."],
     ["Munição (Pentes)", "1 pente = 3 turnos atirando. Rajada consome 2. Recarregar = Ação de Movimento."],
     ["Morte Iminente (0 PV)", "Inconsciente. No início do turno rola 1d20 puro: 10+ sucesso. 3 sucessos estabilizam, 3 falhas matam."],

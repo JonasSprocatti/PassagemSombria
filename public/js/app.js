@@ -5,7 +5,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./config.js";
 import { FichaEfeitos, MOMENTOS, EFEITOS as EFEITOS_FICHA, validarEfeitos } from "./efeitos.js";
-import { RACAS, CLASSES, FILOSOFIAS, IMPLANTES, SCRIPTS, ARMAS, ARMADURAS, PERICIAS, NAVES, ESTACOES, REGRAS_NAVE, RIQUEZA, TEMAS, CONVERTE_2D8, RENOME_PERICIAS, KEYWORDS, PALAVRAS_CHAVE, chavesDaArma, propsArma, AVARIAS, UPGRADES_NAVE, TURNOS_POR_PENTE, PENTES_MAX, custoTiro, PENTES_INICIAIS, TIROS_POR_PENTE, TIPOS_PENTE, PENTE_PADRAO, CONSUMIVEIS, ehConsumivel } from "./dados-jogo.js";
+import { RACAS, CLASSES, FILOSOFIAS, IMPLANTES, SCRIPTS, ARMAS, ARMADURAS, PERICIAS, NAVES, ESTACOES, REGRAS_NAVE, RIQUEZA, TEMAS, CONVERTE_2D8, RENOME_PERICIAS, KEYWORDS, PALAVRAS_CHAVE, chavesDaArma, propsArma, AVARIAS, UPGRADES_NAVE, TURNOS_POR_PENTE, PENTES_MAX, custoTiro, PENTES_INICIAIS, TIROS_POR_PENTE, TIPOS_PENTE, PENTE_PADRAO, CONSUMIVEIS, ehConsumivel, SLOTS_ARMA, SLOTS_POR_ARMA, MODS_ARMA, modsDoSlot, acharMod } from "./dados-jogo.js";
 import { BESTIARIO, NIVEIS_AMEACA } from "./dados-bestiario.js";
 import { NPCS, PAPEIS } from "./dados-npcs.js";
 import { FACCOES, NIVEIS_REPUTACAO, TABELAS, REFERENCIA  } from "./dados-mestre.js";
@@ -643,6 +643,136 @@ function shell(titulo, corpo, ativo = "") {
 // Conteúdo cadastrado pela administração, espelhado aqui porque calc() é
 // síncrono e não pode esperar um import dinâmico.
 const CONTEUDO_EXTRA = { implantes: [], armaduras: [], armas: [], consumiveis: [], naves: [], npcs: [] };
+// Arma com as modificações instaladas aplicadas: palavras-chave somadas,
+// efeitos acumulados e capacidade do pente ajustada.
+function armaMontada(cat, item) {
+  if (!cat || !item?.mods) return cat;
+  const mods = Object.values(item.mods).map(acharMod).filter(Boolean);
+  if (!mods.length) return cat;
+  const kws = [String(cat.kw || "").trim(), ...mods.map((m) => m.kw).filter(Boolean)].filter(Boolean);
+  return { ...cat,
+    kw: [...new Set(kws.join(",").split(",").map((x) => x.trim()).filter(Boolean))].join(", "),
+    _mods: mods,
+    _efeitos: mods.flatMap((m) => (m.efeitos || []).map((e) => ({ ...e, origem: m.n }))),
+    _tirosExtra: mods.reduce((a2, m) => a2 + (m.tirosExtra || 0), 0),
+    _trocaLivre: mods.some((m) => m.trocaLivre),
+  };
+}
+const capacidadePente = (cat) => TIROS_POR_PENTE + (cat?._tirosExtra || 0);
+
+// ---------------------------------------------------------------------------
+//  BANCADA — HUD de customização de armas e naves.
+//  A peça no centro, os slots ao redor, e o antes/depois visível a cada escolha.
+// ---------------------------------------------------------------------------
+const ROT_SLOT = { mira: "Mira", cano: "Cano", coronha: "Coronha", carregador: "Carregador",
+  revestimento: "Revestimento", fio: "Fio", nucleo: "Núcleo", empunhadura: "Empunhadura" };
+const IC_SLOT = { mira: "🎯", cano: "🔩", coronha: "🪝", carregador: "▮",
+  revestimento: "🛡", fio: "🗡", nucleo: "🔥", empunhadura: "🤲" };
+
+function abrirBancada({ f, item, catBase, emCombate, onSalvar }) {
+  const slots = SLOTS_POR_ARMA(catBase);
+  item.mods = item.mods || {};
+  const ov = document.createElement("div"); ov.className = "ss-overlay ov-modal bancada-ov"; ov.style.zIndex = "10020";
+  const fechar = () => { document.body.style.overflow = ""; ov.remove(); };
+  let selecionado = null;   // slot aberto para escolha
+
+  const montada = () => armaMontada(catBase, item);
+  const resumo = () => {
+    const m = montada();
+    const pr = propsArma(m);
+    const bonusAcerto = (m._efeitos || []).filter((e) => e.tipo === "acerto").reduce((a, e) => a + (e.valor || 0), 0);
+    const bonusDano = (m._efeitos || []).filter((e) => e.tipo === "dano").reduce((a, e) => a + (e.valor || 0), 0);
+    return { m, pr, bonusAcerto, bonusDano, cap: capacidadePente(m) };
+  };
+  const custoTotal = () => Object.values(item.mods).map(acharMod).filter(Boolean).reduce((a, x) => a + x.p, 0);
+
+  const pintar = () => {
+    const { m, pr, bonusAcerto, bonusDano, cap } = resumo();
+    const dano = danoArma(catBase, f.nivel);
+    ov.innerHTML = `<div class="bancada">
+      <div class="mp-topo"><b>🔧 Bancada de Modificações</b>
+        <span class="dim">${esc(catBase.n)}</span>
+        <button id="bc-x" class="mp-x" style="margin-left:auto">✕</button></div>
+
+      <div class="bc-corpo">
+        <div class="bc-arma">
+          <div class="bc-silhueta">${img(catBase.n) || `<span class="bc-ic">${catBase.tipo === "fogo" ? "🔫" : "⚔"}</span>`}</div>
+          <div class="bc-stats">
+            <div class="bc-stat"><span>Dano</span><b>${esc(dano)}${bonusDano ? ` <i class="bc-mais">+${bonusDano}</i>` : ""}</b></div>
+            <div class="bc-stat"><span>Acerto</span><b>${bonusAcerto >= 0 ? "+" : ""}${bonusAcerto || 0}</b></div>
+            ${catBase.tipo === "fogo" ? `<div class="bc-stat"><span>Pente</span><b>${cap}${cap > TIROS_POR_PENTE ? ` <i class="bc-mais">+${cap - TIROS_POR_PENTE}</i>` : ""}</b></div>` : ""}
+            <div class="bc-stat"><span>Investido</span><b class="chrome">${custoTotal()} CG</b></div>
+          </div>
+          ${m.kw ? `<div class="bc-kws">${etiquetasKw(m)}</div>` : ""}
+        </div>
+
+        <div class="bc-slots">
+          ${slots.map((sl) => { const nome = item.mods[sl]; const mod = nome && acharMod(nome);
+            return `<button class="bc-slot ${mod ? "ocupado" : ""} ${selecionado === sl ? "aberto" : ""}" data-slot="${sl}">
+              <span class="bc-slot-ic">${mod ? mod.ic : IC_SLOT[sl]}</span>
+              <span class="bc-slot-txt"><i>${esc(ROT_SLOT[sl] || sl)}</i>
+                <b>${mod ? esc(mod.n) : "vazio"}</b>
+                ${mod ? `<span class="regra">${esc(mod.d)}</span>` : `<span class="regra dim">clique para instalar</span>`}</span>
+              ${mod ? `<span class="bc-remover" data-remover="${sl}" title="Remover peça">✕</span>` : ""}
+            </button>`; }).join("")}
+        </div>
+
+        ${selecionado ? (() => {
+          const opcoes = modsDoSlot(selecionado, catBase.tipo);
+          return `<div class="bc-loja"><h4>${IC_SLOT[selecionado]} ${esc(ROT_SLOT[selecionado])} — peças disponíveis</h4>
+            ${opcoes.length ? opcoes.map((o) => { const tem = item.mods[selecionado] === o.n;
+              const podePagar = tem || (f.creditos ?? 0) >= o.p;
+              return `<button class="bc-peca ${tem ? "on" : ""}" data-instalar="${esc(o.n)}" ${podePagar ? "" : "disabled"}>
+                <span class="bc-peca-ic">${o.ic}</span>
+                <span class="bc-peca-txt"><b>${esc(o.n)}</b><span class="regra">${esc(o.d)}</span>
+                  ${o.kw ? `<span class="auto-tag">adiciona ${esc(o.kw)}</span>` : ""}</span>
+                <span class="bc-peca-preco ${podePagar ? "" : "caro"}">${o.p} CG<i>${o.turnos}t p/ instalar</i></span>
+              </button>`; }).join("")
+              : `<p class="regra"><i>Nenhuma peça para este slot.</i></p>`}</div>`; })() : ""}
+
+        <p class="regra bc-nota">${emCombate
+          ? "⚠ Você está em combate: instalar ou remover consome os turnos indicados em cada peça."
+          : "Fora de combate a troca é livre. Remover devolve metade do valor da peça."}</p>
+      </div>
+    </div>`;
+    ligar();
+  };
+
+  const ligar = () => {
+    ov.querySelector("#bc-x").onclick = fechar;
+    ov.querySelectorAll("[data-slot]").forEach((b) => b.onclick = (e) => {
+      if (e.target.closest("[data-remover]")) return;
+      selecionado = selecionado === b.dataset.slot ? null : b.dataset.slot; pintar();
+    });
+    ov.querySelectorAll("[data-remover]").forEach((b) => b.onclick = async (e) => {
+      e.stopPropagation();
+      const sl = b.dataset.remover; const mod = acharMod(item.mods[sl]); if (!mod) return;
+      const devolve = Math.floor(mod.p / 2);
+      if (!(await confirmModal(`Remover ${mod.n}?\n\nVocê recebe ${devolve} CG de volta.${emCombate ? `\n\n⚠ Em combate isto consome ${mod.turnos} turno(s).` : ""}`, { okLabel: "Remover", perigo: true }))) return;
+      delete item.mods[sl];
+      f.creditos = (f.creditos ?? 0) + devolve;
+      await onSalvar(`🔧 Removeu ${mod.n} de ${catBase.n} (+${devolve} CG).${emCombate ? ` Custou ${mod.turnos} turno(s).` : ""}`);
+      pintar();
+    });
+    ov.querySelectorAll("[data-instalar]").forEach((b) => b.onclick = async () => {
+      const mod = acharMod(b.dataset.instalar); if (!mod) return;
+      if (item.mods[selecionado] === mod.n) return;
+      const antigo = acharMod(item.mods[selecionado]);
+      const devolve = antigo ? Math.floor(antigo.p / 2) : 0;
+      const liquido = mod.p - devolve;
+      if ((f.creditos ?? 0) < liquido) return alert(`Faltam ${liquido - (f.creditos ?? 0)} CG.`);
+      if (!(await confirmModal(`Instalar ${mod.n}?\n\n${mod.d}\n\nCusto: ${mod.p} CG${antigo ? ` (−${devolve} CG pela peça antiga)` : ""}.${emCombate ? `\n\n⚠ Em combate consome ${mod.turnos} turno(s).` : ""}`, { okLabel: "Instalar" }))) return;
+      item.mods[selecionado] = mod.n;
+      f.creditos = (f.creditos ?? 0) - liquido;
+      await onSalvar(`🔧 Instalou ${mod.ic} ${mod.n} em ${catBase.n} (−${liquido} CG).${mod.kw ? ` A arma ganha ${mod.kw}.` : ""}${emCombate ? ` Custou ${mod.turnos} turno(s).` : ""}`);
+      selecionado = null; pintar();
+    });
+    ov.addEventListener("keydown", (e) => { if (e.key === "Escape") fechar(); });
+  };
+  document.body.appendChild(ov); document.body.style.overflow = "hidden";
+  pintar();
+}
+
 // Etiquetas de palavra-chave que explicam o que fazem — em vez do nome solto.
 // Mostra a progressão de dano de uma arma que escala por nível.
 function escalaTabela(cat, nivelAtual = null) {
@@ -1189,7 +1319,7 @@ async function telaFicha(id) {
             if (!itens.length) return "";
             return `<h4>${titulo} <span class="dim">(${itens.length})</span></h4>
               ${itens.map(({ it, ix }) => {
-                const cat = ARMAS.find((x) => x.n === it.nome) || ARMADURAS.find((x) => x.n === it.nome);
+                const cat = todasArmas().find((x) => x.n === it.nome) || todasArmaduras().find((x) => x.n === it.nome);
                 const cs = ehConsumivel(it.nome);
                 const pr = (cat && cat.dano) ? propsArma(cat) : null;
                 return `<details class="det inv-item ${it.equip ? "equipado" : ""}">
@@ -1205,7 +1335,9 @@ async function telaFicha(id) {
                     <b>Rolagem:</b> 1d20 + ${cat.attr} + ${esc(cat.per)}</p>` : ""}
                   ${cat && cat.cd != null ? `<p class="regra"><b class="chrome">Defesa:</b> +${cat.cd} de CD (${esc(cat.t)})${cat.e ? ` · ${esc(cat.e)}` : ""}</p>` : ""}
                   ${cat && cat.escala ? `<div class="escala-box"><b class="tech-c">↗ Dano por nível</b><div class="escala-linha">${escalaTabela(cat, f.nivel)}</div></div>` : ""}
-                  ${cat && cat.kw ? etiquetasKw(cat, { detalhado: true }) : ""}
+                  ${cat && SLOTS_POR_ARMA(cat).length ? (() => { const nm = Object.keys(it.mods || {}).length;
+                    return `<button class="mini bancada-btn" data-bancada="${ix}">🔧 Bancada${nm ? ` <b>${nm}/${SLOTS_POR_ARMA(cat).length}</b>` : ""}</button>`; })() : ""}
+                  ${cat && (cat.kw || Object.keys(it.mods || {}).length) ? etiquetasKw(armaMontada(cat, it), { detalhado: true }) : ""}
                   ${pr && (pr.area || pr.alcance) ? `<p class="regra">${pr.area ? `◎ Área: ${esc(pr.areaTxt)}` : ""}${pr.area && pr.alcance ? " · " : ""}${pr.alcance ? `⟿ Alcance: ${esc(pr.alcanceTxt)}` : ""}</p>` : ""}
                   ${cs ? `<p class="regra"><b class="tech-c">${esc(cs.acao)}:</b> ${esc(cs.d)}</p>` : ""}
                   ${cat && cat.desc ? `<p>${esc(cat.desc)}</p>` : ""}
@@ -1497,6 +1629,12 @@ async function telaFicha(id) {
       }
       autoSalvar(); render();
     });
+    app.querySelectorAll("[data-bancada]").forEach((b) => b.onclick = () => {
+      const it = f.inventario[+b.dataset.bancada];
+      const catBase = todasArmas().find((x) => x.n === it.nome); if (!catBase) return;
+      abrirBancada({ f, item: it, catBase, emCombate: false,
+        onSalvar: async (msg) => { registrar(msg); autoSalvar(); render(); } });
+    });
     app.querySelectorAll("[data-eq]").forEach((b) => b.onclick = () => { const it = f.inventario[+b.dataset.eq];
       if (it.tipo === "armadura") f.inventario.forEach((x) => { if (x.tipo === "armadura") x.equip = false; });
       it.equip = !it.equip; (autoSalvar(), render()); });
@@ -1735,7 +1873,7 @@ async function telaMesa(id) {
               <select id="sel-per">${PERICIAS.map(([pn]) => `<option>${pn}</option>`).join("")}</select>
               <button id="rolar-per" class="mini">TESTE</button>
               ${armasEq.length ? `<label class="chk" style="margin:0" title="Ataque furtivo: +2 no acerto (armas Ocultas / Assassino) e dano DOBRADO para o Assassino."><input type="checkbox" id="atq-furtivo"/> 🥷 Furtivo</label>` : ""}
-              ${armasEq.map((a, i) => { const cat = ARMAS.find((x) => x.n === a.nome); const pr = cat ? propsArma(cat) : {};
+              ${armasEq.map((a, i) => { const cat = todasArmas().find((x) => x.n === a.nome); const pr = cat ? propsArma(cat) : {};
                 const tip = [cat?.kw ? `${cat.kw}: ${pr.efeito}` : "", pr.area ? `Área: ${pr.areaTxt}` : "", pr.alcance ? `Alcance: ${pr.alcanceTxt}` : "", pr.agil ? "Ágil (Des)" : ""].filter(Boolean).join(" · ");
                 return `<button class="mini atq" data-atq="${i}" title="${esc(tip)}">⚔ ${esc(a.nome)} (${cat ? danoArma(cat, f.nivel) : "—"})${pr.area ? " ◎" : ""}${pr.agil ? " ⚡" : ""}${pr.aoAcertar?.length ? " 🏷" : ""}${pr.ignoraArmadura ? " 🗡" : ""}</button>`; }).join("")}
               <select id="sel-scr">${(f.deck.length ? SCRIPTS.filter((s) => f.deck.includes(s.n)) : SCRIPTS.filter((s) => s.c === 0)).map((s) => `<option>${esc(s.n)}</option>`).join("")}</select>
@@ -2827,7 +2965,11 @@ async function telaMesa(id) {
       $("#rolar-per").onclick = () => { const pn = $("#sel-per").value; const at = PERICIAS.find(([x]) => x === pn)[1];
         rolarEEnviar(`Teste de ${pn}`, k.attr[at] + k.per[pn]); };
       app.querySelectorAll("[data-atq]").forEach((b) => b.onclick = async () => {
-        const a = armasEq[+b.dataset.atq]; const cat = ARMAS.find((x) => x.n === a.nome);
+        const a = armasEq[+b.dataset.atq];
+        const itemInv = (meuPers.dados.inventario || []).find((x) => x.nome === a.nome && x.equip);
+        const catBase = todasArmas().find((x) => x.n === a.nome);
+        const cat = armaMontada(catBase, itemInv);
+        if (!cat) return alert(`Não encontrei "${a.nome}" no arsenal. Se a arma foi renomeada na administração, reequipe-a na ficha.`);
         const pr = propsArma(cat);
         let precisaRender = false;
         const custo = custoTiro(cat);
@@ -2838,6 +2980,7 @@ async function telaMesa(id) {
           const itArma = idxArma >= 0 ? inv0[idxArma] : null;
           const est = itArma ? estadoArma(dd0, itArma) : null;
           const noCano = est ? est.tiros : (dd0.tirosPente ?? TIROS_POR_PENTE);
+          const capacidade = capacidadePente(armaMontada(catBase, itArma));
           const reserva = Object.values(normalizaPentes(dd0)).reduce((x, y) => x + y, 0);
           if (noCano < custo) {
             const falta = reserva > 0
@@ -2878,21 +3021,31 @@ async function telaMesa(id) {
         const mod = k.attr[atkAttr] + k.per[cat.per]
           + (cat.tipo === "fogo" && f.implantes.includes("Olho Biônico de Precisão") ? 2 : 0)
           + (furtivo && pr.oculta ? 2 : 0)          // Oculta: +2 no furtivo
-          + (furtivo && assassino ? 2 : 0);          // Assassino: +2 no furtivo
+          + (k.efeitos ? k.efeitos.modificarAtaque({ acerto: 0, dano: 0, arma: cat, situacao: { desprevenido: !!furtivo, em_nave: !!camp.combate?.naveEmCena } }).acerto : 0)
+          + (cat._efeitos || []).filter((e) => e.momento === "ao_atacar" && e.tipo === "acerto").reduce((x, e) => x + (e.valor || 0), 0);
         let nat, detVant = "";
         if (vantagem !== 0) { const r1 = d(20), r2 = d(20); nat = vantagem > 0 ? Math.max(r1, r2) : Math.min(r1, r2); detVant = ` [${vantagem > 0 ? "vant" : "desv"} ${r1}/${r2}]`; } else nat = d(20);
         const danoBase = danoArma(cat, f.nivel);
         const pd = parseDice(danoBase);
         // dobra o dano por Crítico (20) e/ou Ataque Furtivo do Assassino (cada um adiciona um conjunto de dados)
-        const sets = 1 + (nat === 20 ? 1 : 0) + (furtivo && assassino ? 1 : 0);
-        let dados = rollNd(pd.n * sets, pd.f);
-        if (pr.brutal) { const d2 = rollNd(pd.n * sets, pd.f); if (d2.reduce((x, y) => x + y, 0) > dados.reduce((x, y) => x + y, 0)) dados = d2; } // Brutal: vantagem no dano
+        const situacaoPre = { desprevenido: !!furtivo, em_nave: !!camp.combate?.naveEmCena };
+        const modAtqPre = k.efeitos ? k.efeitos.modificarAtaque({ acerto: 0, dano: 0, arma: cat, situacao: situacaoPre }) : { acerto: 0, dano: 0, multDano: 1 };
+        // Rola o dano UMA vez; crítico e multiplicadores de classe multiplicam o
+        // total depois (dados + bônus), conforme a regra da mesa.
+        let dados = rollNd(pd.n, pd.f);
+        if (pr.brutal) { const d2 = rollNd(pd.n, pd.f); if (d2.reduce((x, y) => x + y, 0) > dados.reduce((x, y) => x + y, 0)) dados = d2; } // Brutal: vantagem no dano
         // Situação do ataque: o que o motor precisa saber para efeitos condicionais.
-        const situacao = { desprevenido: !!furtivo, em_nave: !!camp.combate?.naveEmCena };
-        const modAtq = k.efeitos ? k.efeitos.modificarAtaque({ acerto: 0, dano: 0, arma: cat, situacao }) : { acerto: 0, dano: 0, multDano: 1 };
-        const modKw = (pr.efeitos || []).filter((e) => e.momento === "ao_atacar" && e.tipo === "dano" && !e.contra)
+        const situacao = situacaoPre, modAtq = modAtqPre;
+        const modsAtq = (cat._efeitos || []).filter((e) => e.momento === "ao_atacar");
+        const modKw = [...(pr.efeitos || []), ...modsAtq].filter((e) => e.momento === "ao_atacar" && e.tipo === "dano" && !e.contra)
           .reduce((x, e) => x + (e.valor || 0), 0);
+        const modAcertoPecas = modsAtq.filter((e) => e.tipo === "acerto").reduce((x, e) => x + (e.valor || 0), 0);
         const danoMod = k.attr[atkAttr] + modKw + modAtq.dano + (cat.tipo === "branca" && f.implantes.includes("Braço Mecânico Hidráulico") ? 2 : 0);
+        // Multiplicador final: ×2 no crítico, ×2 no furtivo do Assassino — e o
+        // Assassino veterano acumula os dois, chegando a ×4.
+        const multCrit = (nat === 20 ? 2 : 1) * (modAtq.multDano || 1);
+        const somaDados = dados.reduce((x, y) => x + y, 0);
+        const danoFinal = (somaDados + danoMod) * multCrit;
         const marcadores = [nat === 20 ? "CRÍTICO ×2" : "", furtivo && assassino ? "FURTIVO ×2" : furtivo ? "furtivo +2 acerto" : "", pr.agil ? `Ágil (${atkAttr})` : "", pr.brutal ? "Brutal (vantagem)" : ""].filter(Boolean).join(" · ");
         // Palavras-chave declaradas: condições ao acertar e perfuração de armadura.
         let efeitoKw = "";
@@ -2912,14 +3065,14 @@ async function telaMesa(id) {
         }
         const infoArma = [pr.area ? `◎ Área: ${pr.areaTxt}` : "", pr.alcance ? `⟿ Alcance: ${pr.alcanceTxt}` : "", cat.kw ? `🏷 ${cat.kw}: ${pr.efeito}` : ""].filter(Boolean).join("  ·  ");
         enviar("rolagem", null, { titulo: (privada ? "🔒 " : "") + `Ataque — ${a.nome}${furtivo ? " 🥷" : ""}`,
-          detalhe: `d20 [${nat}]${detVant} ${sign(mod)} · dano ${danoBase}${sets > 1 ? `×${sets}` : ""} [${dados.join(", ")}] ${sign(danoMod)}${marcadores ? " · " + marcadores : ""}`,
-          total: nat + mod, crit: nat === 20, fumble: nat === 1, ...(privada ? { privada: true } : {}), dano_total: dados.reduce((x, y) => x + y, 0) + danoMod,
-          extra: `Dano: ${dados.reduce((x, y) => x + y, 0) + danoMod}${efeitoKw ? "  —  " + efeitoKw : ""}${efeitoMun ? "  —  " + efeitoMun : ""}${infoArma ? "  —  " + infoArma : ""}` });
+          detalhe: `d20 [${nat}]${detVant} ${sign(mod)} · dano ${danoBase} [${dados.join(", ")}] ${sign(danoMod)}${multCrit > 1 ? ` ×${multCrit}` : ""}${marcadores ? " · " + marcadores : ""}`,
+          total: nat + mod, crit: nat === 20, fumble: nat === 1, ...(privada ? { privada: true } : {}), dano_total: danoFinal,
+          extra: `Dano: ${danoFinal}${multCrit > 1 ? ` (${somaDados} + ${danoMod} × ${multCrit})` : ""}${efeitoKw ? "  —  " + efeitoKw : ""}${efeitoMun ? "  —  " + efeitoMun : ""}${infoArma ? "  —  " + infoArma : ""}` });
         if (alvoNave) {                    // resolve o tiro contra o casco
           const def = 10 + (alvoNave.manobra || 0);
           const acertou = total >= def && nat !== 1;
           if (acertou) {
-            const bruto = dados.reduce((x, y) => x + y, 0) + danoMod;
+            const bruto = danoFinal;
             const r2 = danoNave(alvoNave, bruto);
             snapshot("tiro em nave");
             if (r2.critico) { const av = rolarAvaria(); (camp.combate.avarias = camp.combate.avarias || []).push(av);
