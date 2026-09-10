@@ -69,6 +69,7 @@ Seções demarcadas por comentários `// ---------------- NOME ----------------`
 - **`k = calc(f)`** = derivados recalculados a cada render; nunca persistido. `k.efeitos` é a instância `FichaEfeitos` (motor declarativo).
 - **Munição**: cada arma de fogo tem o próprio pente carregado (`item.tiros`, `item.tipoPente` no inventário); a reserva (`f.pentes`, mapa `tipo → qtd`) é compartilhada. Migração de fichas antigas via flag `__migrouArma` / `f.tirosPente` (legado de pente único).
 - **Mods de arma** (bancada): `item.mods` = `{ slot: nomeDaPeça }`. `armaMontada(catBase, item)` devolve a arma com `kw`, `_efeitos`, `_tirosExtra`, `_mods` aplicados. Peças em `MODS_ARMA`.
+- **Ataque de arma mirado** (`[data-atq]` em `telaMesa`): quando há combate ativo, o seletor de alvo (combatentes do rastreador) só aparece se `souMestre` **ou** for a vez do personagem (`camp.combate.ordem[turno].personagem_id === meuPers.id`); ao mirar, acerto (`total` vs `alvo.cd`) e dano se resolvem sozinhos. `ataquesDoCombatente(c)` deriva ataques de linhas de jogador no rastreador para o Mestre rolar/direcionar por eles (mesmo fluxo dos NPCs: rola → botão “🩸 aplicar”).
 
 ## Supabase
 
