@@ -353,25 +353,35 @@ input:focus,select:focus,button:focus-visible{outline:2px solid var(--tech);outl
 #tg-priv.on{border-color:var(--sombra);color:var(--sombra);background:rgba(167,139,250,.14)}
 
 /* campo tático — grade 2D rasa (X em metros × pistas de profundidade) */
+/* Grade padrão: linhas a cada 5 m (12.5% de 40 m). No hover: grade fina de 1 m (2.5%). */
 .cb-campo{position:relative;margin:8px 0 12px;padding:12px 10px 22px;background:
   linear-gradient(180deg,rgba(89,227,200,.05),rgba(10,12,21,.55)),
-  repeating-linear-gradient(90deg,transparent 0 calc(25% - 1px),rgba(38,44,66,.5) calc(25% - 1px) 25%);
-  border:1px solid var(--line);border-radius:6px;overflow:hidden;touch-action:none}
-.cb-pista{position:relative;height:28px;margin:4px 0;border-bottom:1px dashed rgba(129,137,163,.25)}
-.cb-pista[data-lane="0"]::after,.cb-pista[data-lane="1"]::after,.cb-pista[data-lane="2"]::after{content:attr(data-rot);position:absolute;left:2px;top:1px;font-size:7px;color:var(--dim);font-family:'IBM Plex Mono',monospace;text-transform:uppercase;letter-spacing:.1em}
+  repeating-linear-gradient(90deg,transparent 0 calc(12.5% - 1px),rgba(129,137,163,.28) calc(12.5% - 1px) 12.5%);
+  border:1px solid var(--line);border-radius:6px;overflow:hidden;touch-action:none;
+  transition:padding .16s ease,background-color .16s ease}
+.cb-campo:hover{padding-bottom:30px;background:
+  linear-gradient(180deg,rgba(89,227,200,.06),rgba(10,12,21,.62)),
+  repeating-linear-gradient(90deg,transparent 0 calc(12.5% - 1px),rgba(129,137,163,.32) calc(12.5% - 1px) 12.5%),
+  repeating-linear-gradient(90deg,transparent 0 calc(2.5% - 1px),rgba(129,137,163,.12) calc(2.5% - 1px) 2.5%)}
+.cb-pista{position:relative;height:26px;margin:4px 0;border-bottom:1px dashed rgba(129,137,163,.25);transition:height .16s ease}
+.cb-campo:hover .cb-pista{height:54px}
+.cb-pista::after{content:attr(data-rot);position:absolute;left:2px;top:1px;font-size:7px;color:var(--dim);font-family:'IBM Plex Mono',monospace;text-transform:uppercase;letter-spacing:.1em;pointer-events:none}
 .cb-pista[data-lane="1"]{opacity:.88}
 .cb-pista[data-lane="2"]{opacity:.74}
-.cb-token{position:absolute;top:2px;transform:translateX(-50%);font-family:'IBM Plex Mono',monospace;
-  font-size:10px;line-height:1;padding:4px 6px;border-radius:4px;border:1px solid;white-space:nowrap;
-  user-select:none;touch-action:none;background:var(--panel);transition:left .12s ease}
+.cb-token{position:absolute;top:calc(3px + var(--stack,0) * 3px);transform:translateX(-50%);
+  font-family:'IBM Plex Mono',monospace;font-size:9px;line-height:1;padding:3px 5px;border-radius:4px;border:1px solid;
+  white-space:nowrap;user-select:none;touch-action:none;background:var(--panel);
+  transition:left .12s ease,top .16s ease,font-size .16s ease}
+.cb-campo:hover .cb-token{top:calc(4px + var(--stack,0) * 15px);font-size:10px;padding:4px 6px}
 .cb-token.aliado{color:var(--tech);border-color:var(--tech)}
 .cb-token.inim{color:var(--perigo);border-color:var(--perigo)}
 .cb-token.vez{box-shadow:0 0 0 2px var(--chrome);z-index:3}
 .cb-token.morto{opacity:.35;filter:grayscale(1)}
 .cb-token.movivel{cursor:grab}
+.cb-token.movivel::after{content:"⠿";margin-left:4px;opacity:.5}
 .cb-token.arrastando{cursor:grabbing;z-index:6;opacity:.9;transition:none}
 .cb-regua{position:absolute;left:10px;right:10px;bottom:6px;height:10px;pointer-events:none}
-.cb-regua span{position:absolute;transform:translateX(-50%);font-size:8px;color:var(--dim);font-family:'IBM Plex Mono',monospace}
+.cb-regua span{position:absolute;transform:translateX(-50%);font-size:7.5px;color:var(--dim);font-family:'IBM Plex Mono',monospace}
 .cb-regua span::before{content:"";position:absolute;left:50%;top:-7px;width:1px;height:5px;background:rgba(129,137,163,.4)}
 
 /* condições e ações extras do rastreador */

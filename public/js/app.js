@@ -536,7 +536,9 @@ const combateVazio = () => ({ ativo: false, rodada: 1, turno: 0, ordem: [], avar
 // ---- Campo tático (grade 2D rasa: X em metros × 3 pistas de profundidade) ----
 const CAMPO_LARGURA = 40;   // metros de frente
 const CAMPO_PISTAS = 3;     // frente / meio / fundo
-const PISTA_M = 2.5;        // separação entre pistas, em metros, para o cálculo de distância
+const PISTA_M = 1;          // separação entre pistas, em metros (profundidade rasa de beat'em up)
+const ALCANCE_CAC = 1.5;    // alcance de corpo-a-corpo — golpe de espada não chega a 2m
+const ALCANCE_ARMA = { curto: 15, medio: 30, longo: 40 }; // usado quando as regras de distância forem ligadas
 // Distância entre dois combatentes no campo, em metros (null se algum não tem posição).
 const distCombate = (a, b) => (a?.pos && b?.pos)
   ? Math.hypot(a.pos.x - b.pos.x, (a.pos.lane - b.pos.lane) * PISTA_M) : null;
@@ -1913,25 +1915,25 @@ async function telaMesa(id) {
   const aplicarEmAlvos = async ({ titulo, origem, dado = null, acerto = null, atributo = null, pericia = null, cd = null, cond = null, turnos = 2, area = false }) => {
     if (!camp.combate?.ativo || !camp.combate.ordem.length) {
       await enviar("sistema", `★ ${origem}: sem combate no rastreador — o Mestre resolve.${dado ? ` (dano ${dado})` : ""}${cond ? ` (${cond} ${turnos}t)` : ""}`);
-      return;
+      return true;   // narrado; não é cancelamento
     }
     const vivos = camp.combate.ordem.filter((c2) => !ehNave(c2) && !foraDeCombate(c2) && c2.personagem_id !== meuPers?.id);
-    if (!vivos.length) { await enviar("sistema", `★ ${origem}: nenhum alvo válido no rastreador.`); return; }
+    if (!vivos.length) { await enviar("sistema", `★ ${origem}: nenhum alvo válido no rastreador.`); return true; }
     let alvos;
     if (area) {
       const r = await modalForm({ titulo, descricao: "Marque quem está na área de efeito.",
         campos: vivos.map((c2) => ({ k: c2.id, label: `${c2.nome} — ${vidaAtual(c2)}/${vidaMax(c2)} PV`, tipo: "select",
           valor: c2.tipo === "inimigo" ? "1" : "", opcoes: [{ v: "1", l: "no efeito" }, { v: "", l: "fora" }] })),
         okLabel: "Resolver" });
-      if (!r) return;
+      if (!r) return false;   // cancelou — o chamador devolve o recurso
       alvos = vivos.filter((c2) => r[c2.id]);
     } else {
       const r = await modalForm({ titulo, campos: [{ k: "alvo", label: "Alvo", tipo: "select",
         opcoes: vivos.map((c2) => ({ v: c2.id, l: `${c2.nome} — ${vidaAtual(c2)}/${vidaMax(c2)} PV, Def ${c2.cd ?? 10}` })) }], okLabel: "Resolver" });
-      if (!r?.alvo) return;
+      if (!r?.alvo) return false;
       alvos = [vivos.find((c2) => c2.id === r.alvo)].filter(Boolean);
     }
-    if (!alvos.length) { await enviar("sistema", `★ ${origem}: nenhum alvo marcado.`); return; }
+    if (!alvos.length) { await enviar("sistema", `★ ${origem}: nenhum alvo marcado.`); return false; }
     const pdd = dado ? parseDice(dado) : null;
     const rolDano = pdd ? rollNd(pdd.n, pdd.f).reduce((x, y) => x + y, 0) + pdd.mod : 0;
     snapshot(titulo);
@@ -1962,6 +1964,7 @@ async function telaMesa(id) {
     }
     await salvarCombate();
     await enviar("sistema", `★ ${origem}${rolDano ? ` — dano ${dado} [${rolDano}]` : ""}: ${linhas.join("  ·  ")}`);
+    return true;
   };
 
   const render = async () => {
@@ -2005,17 +2008,23 @@ async function telaMesa(id) {
                   const bloq = (camp.combate.avarias || []).some((av) => av.bloqueia === pk);
                   return `<span class="posto ${agiu ? "ok" : ""} ${quem ? "" : "vazio"} ${bloq ? "bloq" : ""}" title="${bloq ? "Posto inacessível por avaria" : quem ? esc(quem.perfis?.apelido || "") : "vago"}">${esc(ESTACOES[pk].n.split(" ")[0])}${bloq ? " ⛔" : agiu ? " ✓" : ""}</span>`; }).join("")}</div>
               </div>`; })() : ""}
-            ${camp.combate.ordem.some((c) => !ehNave(c)) ? `<div class="cb-campo" id="cb-campo" title="Campo tático — arraste o seu token no seu turno">
-              ${Array.from({ length: CAMPO_PISTAS }, (_, lane) => `<div class="cb-pista" data-lane="${lane}" data-rot="${["frente", "meio", "fundo"][lane] || ""}">${camp.combate.ordem.map((c) => {
-                if (ehNave(c) || (c.pos?.lane ?? 1) !== lane) return "";
-                const px = ((c.pos?.x ?? 20) / CAMPO_LARGURA) * 100;
-                const meu = c.personagem_id && c.personagem_id === meuPers?.id;
-                const vez = camp.combate.ordem[camp.combate.turno]?.id === c.id;
-                const movivel = souMestre || (meu && vez);
-                const lado = (c.tipo === "inimigo" || c.lado === "inimiga") ? "inim" : "aliado";
-                return `<span class="cb-token ${lado} ${foraDeCombate(c) ? "morto" : ""} ${vez ? "vez" : ""} ${movivel ? "movivel" : ""}" data-token="${c.id}" style="left:${px.toFixed(1)}%" title="${esc(c.nome)} · x${Math.round(c.pos?.x ?? 20)}m · pista ${(c.pos?.lane ?? 1) + 1}">${esc(c.nome.replace(/ #\d+$/, "").slice(0, 4))}</span>`;
-              }).join("")}</div>`).join("")}
-              <div class="cb-regua">${[0, 10, 20, 30, 40].map((m) => `<span style="left:${(m / CAMPO_LARGURA) * 100}%">${m}</span>`).join("")}</div>
+            ${camp.combate.ordem.some((c) => !ehNave(c)) ? `<div class="cb-campo" id="cb-campo" title="Campo tático — passe o mouse para o grid de 1 m; arraste o seu token no seu turno">
+              ${Array.from({ length: CAMPO_PISTAS }, (_, lane) => {
+                const naPista = camp.combate.ordem.filter((c) => !ehNave(c) && (c.pos?.lane ?? 1) === lane)
+                  .sort((a, b) => (a.pos?.x ?? 20) - (b.pos?.x ?? 20));
+                let stack = 0;
+                return `<div class="cb-pista" data-lane="${lane}" data-rot="${["frente", "meio", "fundo"][lane] || ""}">${naPista.map((c, idx) => {
+                  const prev = naPista[idx - 1];
+                  stack = (prev && Math.abs((c.pos?.x ?? 20) - (prev.pos?.x ?? 20)) < 3) ? stack + 1 : 0;
+                  const px = ((c.pos?.x ?? 20) / CAMPO_LARGURA) * 100;
+                  const meu = c.personagem_id && c.personagem_id === meuPers?.id;
+                  const vez = camp.combate.ordem[camp.combate.turno]?.id === c.id;
+                  const movivel = souMestre || (meu && vez);
+                  const lado = (c.tipo === "inimigo" || c.lado === "inimiga") ? "inim" : "aliado";
+                  return `<span class="cb-token ${lado} ${foraDeCombate(c) ? "morto" : ""} ${vez ? "vez" : ""} ${movivel ? "movivel" : ""}" data-token="${c.id}" style="left:${px.toFixed(1)}%;--stack:${stack}" title="${esc(c.nome)} · x ${Math.round(c.pos?.x ?? 20)} m · pista ${(c.pos?.lane ?? 1) + 1}">${esc(c.nome.replace(/ #\d+$/, "").slice(0, 5))}</span>`;
+                }).join("")}</div>`;
+              }).join("")}
+              <div class="cb-regua">${Array.from({ length: CAMPO_LARGURA / 5 + 1 }, (_, i) => i * 5).map((m) => `<span style="left:${(m / CAMPO_LARGURA) * 100}%">${m}</span>`).join("")}</div>
             </div>` : ""}
             <div class="cb-lista">${camp.combate.ordem.map((c, i) => `
               <div class="cb-linha ${i === camp.combate.turno ? "cb-atual" : ""} ${foraDeCombate(c) ? "cb-morto" : ""} ${ehNave(c) ? "cb-nave" : ""}">
@@ -3065,7 +3074,20 @@ async function telaMesa(id) {
         window.addEventListener("pointermove", mover); window.addEventListener("pointerup", soltar);
       });
     });
-    $("#cb-prox")?.addEventListener("click", async () => { let salvarNaveJunto = false; const rodAntes = camp.combate.rodada; proximoTurno(camp.combate); if (camp.combate.rodada !== rodAntes) camp.combate.agiram = []; const atual = camp.combate.ordem[camp.combate.turno];
+    $("#cb-prox")?.addEventListener("click", async () => { let salvarNaveJunto = false; const rodAntes = camp.combate.rodada;
+      const encerrou = camp.combate.ordem[camp.combate.turno];   // quem termina o turno agora
+      proximoTurno(camp.combate); if (camp.combate.rodada !== rodAntes) camp.combate.agiram = []; const atual = camp.combate.ordem[camp.combate.turno];
+      // FIM DE TURNO: efeitos declarados da criatura que acabou de agir
+      if (encerrou && encerrou !== atual && encerrou.habs?.some((h) => h.efeito && h.gatilho === "fim_turno")) {
+        const M = await criaturaMod(); const cr = M.criar(encerrou, rolarTexto);
+        for (const r of cr.disparar(M.GATILHOS.FIM_TURNO)) {
+          if (r.tipo === "cura") { encerrou.hp = Math.min(encerrou.hp_max, (encerrou.hp || 0) + r.valor);
+            await enviar("sistema", `♻ ${encerrou.nome} — ${r.habilidade}: ${r.texto} (${encerrou.hp}/${encerrou.hp_max}).`); }
+          else if (r.tipo === "dano") { encerrou.hp = Math.max(0, (encerrou.hp || 0) - r.valor);
+            await enviar("sistema", `☠ ${encerrou.nome} — ${r.habilidade}: ${r.texto}.`); }
+          else await enviar("sistema", `⚡ ${encerrou.nome} — ${r.habilidade}: ${r.texto || "efeito de fim de turno"}.`);
+        }
+      }
       // Modos temporários dos jogadores (Êxtase, Endurecer, Fúria, gás do Ven'y)
       // contam para baixo a cada rodada e expiram sozinhos.
       if (camp.combate.rodada !== rodAntes) {
@@ -3100,9 +3122,25 @@ async function telaMesa(id) {
           for (const r of cr.disparar(M.GATILHOS.INICIO_TURNO)) {
             if (r.tipo === "cura") { atual.hp = Math.min(atual.hp_max, (atual.hp || 0) + r.valor);
               await enviar("sistema", `♻ ${atual.nome} — ${r.habilidade}: ${r.texto} (${atual.hp}/${atual.hp_max}).`); }
-            else if (r.tipo === "invocar") await enviar("sistema", `👹 ${atual.nome} — ${r.habilidade}: ${r.texto}. O Mestre adiciona ao rastreador.`);
             else if (r.tipo === "dano") { atual.hp = Math.max(0, (atual.hp || 0) - r.valor);
               await enviar("sistema", `☠ ${atual.nome} — ${r.habilidade}: ${r.texto}.`); }
+            else if (r.tipo === "invocar") {
+              const base = todasCriaturas().find((x) => x.n === r.criatura) || (camp.bestiario || []).find((x) => x.n === r.criatura);
+              if (base) {
+                for (let n = 0; n < (r.qtd || 1); n++) {
+                  const iguais = camp.combate.ordem.filter((x) => x.nome.replace(/ #\d+$/, "") === base.n).length;
+                  camp.combate.ordem.push({ id: cbId(), nome: iguais ? `${base.n} #${iguais + 1}` : base.n, ini: d(20),
+                    hp: base.hp, hp_max: base.hp, cd: base.cd, tipo: "inimigo", ameaca: base.ameaca, ataques: base.ataques,
+                    habs: base.habs || [], pos: posInicial(camp.combate.ordem, "inimigo") });
+                }
+                await enviar("sistema", `👹 ${atual.nome} — ${r.habilidade}: ${r.texto}. ${r.qtd || 1}× ${base.n} entra no rastreador.`);
+              } else await enviar("sistema", `👹 ${atual.nome} — ${r.habilidade}: ${r.texto}. (Criatura "${r.criatura}" não encontrada — o Mestre adiciona.)`);
+            }
+            else if (r.tipo === "condicao") {
+              if (r.alvo === "proprio") { aplicarCond(atual, r.cond, r.turnos); await enviar("sistema", `🏷 ${atual.nome} — ${r.habilidade}: fica ${r.cond} por ${r.turnos} turno(s).`); }
+              else await enviar("sistema", `🏷 ${atual.nome} — ${r.habilidade}: ${r.texto || `aplica ${r.cond}`} (o Mestre resolve o alvo).`);
+            }
+            else await enviar("sistema", `⚡ ${atual.nome} — ${r.habilidade}: ${r.texto || "efeito passivo — o Mestre aplica"}.`);
           }
         }
         // 1) Condições que ferem: rolam o dano no início do turno do afetado
@@ -3135,6 +3173,14 @@ async function telaMesa(id) {
         }
         const impedido = (atual.cond || []).some((cd) => /atordoado|paralisado/i.test(cd.n));
         await enviar("sistema", `⚔ Rodada ${camp.combate.rodada} · vez de ${atual.nome}${atual.cond && atual.cond.length ? ` (${atual.cond.map((x) => `${infoCond(x.n)?.ic || ""}${x.n}`).join(", ")})` : ""}${impedido ? " — não pode agir neste turno!" : ""}.`);
+      }
+      // AO MORRER: efeitos declarados de quem caiu desde o último turno (varre uma vez).
+      for (const c2 of camp.combate.ordem) {
+        if (c2._morreu || !foraDeCombate(c2) || !c2.habs?.some((h) => h.efeito && h.gatilho === "ao_morrer")) continue;
+        c2._morreu = true;
+        const M = await criaturaMod(); const cr = M.criar(c2, rolarTexto);
+        for (const r of cr.disparar(M.GATILHOS.AO_MORRER))
+          await enviar("sistema", `💀 ${c2.nome} — ${r.habilidade}: ${r.texto || "efeito ao morrer"}.${r.tipo === "invocar" ? " O Mestre adiciona ao rastreador." : ""}`);
       }
       // Gravação única: escrever em campanhas no meio do handler dispara o realtime,
       // que sobrescreveria camp.combate com o estado antigo e travaria o turno.
@@ -3632,9 +3678,10 @@ async function telaMesa(id) {
           return render();
         }
         if (R?.tipo === "salvaguarda") {      // Fogo de Supressão, Grito de Saqueador, Sinfonia do Inverno
-          await aplicarEmAlvos({ titulo: `★ ${h.nome}`, origem: `${meuPers.nome} — ${h.nome}`,
+          const ok = await aplicarEmAlvos({ titulo: `★ ${h.nome}`, origem: `${meuPers.nome} — ${h.nome}`,
             dado: R.dado || null, atributo: R.atributo || null, cd: R.atributo ? dcSalvaguarda(k, R.atributo) : null,
             cond: R.cond || null, turnos: R.turnos || 2, area: !!R.area });
+          if (ok === false) return;   // cancelou sem mirar: não gasta a habilidade
           if (h.descanso) { const usos = { ...(meuPers.dados.usos || {}), [h.id]: true };
             meuPers.dados = { ...meuPers.dados, usos }; f.usos = usos;
             await sb.from("personagens").update({ dados: meuPers.dados }).eq("id", meuPers.id); }
@@ -3729,9 +3776,16 @@ async function telaMesa(id) {
           if (cb && cb.cond) { cb.cond = cb.cond.filter((c2) => !/sangrando/i.test(c2.n)); await salvarCampanha({ combate: camp.combate }).eq("id", id); }
           await enviar("sistema", `${cfg.ic} ${meuPers.nome} usa ${cfg.n} em ${alvo.nome}: sangramento estancado.`);
         } else if (cfg.efeito === "condicao") {
-          await aplicarEmAlvos({ titulo: `${cfg.ic} ${cfg.n}`, origem: `${meuPers.nome} — ${cfg.n}`,
+          const ok = await aplicarEmAlvos({ titulo: `${cfg.ic} ${cfg.n}`, origem: `${meuPers.nome} — ${cfg.n}`,
             dado: cfg.dano || null, cond: cfg.cond || null, turnos: cfg.turnos || 2, area: true,
             pericia: cfg.pericia || null, atributo: cfg.pericia ? null : (cfg.cd ? (cfg.atributo || "Con") : null), cd: cfg.cd || null });
+          if (ok === false) {   // cancelou sem marcar ninguém: devolve o item
+            const volta = (meuPers.dados.inventario || []).slice();
+            const ja = volta.find((it) => it.nome === r.item);
+            if (ja) ja.qtd = (ja.qtd || 0) + 1; else volta.push({ tipo: "consumivel", nome: r.item, equip: false, qtd: 1 });
+            f.inventario = volta; meuPers.dados = { ...meuPers.dados, inventario: volta };
+            await sb.from("personagens").update({ dados: meuPers.dados }).eq("id", meuPers.id);
+          }
         } else {
           await enviar("sistema", `${cfg.ic} ${meuPers.nome} usa ${cfg.n}${alvo.id !== meuPers.id ? ` em ${alvo.nome}` : ""}. ${cfg.d}`);
         }
@@ -3790,9 +3844,13 @@ async function telaMesa(id) {
           }
         }
         if (s.resolve?.tipo === "ataque") {   // Script ofensivo: mira um alvo (ou área) e resolve
-          await aplicarEmAlvos({ titulo: `◈ ${s.n}`, origem: `${meuPers.nome} — ${s.n}`,
+          const ok = await aplicarEmAlvos({ titulo: `◈ ${s.n}`, origem: `${meuPers.nome} — ${s.n}`,
             dado: s.resolve.dado || s.dmg || null,
             acerto: s.resolve.area ? null : k.conj, area: !!s.resolve.area });
+          if (ok === false) {   // cancelou sem mirar: devolve a RAM
+            meuPers.dados = { ...meuPers.dados, ramGasta: Math.max(0, (meuPers.dados.ramGasta || 0) - s.c) };
+            await sb.from("personagens").update({ dados: meuPers.dados }).eq("id", meuPers.id);
+          }
           return render();
         }
         enviar("rolagem", null, { titulo: `Script — ${s.n}`, detalhe: `d20 [${nat}] +${k.conj} · ${s.c} RAM · ${s.a}`, total: nat + k.conj, crit: nat === 20, fumble: nat === 1, extra: s.d.slice(0, 90) });
