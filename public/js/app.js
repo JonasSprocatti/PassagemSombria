@@ -184,6 +184,11 @@ export function calc(f) {
 // Teto da reserva de pentes a partir da ficha bruta (para onde não há um `k` à mão).
 const pentesReservaDe = (f) => calc(f).pentesReserva;
 
+// CD de um teste de resistência forçado por uma habilidade/palavra-chave do
+// personagem: 8 + modificador do atributo-chave. Usado por salvaguardas e
+// palavras-chave de arma que não trazem uma CD fixa própria.
+const dcSalvaguarda = (k, atributo) => 8 + ((k?.attr?.[atributo]) || 0);
+
 // O que se ganha ao subir para o nível n (para o preview e o registro)
 export function ganhosDoNivel(n, f) {
   const c = CLASSES[f.classe], r = RACAS.find((x) => x.nome === f.raca);
@@ -1744,6 +1749,60 @@ async function telaMesa(id) {
     alvo.dados = dd;
     if (meuPers && meuPers.id === alvo.id) meuPers.dados = dd;
   };
+  // Ponto único por onde passa TODO dano rolado contra um combatente do
+  // rastreador. Aplica, nesta ordem: couraça por limiar de criatura (Guardião
+  // de Anéis), redução de dano do alvo (Endurecer, filosofias), e então o corpo.
+  // O Mestre ainda ajusta livre pelos botões ±5 / definir HP — esses não passam aqui.
+  const aplicarDanoAlvo = async (alvo, valor) => {
+    if (!alvo || !(valor > 0)) return { aplicado: 0, msg: "" };
+    if (ehNave(alvo)) {
+      const r = danoNave(alvo, valor);
+      if (alvo.nave_party && camp.nave) { camp.nave.casco = alvo.casco; camp.nave.escudos = alvo.escudos;
+        await salvarCampanha({ nave: camp.nave }).eq("id", id); }
+      return { aplicado: r.casco + r.escudos, nave: r,
+        msg: `escudos −${r.escudos}, casco −${r.casco} (${alvo.casco}/${alvo.casco_max})` };
+    }
+    const lim = (alvo.habs || []).find((h) => h.efeito?.tipo === "imunidade" && h.efeito.limiar);
+    if (lim && valor < lim.efeito.limiar) {
+      return { aplicado: 0, absorvido: true, msg: `couraça: golpe abaixo de ${lim.efeito.limiar} não arranha` };
+    }
+    let reduzido = 0;
+    if (alvo.personagem_id) {
+      const pj = (pers || []).find((x) => x.id === alvo.personagem_id);
+      if (pj) reduzido = calc({ ...novaFichaDados(), ...pj.dados }).efeitos?.aoSofrer?.().reducao || 0;
+    }
+    const efetivo = Math.max(0, valor - reduzido);
+    const antes = alvo.hp ?? 0;
+    alvo.hp = Math.max(0, antes - efetivo);
+    await sincronizarFicha(alvo, alvo.hp - antes);
+    return { aplicado: efetivo, reduzido,
+      msg: `${reduzido ? `−${reduzido} redução · ` : ""}−${efetivo} (${alvo.hp}/${alvo.hp_max})` };
+  };
+  // Instinto Evasivo do Piloto: +Defesa na nave da tripulação enquanto ele está no leme.
+  const bonusDefVeiculo = () => {
+    const pil = (membros || []).find((m) => m.posto === "leme")?.perfil_id;
+    if (!pil) return 0;
+    return (pers || []).filter((p) => p.dono_id === pil)
+      .reduce((mx, p) => Math.max(mx, calc({ ...novaFichaDados(), ...p.dados }).efeitos?.defesaVeiculo?.() || 0), 0);
+  };
+  const defesaNaveParty = () => 10 + (camp.nave?.manobra || 0) + bonusDefVeiculo();
+  // Auras de criatura (gatilho "aura"): valem enquanto a criatura está viva no
+  // rastreador. Sem sistema de posição, a zona alcança todo o combate.
+  const aurasAtivas = () => {
+    if (!camp.combate?.ativo) return [];
+    const out = [];
+    for (const c of camp.combate.ordem) {
+      if (ehNave(c) || foraDeCombate(c)) continue;
+      for (const h of c.habs || []) {
+        if (!h.efeito || h.gatilho !== "aura") continue;
+        const e = h.efeito;
+        if (e.tipo === "zona") out.push({ criatura: c.nome, hab: h.n, raio: e.raio, nega: e.nega || [] });
+        else if (e.tipo === "imunidade") out.push({ criatura: c.nome, hab: h.n, imune: e.a, limiar: e.limiar });
+      }
+    }
+    return out;
+  };
+  const auraNega = (oque) => aurasAtivas().some((a) => (a.nega || []).includes(oque));
   if (!Array.isArray(camp.bestiario)) camp.bestiario = [];
   if (!camp.combate_nave || typeof camp.combate_nave !== "object" || !("inimigas" in camp.combate_nave)) camp.combate_nave = combateNaveVazio();
   if (!camp.faccoes || typeof camp.faccoes !== "object") camp.faccoes = {};
@@ -1841,9 +1900,10 @@ async function telaMesa(id) {
         pegou = tot < cd;
         det = ` [${atributo} ${natS}${sign(bo)}=${tot} vs CD ${cd} — ${pegou ? "falhou" : "resistiu"}]`;
       }
-      if (pegou && rolDano) { const antes = alvo.hp ?? 0; alvo.hp = Math.max(0, antes - rolDano); await sincronizarFicha(alvo, alvo.hp - antes); }
+      let danoMsg = "";
+      if (pegou && rolDano) { const rd = await aplicarDanoAlvo(alvo, rolDano); danoMsg = ` ${rd.msg}`; }
       if (pegou && cond) alvo.cond = [...(alvo.cond || []).filter((c2) => c2.n !== cond), { n: cond, turnos }];
-      linhas.push(`${pegou ? "💥" : "🛡"} ${alvo.nome}${det}${pegou && rolDano ? ` −${rolDano} (${alvo.hp}/${alvo.hp_max})` : ""}${pegou && cond ? ` · ${cond} ${turnos}t` : ""}${foraDeCombate(alvo) ? " 💀 CAIU" : ""}`);
+      linhas.push(`${pegou ? "💥" : "🛡"} ${alvo.nome}${det}${danoMsg}${pegou && cond ? ` · ${cond} ${turnos}t` : ""}${foraDeCombate(alvo) ? " 💀 CAIU" : ""}`);
     }
     await salvarCombate();
     await enviar("sistema", `★ ${origem}${rolDano ? ` — dano ${dado} [${rolDano}]` : ""}: ${linhas.join("  ·  ")}`);
@@ -1873,13 +1933,13 @@ async function telaMesa(id) {
             <header><span class="tag">⚔</span><h2>Combate</h2>${camp.combate.ativo ? `<span class="regra" style="margin-left:auto">Rodada ${camp.combate.rodada}</span>` : ""}</header>
             ${!camp.combate.ativo ? (souMestre ? `<button id="cb-iniciar" class="mini eq">⚔ Iniciar Combate</button><p class="regra">Adicione jogadores e inimigos do bestiário; a ordem é montada pela iniciativa.</p>` : "") : `
             ${(camp.nave && camp.combate.naveEmCena) ? (() => { const nt = camp.combate.nave || naveTaticaVazia();
-              const defBase = 10 + (camp.nave.manobra || 0);
+              const defBase = defesaNaveParty();
               const def = nt.evasiva != null ? nt.evasiva : defBase;
               const pc = camp.nave.casco_max ? Math.max(0, 100 * camp.nave.casco / camp.nave.casco_max) : 0;
               const pe = camp.nave.escudos_max ? Math.max(0, 100 * camp.nave.escudos / camp.nave.escudos_max) : 0;
               return `<div class="nave-painel">
                 <div class="nave-cab"><b>🚀 ${esc(camp.nave.nome_batismo || camp.nave.modelo)}</b>
-                  <span class="nave-def ${nt.evasiva != null ? "evasiva" : ""}" title="${nt.evasiva != null ? "Manobra Evasiva ativa até o próximo turno do piloto" : "Defesa base: 10 + Manobrabilidade"}">Def ${def}${nt.evasiva != null ? " ⟳" : ""}</span></div>
+                  <span class="nave-def ${nt.evasiva != null ? "evasiva" : ""}" title="${nt.evasiva != null ? "Manobra Evasiva ativa até o próximo turno do piloto" : `10 + Manobrabilidade${bonusDefVeiculo() ? ` + ${bonusDefVeiculo()} do Piloto (Instinto Evasivo)` : ""}`}">Def ${def}${nt.evasiva != null ? " ⟳" : ""}</span></div>
                 <div class="nave-barras">
                   <span class="cb-hp" title="Casco"><span class="cb-hp-barra" style="width:${pc}%;background:var(--chrome)"></span><b>${camp.nave.casco}/${camp.nave.casco_max}</b></span>
                   <span class="cb-hp" title="Escudos"><span class="cb-hp-barra" style="width:${pe}%;background:var(--tech)"></span><b>${camp.nave.escudos}/${camp.nave.escudos_max}</b></span>
@@ -1897,6 +1957,7 @@ async function telaMesa(id) {
                 <span class="cb-hp" data-barra="${c.id}" title="${ehNave(c) ? "Casco" : "Vida"}"><span class="rastro"></span><span class="cb-hp-barra" style="width:${Math.max(0, Math.min(100, vidaMax(c) ? vidaAtual(c) / vidaMax(c) * 100 : 0))}%;background:${(c.tipo === "inimigo" || c.lado === "inimiga") ? "var(--perigo)" : ehNave(c) ? "var(--chrome)" : "var(--tech)"}"></span><b>${vidaAtual(c)}/${vidaMax(c)}</b></span>${ehNave(c) ? `<span class="cb-hp" title="Escudos"><span class="rastro"></span><span class="cb-hp-barra" style="width:${Math.max(0, Math.min(100, c.escudos_max ? c.escudos / c.escudos_max * 100 : 0))}%;background:var(--tech)"></span><b>${c.escudos}/${c.escudos_max}</b></span>` : ""}
                 ${souMestre ? `<span class="cb-acoes">${(() => { const _atq = ataquesDoCombatente(c); return _atq ? _atq.map((atk, ai) => `<button class="cb-atk" data-cb="${c.id}" data-atk="${ai}" title="Rolar ${esc(atk.n)}${c.personagem_id ? ` por ${esc(c.nome)}` : ""}">⚔${_atq.length > 1 ? ai + 1 : ""}</button>`).join("") : ""; })()}${(ehNave(c) && c.lado === "inimiga") ? `<button class="cb-atk" data-cb-nave="${c.id}" title="Esta nave dispara">⚔</button>` : ""}<button class="cb-dmg" data-cb="${c.id}" data-d="-5">−5</button><button class="cb-dmg" data-cb="${c.id}" data-d="5">+5</button><input class="cb-hpset" data-cb="${c.id}" type="number" value="${vidaAtual(c)}" style="width:46px" title="${ehNave(c) ? "definir Casco" : "definir HP"}"><button class="cb-hpset-lbl cb-cond-add" data-cb="${c.id}" title="Adicionar condição">🏷</button><button class="cb-rm" data-cb="${c.id}" title="remover">✕</button></span>` : ""}
               </div>`).join("")}</div>
+            ${aurasAtivas().length ? `<div class="nave-buffs">${aurasAtivas().map((a) => `<span class="buff">🌀 <b>${esc(a.criatura)}</b> · ${esc(a.hab)}${a.nega?.length ? ` — ${a.nega.join(", ")} não funcionam${a.raio ? ` (raio ${a.raio}m)` : ""}` : a.imune ? ` — imune a ${esc(a.imune)}` : a.limiar ? ` — ignora dano abaixo de ${a.limiar}` : ""}</span>`).join("")}</div>` : ""}
             ${(camp.combate.avarias || []).length ? `<div class="avarias">${camp.combate.avarias.map((av, ai) => `<div class="avaria"><b>⚠ ${esc(av.n)}</b> <span class="regra">${esc(av.e)}</span>${souMestre ? `<button class="mini rm" data-av-fix2="${ai}">✔</button>` : ""}</div>`).join("")}</div>` : ""}
             ${camp.combate.ordem.some((x) => x.nave_party) ? `<p class="regra cbn-postos">Postos: ${POSTOS_ORDEM.map((pk) => { const q2 = (membros || []).find((m) => m.posto === pk); const ag = (camp.combate.agiram || []).includes(pk);
               return `<span class="cbn-posto ${ag ? "ok" : ""} ${q2 ? "" : "vazio"}">${esc(ESTACOES[pk].n.split(" ")[0])}${ag ? " ✓" : ""}</span>`; }).join(" ")}</p>` : ""}
@@ -1987,7 +2048,7 @@ async function telaMesa(id) {
                 <div class="barra"><span>Casco ${nave.casco}/${nave.casco_max}</span><div><i style="width:${(100 * nave.casco / nave.casco_max) | 0}%;background:var(--chrome)"></i></div></div>
                 <div class="barra"><span>Escudos ${nave.escudos}/${nave.escudos_max}</span><div><i style="width:${nave.escudos_max ? (100 * nave.escudos / nave.escudos_max) | 0 : 0}%;background:var(--tech)"></i></div></div>
               </div>
-              <p class="regra">Defesa ${10 + (nave.manobra || 0)} · Dano ${esc(nave.dano)} · ${esc(REGRAS_NAVE.defesa)}</p>
+              <p class="regra">Defesa ${defesaNaveParty()}${bonusDefVeiculo() ? ` (10 + Manobra + ${bonusDefVeiculo()} do Piloto)` : ""} · Dano ${esc(nave.dano)} · ${esc(REGRAS_NAVE.defesa)}</p>
               <label>Meu posto<select id="sel-posto"><option value="">— fora da nave —</option>
                 ${Object.entries(ESTACOES).map(([pk, e]) => `<option value="${pk}" ${meuPosto === pk ? "selected" : ""}>${e.n}</option>`).join("")}</select></label>
               ${meuPosto && f ? `<div class="acoes-mesa">${ESTACOES[meuPosto].acoes.map((a, i) => `<button class="mini" data-est="${i}" title="${esc(a.d)}">${esc(a.n)}</button>`).join("")}</div>` : ""}
@@ -2121,20 +2182,14 @@ async function telaMesa(id) {
         const r = await modalForm({ titulo: `🩸 Aplicar ${dano} de dano`, campos: [{ k: "alvo", label: "Alvo", tipo: "select", opcoes: camp.combate.ordem.map((c) => ({ v: c.id, l: ehNave(c) ? `${c.nome} (casco ${c.casco}/${c.casco_max})` : `${c.nome} (${c.hp}/${c.hp_max}${c.cd != null ? `, Def ${c.cd}` : ""})` })) }], okLabel: "Aplicar" });
         if (!r) return; const alvo = camp.combate.ordem.find((c) => c.id === r.alvo); if (!alvo) return;
         // Se a rolagem trouxe um acerto (payload.total), confere contra a Defesa do alvo antes de aplicar.
-        const defAlvo = ehNave(alvo) ? 10 + (alvo.manobra || 0) : (alvo.cd ?? 10);
+        // Perfurante/Derretimento (payload.ignoraArmadura) reduzem a Defesa efetiva do teste.
+        const defAlvo = Math.max(0, (ehNave(alvo) ? 10 + (alvo.manobra || 0) : (alvo.cd ?? 10)) - (pRoll.ignoraArmadura || 0));
         if (pRoll.total != null && !pRoll.crit && (pRoll.fumble || pRoll.total < defAlvo)) {
-          const forcar = await confirmModal(`A rolagem foi ${pRoll.total} contra a Defesa ${defAlvo} de ${alvo.nome}.${pRoll.fumble ? " Falha crítica." : ""} ${alvo.nome} desvia do golpe.\n\nAplicar o dano mesmo assim?`, { okLabel: "Aplicar mesmo assim", cancelLabel: "Errou o alvo", perigo: true });
+          const forcar = await confirmModal(`A rolagem foi ${pRoll.total} contra a Defesa ${defAlvo} de ${alvo.nome}.${pRoll.ignoraArmadura ? ` (Perfurante −${pRoll.ignoraArmadura})` : ""}${pRoll.fumble ? " Falha crítica." : ""} ${alvo.nome} desvia do golpe.\n\nAplicar o dano mesmo assim?`, { okLabel: "Aplicar mesmo assim", cancelLabel: "Errou o alvo", perigo: true });
           if (!forcar) { await enviar("sistema", `🛡 ${pRoll.titulo || "O ataque"} erra ${alvo.nome} (rolagem ${pRoll.total} vs Defesa ${defAlvo}) — sem dano.`); return; }
         }
-        if (ehNave(alvo)) { const rn = danoNave(alvo, dano);
-          if (alvo.nave_party && camp.nave) { camp.nave.casco = alvo.casco; camp.nave.escudos = alvo.escudos; }
-          enviar("sistema", `💥 ${alvo.nome}: escudos −${rn.escudos}, casco −${rn.casco} (${alvo.casco}/${alvo.casco_max}).`);
-        } else {
-          const antes = alvo.hp;
-          alvo.hp = Math.max(0, alvo.hp - dano);
-          await sincronizarFicha(alvo, alvo.hp - antes);   // a ficha do jogador acompanha
-          enviar("sistema", `💥 ${alvo.nome} sofreu ${dano} de dano (${alvo.hp}/${alvo.hp_max}).`);
-        }
+        const rd = await aplicarDanoAlvo(alvo, dano);
+        await enviar("sistema", `💥 ${alvo.nome}: ${rd.msg}${!ehNave(alvo) && foraDeCombate(alvo) ? " 💀 CAIU!" : ""}`);
         await salvarCombate(); render();
       });
       el.querySelector("[data-goto]")?.addEventListener("click", () => {
@@ -3120,8 +3175,11 @@ async function telaMesa(id) {
           + (furtivo && pr.oculta ? 2 : 0)          // Oculta: +2 no furtivo
           + (k.efeitos ? k.efeitos.modificarAtaque({ acerto: 0, dano: 0, arma: cat, situacao: { desprevenido: !!furtivo, em_nave: !!camp.combate?.naveEmCena } }).acerto : 0)
           + (cat._efeitos || []).filter((e) => e.momento === "ao_atacar" && e.tipo === "acerto").reduce((x, e) => x + (e.valor || 0), 0);
+        // Vantagem declarada por efeito (arma Aderência etc.); só concede, não impõe desvantagem.
+        const vantEfeito = !!(k.efeitos && k.efeitos.modificarAtaque({ acerto: 0, dano: 0, arma: cat, situacao: { desprevenido: !!furtivo, em_nave: !!camp.combate?.naveEmCena } }).vantagem);
+        const vantAtaque = vantEfeito && vantagem >= 0 ? 1 : vantagem;
         let nat, detVant = "";
-        if (vantagem !== 0) { const r1 = d(20), r2 = d(20); nat = vantagem > 0 ? Math.max(r1, r2) : Math.min(r1, r2); detVant = ` [${vantagem > 0 ? "vant" : "desv"} ${r1}/${r2}]`; } else nat = d(20);
+        if (vantAtaque !== 0) { const r1 = d(20), r2 = d(20); nat = vantAtaque > 0 ? Math.max(r1, r2) : Math.min(r1, r2); detVant = ` [${vantAtaque > 0 ? "vant" : "desv"}${vantEfeito && vantagem >= 0 ? " (efeito)" : ""} ${r1}/${r2}]`; } else nat = d(20);
         const total = nat + mod;
         const danoBase = danoArma(cat, f.nivel);
         const pd = parseDice(danoBase);
@@ -3154,43 +3212,60 @@ async function telaMesa(id) {
           if (pr.ignoraArmadura) partes.push(`🗡 ignora ${pr.ignoraArmadura} de armadura`);
           efeitoKw = partes.join(" · ");
         }
-        // Munição especial: o efeito entra no resultado para o Mestre aplicar a condição.
-        let efeitoMun = "";
+        // Munição especial: condição que a munição carrega, para aplicar no acerto.
+        let efeitoMun = "", munCond = null;
         if (custo > 0 && nat !== 1) { const itA = (meuPers.dados.inventario || []).find((x) => x.nome === a.nome && x.equip);
           const tpm = TIPOS_PENTE[(itA && itA.tipoPente) || f.tipoPente || PENTE_PADRAO];
-          if (tpm && tpm.cond) efeitoMun = `${tpm.ic} ${tpm.n}: alvo fica ${tpm.cond} por ${tpm.turnos} turno(s)${tpm.cd ? ` (Constituição CD ${tpm.cd} evita)` : ""}`;
+          if (tpm && tpm.cond) { efeitoMun = `${tpm.ic} ${tpm.n}: alvo fica ${tpm.cond} por ${tpm.turnos} turno(s)${tpm.cd ? ` (Constituição CD ${tpm.cd} evita)` : ""}`;
+            munCond = { cond: tpm.cond, turnos: tpm.turnos, cd: tpm.cd, origem: tpm.n }; }
           else if (tpm && tpm.bonusSint) efeitoMun = `${tpm.ic} ${tpm.n}: +${tpm.bonusSint} contra sintéticos e implantes do alvo inertes por 1 turno`;
         }
         const infoArma = [pr.area ? `◎ Área: ${pr.areaTxt}` : "", pr.alcance ? `⟿ Alcance: ${pr.alcanceTxt}` : "", cat.kw ? `🏷 ${cat.kw}: ${pr.efeito}` : ""].filter(Boolean).join("  ·  ");
         enviar("rolagem", null, { titulo: (privada ? "🔒 " : "") + `Ataque — ${a.nome}${furtivo ? " 🥷" : ""}`,
           detalhe: `d20 [${nat}]${detVant} ${sign(mod)} · dano ${danoBase} [${dados.join(", ")}] ${sign(danoMod)}${multCrit > 1 ? ` ×${multCrit}` : ""}${marcadores ? " · " + marcadores : ""}`,
           total: nat + mod, crit: nat === 20, fumble: nat === 1, ...(privada ? { privada: true } : {}), dano_total: danoFinal,
+          ...(pr.ignoraArmadura ? { ignoraArmadura: pr.ignoraArmadura } : {}),
           ...(alvoNave || alvoCombatente ? { alvo_resolvido: true } : {}),
           extra: `Dano: ${danoFinal}${multCrit > 1 ? ` (${somaDados} + ${danoMod} × ${multCrit})` : ""}${efeitoKw ? "  —  " + efeitoKw : ""}${efeitoMun ? "  —  " + efeitoMun : ""}${infoArma ? "  —  " + infoArma : ""}` });
+        // Resistência do alvo num atributo (personagem usa o valor real; inimigo, a ordem da ameaça).
+        const resistDe = (alvo, attr) => alvo.personagem_id
+          ? (calc({ ...novaFichaDados(), ...((pers || []).find((p2) => p2.id === alvo.personagem_id)?.dados || {}) }).attr[attr] || 0)
+          : (NIVEIS_AMEACA[alvo.ameaca]?.ordem ?? Math.max(0, (alvo.cd ?? 10) - 10));
+        // Aplica condições declaradas (palavra-chave + munição) no alvo acertado, com teste quando há CD.
+        const aplicarCondsNoAlvo = (alvo) => {
+          const linhas = [];
+          for (const ac of [...(pr.aoAcertar || []), ...(munCond ? [munCond] : [])]) {
+            if (!ac.cond) continue;
+            let resistiu = false, det = "";
+            if (ac.cd) { const b = resistDe(alvo, "Con"); const n2 = d(20); const t2 = n2 + b;
+              resistiu = t2 >= ac.cd; det = ` [Con ${n2}${sign(b)}=${t2} vs CD ${ac.cd}]`; }
+            if (!resistiu) alvo.cond = [...(alvo.cond || []).filter((c2) => c2.n !== ac.cond), { n: ac.cond, turnos: ac.turnos || 1 }];
+            linhas.push(`${resistiu ? "🛡" : "🏷"} ${ac.origem || ac.cond}: ${resistiu ? "resistiu" : `${ac.cond} ${ac.turnos || 1}t`}${det}`);
+          }
+          return linhas;
+        };
         if (alvoNave) {                    // resolve o tiro contra o casco
           const def = 10 + (alvoNave.manobra || 0);
           const acertou = total >= def && nat !== 1;
           if (acertou) {
-            const bruto = danoFinal;
-            const r2 = danoNave(alvoNave, bruto);
             snapshot("tiro em nave");
-            if (r2.critico) { const av = rolarAvaria(); (camp.combate.avarias = camp.combate.avarias || []).push(av);
+            const rd = await aplicarDanoAlvo(alvoNave, danoFinal);
+            if (rd.nave?.critico) { const av = rolarAvaria(); (camp.combate.avarias = camp.combate.avarias || []).push(av);
               await enviar("sistema", `⚠ ${alvoNave.nome}: ${av.n} — ${av.e}`); }
             await salvarCombate();
-            await enviar("sistema", `🚀 ${meuPers.nome} acerta ${alvoNave.nome} (Def ${def}): escudos −${r2.escudos}, casco −${r2.casco}. Agora ${alvoNave.casco}/${alvoNave.casco_max}.${alvoNave.casco <= 0 ? " 💥 ABATIDA!" : ""}`);
+            await enviar("sistema", `🚀 ${meuPers.nome} acerta ${alvoNave.nome} (Def ${def}): ${rd.msg}.${alvoNave.casco <= 0 ? " 💥 ABATIDA!" : ""}`);
           } else await enviar("sistema", `🚀 ${meuPers.nome} erra ${alvoNave.nome} (Defesa ${def}).`);
           render();
         }
         if (alvoCombatente) {             // resolve o tiro contra um combatente do rastreador
-          const def = alvoCombatente.cd ?? 10;
+          const def = Math.max(0, (alvoCombatente.cd ?? 10) - (pr.ignoraArmadura || 0));
           const acertou = nat === 20 || (nat !== 1 && total >= def);
           if (acertou) {
             snapshot("tiro em combate");
-            const antes = alvoCombatente.hp ?? 0;
-            alvoCombatente.hp = Math.max(0, antes - danoFinal);
-            await sincronizarFicha(alvoCombatente, alvoCombatente.hp - antes);
+            const rd = await aplicarDanoAlvo(alvoCombatente, danoFinal);
+            const conds = rd.absorvido ? [] : aplicarCondsNoAlvo(alvoCombatente);
             await salvarCombate();
-            await enviar("sistema", `🎯 ${meuPers.nome} acerta ${alvoCombatente.nome} com ${a.nome} (Def ${def}): −${danoFinal}. Agora ${alvoCombatente.hp}/${alvoCombatente.hp_max} PV.${alvoCombatente.hp <= 0 ? " 💀 CAIU!" : ""}${efeitoKw ? `  —  ${efeitoKw}` : ""}`);
+            await enviar("sistema", `🎯 ${meuPers.nome} acerta ${alvoCombatente.nome} com ${a.nome} (Def ${def}${pr.ignoraArmadura ? ` · 🗡−${pr.ignoraArmadura}` : ""}): ${rd.msg}.${foraDeCombate(alvoCombatente) ? " 💀 CAIU!" : ""}${conds.length ? `  —  ${conds.join(" · ")}` : ""}`);
           } else {
             await enviar("sistema", `❌ ${meuPers.nome} erra ${alvoCombatente.nome} com ${a.nome} (Def ${def}).`);
           }
@@ -3385,7 +3460,7 @@ async function telaMesa(id) {
         }
         if (R?.tipo === "salvaguarda") {      // Fogo de Supressão, Grito de Saqueador, Sinfonia do Inverno
           await aplicarEmAlvos({ titulo: `★ ${h.nome}`, origem: `${meuPers.nome} — ${h.nome}`,
-            dado: R.dado || null, atributo: R.atributo || null, cd: R.atributo ? k.cd : null,
+            dado: R.dado || null, atributo: R.atributo || null, cd: R.atributo ? dcSalvaguarda(k, R.atributo) : null,
             cond: R.cond || null, turnos: R.turnos || 2, area: !!R.area });
           if (h.descanso) { const usos = { ...(meuPers.dados.usos || {}), [h.id]: true };
             meuPers.dados = { ...meuPers.dados, usos }; f.usos = usos;
@@ -3491,6 +3566,7 @@ async function telaMesa(id) {
       });
       $("#conjurar").onclick = async () => {
         const s = SCRIPTS.find((x) => x.n === $("#sel-scr").value);
+        if (auraNega("tecnomancia")) return enviar("sistema", `🌀 ${meuPers.nome} tenta conjurar ${s.n} — a matriz não responde. Uma zona de nulidade está ativa no campo (${aurasAtivas().filter((a) => a.nega?.includes("tecnomancia")).map((a) => a.criatura).join(", ")}).`);
         if (s.c > k.ramLivre) return enviar("sistema", `${p.nome || perfil.apelido} tentou conjurar ${s.n} sem RAM suficiente (Overclock manual: 1d6/ponto).`);
         meuPers.dados = { ...f, ramGasta: (f.ramGasta || 0) + s.c };
         await sb.from("personagens").update({ dados: meuPers.dados }).eq("id", meuPers.id);
@@ -3552,6 +3628,7 @@ async function telaMesa(id) {
         const alvo = pers.find((x) => x.id === $("#sel-alvo").value);
         enviar("dano", null, { alvo_id: alvo.id, alvo_nome: alvo.nome, valor: v, origem: `de ${meuPers.nome}`, aplicado: false }); };
       $("#enviar-cura").onclick = () => { const v = +$("#dano-val").value; if (!v) return;
+        if (auraNega("cura")) return enviar("sistema", `🌀 A cura não funciona no campo — uma zona de nulidade está ativa (${aurasAtivas().filter((a) => a.nega?.includes("cura")).map((a) => a.criatura).join(", ")}).`);
         const alvo = pers.find((x) => x.id === $("#sel-alvo").value);
         enviar("cura", null, { alvo_id: alvo.id, alvo_nome: alvo.nome, valor: v, origem: `de ${meuPers.nome}`, aplicado: false }); };
     }
@@ -3698,7 +3775,7 @@ async function telaMesa(id) {
       let mexeuNaTatica = false;
       // Efeitos que persistem até serem consumidos (Cap. 12)
       if (/manobra evasiva/i.test(acao.n) && camp.nave) {
-        const defBase = 10 + (camp.nave.manobra || 0);
+        const defBase = defesaNaveParty();
         if (total > defBase) { nt.evasiva = total; nt.evasivaDe = meuPers.id; extra = `Defesa da nave passa a ${total} até o seu próximo turno (base ${defBase}).`; }
         else extra = `Resultado ${total} não supera a Defesa base ${defBase} — a manobra não melhora nada.`;
         mexeuNaTatica = true;
