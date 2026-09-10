@@ -5,7 +5,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./config.js";
 import { FichaEfeitos, MOMENTOS, EFEITOS as EFEITOS_FICHA, validarEfeitos } from "./efeitos.js";
-import { RACAS, CLASSES, FILOSOFIAS, IMPLANTES, SCRIPTS, ARMAS, ARMADURAS, PERICIAS, NAVES, ESTACOES, REGRAS_NAVE, RIQUEZA, TEMAS, CONVERTE_2D8, RENOME_PERICIAS, KEYWORDS, PALAVRAS_CHAVE, chavesDaArma, propsArma, AVARIAS, UPGRADES_NAVE, TURNOS_POR_PENTE, PENTES_MAX, custoTiro, PENTES_INICIAIS, TIROS_POR_PENTE, TIPOS_PENTE, PENTE_PADRAO, CONSUMIVEIS, ehConsumivel, SLOTS_ARMA, SLOTS_POR_ARMA, MODS_ARMA, modsDoSlot, acharMod } from "./dados-jogo.js";
+import { RACAS, CLASSES, FILOSOFIAS, IMPLANTES, SCRIPTS, ARMAS, ARMADURAS, PERICIAS, NAVES, ESTACOES, REGRAS_NAVE, RIQUEZA, TEMAS, CONVERTE_2D8, RENOME_PERICIAS, KEYWORDS, PALAVRAS_CHAVE, chavesDaArma, propsArma, AVARIAS, UPGRADES_NAVE, TURNOS_POR_PENTE, custoTiro, TIROS_POR_PENTE, TIPOS_PENTE, PENTE_PADRAO, CONSUMIVEIS, ehConsumivel, SLOTS_ARMA, SLOTS_POR_ARMA, MODS_ARMA, modsDoSlot, acharMod } from "./dados-jogo.js";
 import { BESTIARIO, NIVEIS_AMEACA } from "./dados-bestiario.js";
 import { NPCS, PAPEIS } from "./dados-npcs.js";
 import { FACCOES, NIVEIS_REPUTACAO, TABELAS, REFERENCIA  } from "./dados-mestre.js";
@@ -175,9 +175,14 @@ export function calc(f) {
   fe.fontes = fe.fontes.filter((x) => !jaContados.includes(x.nome));
   fe.aplicarNaFicha(k, { implantes: f.implantes || [], nivel: f.nivel || 1 });
   k.ramLivre = Math.max(0, k.ramMax - (f.ramGasta || 0));   // recalcula após os efeitos
+  // Pentes que a pessoa carrega: 5 + mod de Força (1 no cano + o resto na reserva).
+  k.pentesMax = Math.max(2, 5 + (k.attr.For || 0));
+  k.pentesReserva = k.pentesMax - 1;
   k.efeitos = fe;
   return k;
 }
+// Teto da reserva de pentes a partir da ficha bruta (para onde não há um `k` à mão).
+const pentesReservaDe = (f) => calc(f).pentesReserva;
 
 // O que se ganha ao subir para o nível n (para o preview e o registro)
 export function ganhosDoNivel(n, f) {
@@ -387,7 +392,7 @@ function habilidadesAtivas(f) {
 // Antes isto gravava um número e apagava munição EMP/paralisante/incendiária.
 function reporPentes(f) {
   const antes = normalizaPentes(f);
-  const teto = PENTES_MAX - 1;
+  const teto = pentesReservaDe(f);
   const usados = Object.entries(antes).filter(([, q]) => q > 0);
   const res = {}; for (const k of Object.keys(TIPOS_PENTE)) res[k] = 0;
   if (!usados.length) { res[f.tipoPente || PENTE_PADRAO] = teto; }
@@ -947,7 +952,7 @@ const armasDeFogo = (f) => (f.inventario || []).filter((it) => it.equip && ARMAS
 function normalizaPentes(f) {
   let r = f.pentes;
   if (typeof r === "number") r = { padrao: r };
-  if (!r || typeof r !== "object") r = { padrao: PENTES_MAX - 1 };
+  if (!r || typeof r !== "object") r = { padrao: pentesReservaDe(f) };
   const out = {};
   for (const k of Object.keys(TIPOS_PENTE)) out[k] = Math.max(0, r[k] || 0);
   return out;
@@ -1392,7 +1397,7 @@ async function telaFicha(id) {
                 <span class="regra">${noCano}/${TIROS_POR_PENTE} tiros</span>
               </div>
               <div class="sup-reserva">
-                <span class="dim">reserva (${total}/${PENTES_MAX - 1})</span>
+                <span class="dim">reserva (${total}/${k.pentesReserva})</span>
                 ${Object.entries(TIPOS_PENTE).map(([k2, t2]) => `<div class="sup-linha ${res[k2] ? "" : "zerado"} ${k2 === tipo ? "no-cano" : ""}">
                   <span style="color:${res[k2] ? t2.cor : "var(--dim)"}">${t2.ic} ${esc(t2.n)}${k2 === tipo ? " ▸ no cano" : ""}</span>
                   <b>×${res[k2] || 0}</b>
@@ -1594,7 +1599,7 @@ async function telaFicha(id) {
         const cgAntes = f.creditos ?? 0;
         f.creditos = cgAntes - total;
         contarAte($("#loja-cg"), cgAntes, f.creditos, 600, " CG");
-        if (it.pente) { const res2 = normalizaPentes(f); const teto = PENTES_MAX - 1;
+        if (it.pente) { const res2 = normalizaPentes(f); const teto = pentesReservaDe(f);
           const tot = Object.values(res2).reduce((x, y) => x + y, 0);
           const cabe = Math.min(qtd, Math.max(0, teto - tot));
           if (!cabe) { f.creditos = cgAntes; return alert(`A reserva já está cheia (${teto} pentes).`); }
@@ -1790,6 +1795,60 @@ async function telaMesa(id) {
     return lista.length ? lista : null;
   };
 
+  // Resolve uma ação contra um ou vários combatentes do rastreador.
+  //  acerto  → o conjurador rola d20 + acerto contra a Defesa do alvo (só acerta se vencer)
+  //  atributo+cd → o alvo faz um teste de resistência (d20 + atributo) contra a CD (só pega se falhar)
+  //  nenhum dos dois → efeito de área que pega todo mundo marcado
+  // Depois aplica `dado` de dano e/ou a condição `cond` por `turnos` a quem o efeito pegou.
+  const aplicarEmAlvos = async ({ titulo, origem, dado = null, acerto = null, atributo = null, cd = null, cond = null, turnos = 2, area = false }) => {
+    if (!camp.combate?.ativo || !camp.combate.ordem.length) {
+      await enviar("sistema", `★ ${origem}: sem combate no rastreador — o Mestre resolve.${dado ? ` (dano ${dado})` : ""}${cond ? ` (${cond} ${turnos}t)` : ""}`);
+      return;
+    }
+    const vivos = camp.combate.ordem.filter((c2) => !ehNave(c2) && !foraDeCombate(c2) && c2.personagem_id !== meuPers?.id);
+    if (!vivos.length) { await enviar("sistema", `★ ${origem}: nenhum alvo válido no rastreador.`); return; }
+    let alvos;
+    if (area) {
+      const r = await modalForm({ titulo, descricao: "Marque quem está na área de efeito.",
+        campos: vivos.map((c2) => ({ k: c2.id, label: `${c2.nome} — ${vidaAtual(c2)}/${vidaMax(c2)} PV`, tipo: "select",
+          valor: c2.tipo === "inimigo" ? "1" : "", opcoes: [{ v: "1", l: "no efeito" }, { v: "", l: "fora" }] })),
+        okLabel: "Resolver" });
+      if (!r) return;
+      alvos = vivos.filter((c2) => r[c2.id]);
+    } else {
+      const r = await modalForm({ titulo, campos: [{ k: "alvo", label: "Alvo", tipo: "select",
+        opcoes: vivos.map((c2) => ({ v: c2.id, l: `${c2.nome} — ${vidaAtual(c2)}/${vidaMax(c2)} PV, Def ${c2.cd ?? 10}` })) }], okLabel: "Resolver" });
+      if (!r?.alvo) return;
+      alvos = [vivos.find((c2) => c2.id === r.alvo)].filter(Boolean);
+    }
+    if (!alvos.length) { await enviar("sistema", `★ ${origem}: nenhum alvo marcado.`); return; }
+    const pdd = dado ? parseDice(dado) : null;
+    const rolDano = pdd ? rollNd(pdd.n, pdd.f).reduce((x, y) => x + y, 0) + pdd.mod : 0;
+    snapshot(titulo);
+    const linhas = [];
+    for (const alvo of alvos) {
+      const defesa = alvo.cd ?? 10;
+      let pegou = true, det = "";   // pegou = o efeito atinge o alvo
+      if (acerto != null) {
+        const natA = d(20), tot = natA + acerto;
+        pegou = natA === 20 || (natA !== 1 && tot >= defesa);
+        det = ` [ataque ${natA}${sign(acerto)}=${tot} vs Def ${defesa} — ${pegou ? "acertou" : "errou"}]`;
+      } else if (atributo && cd != null) {
+        const bo = alvo.personagem_id
+          ? (calc({ ...novaFichaDados(), ...((pers || []).find((p) => p.id === alvo.personagem_id)?.dados || {}) }).attr[atributo] || 0)
+          : (NIVEIS_AMEACA[alvo.ameaca]?.ordem ?? Math.max(0, defesa - 10));
+        const natS = d(20), tot = natS + bo;
+        pegou = tot < cd;
+        det = ` [${atributo} ${natS}${sign(bo)}=${tot} vs CD ${cd} — ${pegou ? "falhou" : "resistiu"}]`;
+      }
+      if (pegou && rolDano) { const antes = alvo.hp ?? 0; alvo.hp = Math.max(0, antes - rolDano); await sincronizarFicha(alvo, alvo.hp - antes); }
+      if (pegou && cond) alvo.cond = [...(alvo.cond || []).filter((c2) => c2.n !== cond), { n: cond, turnos }];
+      linhas.push(`${pegou ? "💥" : "🛡"} ${alvo.nome}${det}${pegou && rolDano ? ` −${rolDano} (${alvo.hp}/${alvo.hp_max})` : ""}${pegou && cond ? ` · ${cond} ${turnos}t` : ""}${foraDeCombate(alvo) ? " 💀 CAIU" : ""}`);
+    }
+    await salvarCombate();
+    await enviar("sistema", `★ ${origem}${rolDano ? ` — dano ${dado} [${rolDano}]` : ""}: ${linhas.join("  ·  ")}`);
+  };
+
   const render = async () => {
     if (canalMesa) { sb.removeChannel(canalMesa); canalMesa = null; }
     const f = meuPers ? { ...novaFichaDados(), ...meuPers.dados } : null;
@@ -1887,7 +1946,7 @@ async function telaMesa(id) {
                   <div class="pips">${pips}</div>
                   <p class="municao-msg">${tp.ic} ${esc(tp.n)}${e2.tiros === 0 ? " — <b>pente vazio, troque!</b>" : ""}</p>
                 </div>`; }).join("")}</div>
-                <div class="mun-mochila"><span class="dim">🎒 mochila (${totalReserva}/${PENTES_MAX - 1})</span>
+                <div class="mun-mochila"><span class="dim">🎒 mochila (${totalReserva}/${k.pentesReserva})</span>
                   <div class="pentes-reserva">${Object.entries(res).map(([k, q]) => { const t2 = TIPOS_PENTE[k];
                     return `<button class="pente-tipo ${q ? "" : "vazio-tipo"}" data-carregar="${k}" ${q ? "" : "disabled"}
                       title="${esc(t2.n)} — ${esc(t2.d)}" style="border-color:${q ? t2.cor : "var(--line)"};color:${q ? t2.cor : "var(--dim)"}">${t2.ic} ${q}</button>`; }).join("")}</div></div>`;
@@ -2033,7 +2092,7 @@ async function telaMesa(id) {
           ${p.total !== undefined && p.total !== null ? `<span class="m-total">${p.total}</span>` : ""}
           ${p.crit ? `<span class="log-flag crit">CRÍTICO!</span>` : ""}${p.fumble ? `<span class="log-flag fumble">FALHA CRÍTICA</span>` : ""}
           ${p.extra ? `<span class="m-extra">${esc(p.extra)}</span>` : ""}
-          ${p.dano_total != null && souMestre && camp.combate.ativo ? `<button class="m-aplicar" data-dano="${p.dano_total}">🩸 aplicar ${p.dano_total} de dano</button>` : ""}</div>`; }
+          ${p.dano_total != null && !p.alvo_resolvido && souMestre && camp.combate.ativo ? `<button class="m-aplicar" data-dano="${p.dano_total}">🩸 aplicar ${p.dano_total} de dano</button>` : ""}</div>`; }
       else if (m.tipo === "dano" || m.tipo === "cura") { const p = m.payload || {};
         const meu = pers?.find((x) => x.id === p.alvo_id)?.dono_id === usuario.id;
         corpo = `<div class="m-roll ${m.tipo === "dano" ? "fumble" : "crit"}"><b>${m.tipo === "dano" ? "💥" : "✚"} ${p.valor} em ${esc(p.alvo_nome)}</b>
@@ -2058,8 +2117,15 @@ async function telaMesa(id) {
       el.querySelector(".m-aplicar")?.addEventListener("click", async () => {
         if (!camp.combate.ativo || !camp.combate.ordem.length) return alert("Nenhum combate ativo com combatentes.");
         const dano = +el.querySelector(".m-aplicar").dataset.dano;
-        const r = await modalForm({ titulo: `🩸 Aplicar ${dano} de dano`, campos: [{ k: "alvo", label: "Alvo", tipo: "select", opcoes: camp.combate.ordem.map((c) => ({ v: c.id, l: `${c.nome} (${c.hp}/${c.hp_max})` })) }], okLabel: "Aplicar" });
+        const pRoll = m.payload || {};
+        const r = await modalForm({ titulo: `🩸 Aplicar ${dano} de dano`, campos: [{ k: "alvo", label: "Alvo", tipo: "select", opcoes: camp.combate.ordem.map((c) => ({ v: c.id, l: ehNave(c) ? `${c.nome} (casco ${c.casco}/${c.casco_max})` : `${c.nome} (${c.hp}/${c.hp_max}${c.cd != null ? `, Def ${c.cd}` : ""})` })) }], okLabel: "Aplicar" });
         if (!r) return; const alvo = camp.combate.ordem.find((c) => c.id === r.alvo); if (!alvo) return;
+        // Se a rolagem trouxe um acerto (payload.total), confere contra a Defesa do alvo antes de aplicar.
+        const defAlvo = ehNave(alvo) ? 10 + (alvo.manobra || 0) : (alvo.cd ?? 10);
+        if (pRoll.total != null && !pRoll.crit && (pRoll.fumble || pRoll.total < defAlvo)) {
+          const forcar = await confirmModal(`A rolagem foi ${pRoll.total} contra a Defesa ${defAlvo} de ${alvo.nome}.${pRoll.fumble ? " Falha crítica." : ""} ${alvo.nome} desvia do golpe.\n\nAplicar o dano mesmo assim?`, { okLabel: "Aplicar mesmo assim", cancelLabel: "Errou o alvo", perigo: true });
+          if (!forcar) { await enviar("sistema", `🛡 ${pRoll.titulo || "O ataque"} erra ${alvo.nome} (rolagem ${pRoll.total} vs Defesa ${defAlvo}) — sem dano.`); return; }
+        }
         if (ehNave(alvo)) { const rn = danoNave(alvo, dano);
           if (alvo.nave_party && camp.nave) { camp.nave.casco = alvo.casco; camp.nave.escudos = alvo.escudos; }
           enviar("sistema", `💥 ${alvo.nome}: escudos −${rn.escudos}, casco −${rn.casco} (${alvo.casco}/${alvo.casco_max}).`);
@@ -2147,12 +2213,13 @@ async function telaMesa(id) {
             const res = normalizaPentes(dados);
             const tipo = p.tipoPente || PENTE_PADRAO;
             const antes = Object.values(res).reduce((x, y) => x + y, 0);
-            const cabe = Math.max(0, (PENTES_MAX - 1) - antes);
+            const teto = pentesReservaDe(dados);
+            const cabe = Math.max(0, teto - antes);
             const ganhou = Math.min(p.pentes, cabe);
             res[tipo] = (res[tipo] || 0) + ganhou;
             dados.pentes = res;
             const tp = TIPOS_PENTE[tipo];
-            notas.push(ganhou > 0 ? `+${ganhou} pente ${tp.ic} ${tp.n} (${antes + ganhou}/${PENTES_MAX - 1} na reserva)` : "reserva de pentes já cheia");
+            notas.push(ganhou > 0 ? `+${ganhou} pente ${tp.ic} ${tp.n} (${antes + ganhou}/${teto} na reserva)` : "reserva de pentes já cheia");
           }
           dados.log = [{ q: new Date().toISOString(), t: `🎁 Recompensa do Mestre: ${notas.join(" · ")}` }, ...(dados.log || [])].slice(0, 60);
           const { error } = await sb.from("personagens").update({ dados }).eq("id", meuPers.id);
@@ -2487,10 +2554,10 @@ async function telaMesa(id) {
         });
         liga("mestre-mun", async () => {
           const r = await modalForm({ titulo: "🔫 Conceder pentes",
-            descricao: `Munição de saque. Vai para a reserva de cada tripulante conectado (teto de ${PENTES_MAX - 1} pentes).`,
+            descricao: "Munição de saque. Vai para a reserva de cada tripulante conectado, respeitando o teto de cada um (4 + mod de Força).",
             campos: [
               { k: "tipo", label: "Tipo de munição", tipo: "select", opcoes: Object.entries(TIPOS_PENTE).map(([k2, t2]) => ({ v: k2, l: `${t2.ic} ${t2.n} — ${t2.d}` })) },
-              { k: "n", label: "Quantos pentes", tipo: "numero", valor: 1, min: 1, max: PENTES_MAX - 1 },
+              { k: "n", label: "Quantos pentes", tipo: "numero", valor: 1, min: 1, max: 10 },
             ], okLabel: "Distribuir" });
           if (!r || !(+r.n > 0)) return;
           const tp = TIPOS_PENTE[r.tipo] || TIPOS_PENTE.padrao;
@@ -3098,6 +3165,7 @@ async function telaMesa(id) {
         enviar("rolagem", null, { titulo: (privada ? "🔒 " : "") + `Ataque — ${a.nome}${furtivo ? " 🥷" : ""}`,
           detalhe: `d20 [${nat}]${detVant} ${sign(mod)} · dano ${danoBase} [${dados.join(", ")}] ${sign(danoMod)}${multCrit > 1 ? ` ×${multCrit}` : ""}${marcadores ? " · " + marcadores : ""}`,
           total: nat + mod, crit: nat === 20, fumble: nat === 1, ...(privada ? { privada: true } : {}), dano_total: danoFinal,
+          ...(alvoNave || alvoCombatente ? { alvo_resolvido: true } : {}),
           extra: `Dano: ${danoFinal}${multCrit > 1 ? ` (${somaDados} + ${danoMod} × ${multCrit})` : ""}${efeitoKw ? "  —  " + efeitoKw : ""}${efeitoMun ? "  —  " + efeitoMun : ""}${infoArma ? "  —  " + infoArma : ""}` });
         if (alvoNave) {                    // resolve o tiro contra o casco
           const def = 10 + (alvoNave.manobra || 0);
@@ -3276,17 +3344,59 @@ async function telaMesa(id) {
             origem: `★ ${h.nome} de ${meuPers.nome}`, detalhe: `transferiu ${qtd} PV do próprio corpo`, aplicado: false });
           return render();
         }
-        if (R?.tipo === "disputa") {          // Invasão da Sombra: rolagem contra o Mestre
-          const nat = d(20), meu = nat + (k.attr[R.atributo] || 0);
-          const natM = d(20), mestre = natM + 2;
-          const venceu = meu > mestre;
-          let extra = venceu ? `Venceu — ${R.vitoria}.` : `Perdeu — ${meuPers.nome} sofre ${R.derrota.danoProprio} de dano.`;
-          if (!venceu) { const dd3 = { ...novaFichaDados(), ...meuPers.dados };
+        if (R?.tipo === "disputa") {          // Invasão da Sombra: disputa de rolagem contra o alvo
+          const meuBonus = k.attr[R.atributo] || 0;
+          // Escolhe um combatente do rastreador; fora de combate, o Mestre rola pelo alvo.
+          const cands = (camp.combate?.ativo ? camp.combate.ordem : []).filter((c2) => !ehNave(c2) && !foraDeCombate(c2) && c2.personagem_id !== meuPers.id);
+          let alvo = null;
+          if (cands.length) {
+            const r2 = await modalForm({ titulo: `★ ${h.nome}`, descricao: h.d,
+              campos: [{ k: "alvo", label: "Invadir a mente de quem?", tipo: "select",
+                opcoes: [{ v: "", l: "— alvo abstrato (Mestre rola) —" }, ...cands.map((c2) => ({ v: c2.id, l: `${c2.nome} — ${vidaAtual(c2)}/${vidaMax(c2)} PV` }))] }], okLabel: "Invadir" });
+            if (r2 === null) return;
+            if (r2.alvo) alvo = cands.find((c2) => c2.id === r2.alvo);
+          }
+          // Bônus do alvo no atributo disputado: personagem usa o valor real; inimigo
+          // usa a ordem da ameaça (Lacaio 0 … Colossal 6), ou a Defesa − 10 se não houver.
+          let alvoBonus = 2, alvoNome = "o alvo";
+          if (alvo) {
+            alvoNome = alvo.nome;
+            if (alvo.personagem_id) {
+              const pj = (pers || []).find((p2) => p2.id === alvo.personagem_id);
+              alvoBonus = pj ? (calc({ ...novaFichaDados(), ...pj.dados }).attr[R.atributo] || 0) : 2;
+            } else {
+              alvoBonus = NIVEIS_AMEACA[alvo.ameaca]?.ordem ?? Math.max(0, (alvo.cd ?? 10) - 10);
+            }
+          }
+          const nat = d(20), meu = nat + meuBonus;
+          const natA = d(20), contra = natA + alvoBonus;
+          const venceu = meu > contra;   // empate: o alvo resiste
+          let extra;
+          if (venceu) {
+            extra = `Venceu a disputa (${meu} × ${contra}) — ${R.vitoria}.`;
+            if (alvo) { alvo.cond = [...(alvo.cond || []).filter((c2) => c2.n !== "dominado"), { n: "dominado", turnos: 1 }];
+              await salvarCombate(); }
+          } else {
+            extra = `Perdeu a disputa (${meu} × ${contra}) — ${meuPers.nome} sofre ${R.derrota.danoProprio} de dano.`;
+            const dd3 = { ...novaFichaDados(), ...meuPers.dados };
             dd3.pvAtual = Math.max(0, (dd3.pvAtual || 0) - R.derrota.danoProprio);
-            meuPers.dados = dd3; await sb.from("personagens").update({ dados: dd3 }).eq("id", meuPers.id); }
+            meuPers.dados = dd3; await sb.from("personagens").update({ dados: dd3 }).eq("id", meuPers.id);
+          }
           await enviar("rolagem", null, { titulo: `★ ${h.nome}`,
-            detalhe: `você d20 [${nat}] +${k.attr[R.atributo] || 0} = ${meu} · alvo d20 [${natM}] +2 = ${mestre}`,
+            detalhe: `${meuPers.nome} d20 [${nat}] ${sign(meuBonus)} = ${meu}  ·  ${alvoNome} d20 [${natA}] ${sign(alvoBonus)} = ${contra}`,
             total: meu, crit: nat === 20, fumble: nat === 1, extra });
+          if (h.descanso) { const usos = { ...(meuPers.dados.usos || {}), [h.id]: true };
+            meuPers.dados = { ...meuPers.dados, usos }; f.usos = usos;
+            await sb.from("personagens").update({ dados: meuPers.dados }).eq("id", meuPers.id); }
+          return render();
+        }
+        if (R?.tipo === "salvaguarda") {      // Fogo de Supressão, Grito de Saqueador, Sinfonia do Inverno
+          await aplicarEmAlvos({ titulo: `★ ${h.nome}`, origem: `${meuPers.nome} — ${h.nome}`,
+            dado: R.dado || null, atributo: R.atributo || null, cd: R.atributo ? k.cd : null,
+            cond: R.cond || null, turnos: R.turnos || 2, area: !!R.area });
+          if (h.descanso) { const usos = { ...(meuPers.dados.usos || {}), [h.id]: true };
+            meuPers.dados = { ...meuPers.dados, usos }; f.usos = usos;
+            await sb.from("personagens").update({ dados: meuPers.dados }).eq("id", meuPers.id); }
           return render();
         }
         if (R?.tipo === "condicao") {         // Repulsão Cinética: derruba sem causar dano
@@ -3349,7 +3459,7 @@ async function telaMesa(id) {
         const nomeItem = bt.dataset.item;
         const cfg = ehConsumivel(nomeItem); if (!cfg) return;
         let alvo = meuPers;
-        if (!cfg.area && cfg.efeito !== "nenhum") {          // itens de alvo único perguntam em quem
+        if (!cfg.area && cfg.efeito !== "nenhum" && cfg.efeito !== "condicao") {   // itens de alvo único perguntam em quem
           const r = await modalForm({ titulo: `${cfg.ic} ${nomeItem}`, descricao: `${cfg.d}  ·  ${cfg.acao}. O item é consumido ao ser usado.`,
             campos: [{ k: "alvo", label: "Em quem?", tipo: "select",
               opcoes: (pers || []).map((p2) => ({ v: p2.id, l: p2.id === meuPers.id ? `${p2.nome} (você)` : p2.nome })) }], okLabel: "Usar" });
@@ -3378,11 +3488,9 @@ async function telaMesa(id) {
           if (cb && cb.cond) { cb.cond = cb.cond.filter((c2) => !/sangrando/i.test(c2.n)); await salvarCampanha({ combate: camp.combate }).eq("id", id); }
           await enviar("sistema", `${cfg.ic} ${meuPers.nome} usa ${cfg.n} em ${alvo.nome}: sangramento estancado.`);
         } else if (cfg.efeito === "condicao") {
-          let txt = `${cfg.ic} ${meuPers.nome} lança ${cfg.n}!`;
-          if (cfg.dano) { const pdg = parseDice(cfg.dano); const dg = rollNd(pdg.n, pdg.f);
-            txt += ` Dano ${cfg.dano} [${dg.join(", ")}] = ${dg.reduce((x, y) => x + y, 0)}.`; }
-          txt += ` Alvos na área ficam ${cfg.cond} por ${cfg.turnos} turno(s)${cfg.cd ? ` (Constituição CD ${cfg.cd} evita)` : ""}.`;
-          await enviar("sistema", txt);
+          await aplicarEmAlvos({ titulo: `${cfg.ic} ${cfg.n}`, origem: `${meuPers.nome} — ${cfg.n}`,
+            dado: cfg.dano || null, cond: cfg.cond || null, turnos: cfg.turnos || 2, area: true,
+            atributo: cfg.cd ? "Con" : null, cd: cfg.cd || null });
         } else {
           await enviar("sistema", `${cfg.ic} ${meuPers.nome} usa ${cfg.n}${alvo.id !== meuPers.id ? ` em ${alvo.nome}` : ""}. ${cfg.d}`);
         }
@@ -3436,6 +3544,12 @@ async function telaMesa(id) {
             }
             return render();
           }
+        }
+        if (s.resolve?.tipo === "ataque") {   // Script ofensivo: mira um alvo (ou área) e resolve
+          await aplicarEmAlvos({ titulo: `◈ ${s.n}`, origem: `${meuPers.nome} — ${s.n}`,
+            dado: s.resolve.dado || s.dmg || null,
+            acerto: s.resolve.area ? null : k.conj, area: !!s.resolve.area });
+          return render();
         }
         enviar("rolagem", null, { titulo: `Script — ${s.n}`, detalhe: `d20 [${nat}] +${k.conj} · ${s.c} RAM · ${s.a}`, total: nat + k.conj, crit: nat === 20, fumble: nat === 1, extra: s.d.slice(0, 90) });
         render(); };
