@@ -364,11 +364,15 @@ function duracaoDe(h, nivel) {
 function modosAtivosDe(f) {
   const out = [];
   const raca = RACAS.find((r) => r.nome === f.raca), classe = CLASSES[f.classe];
-  const fontes = [...(raca?.habilidades || []), ...(classe?.hab || [])];
+  const fontes = [...(raca?.habilidades || []), ...(classe?.hab || []), ...(classe?.vet ? [classe.vet] : []), ...(raca?.lendaria ? [raca.lendaria] : [])];
   for (const [id, escolha] of Object.entries(f.modos || {})) {
     const h = fontes.find((x) => x.n === id);
-    const op = h?.opcoes?.find((o) => o.n === escolha);
+    if (!h) continue;
+    // opções podem estar em h.opcoes (gás do Ven'y) ou em h.resolve.opcoes (Êxtase da Batalha)
+    const op = (h.opcoes || h.resolve?.opcoes)?.find((o) => o.n === escolha);
     if (op?.efeitos?.length) out.push({ nome: `${h.n}: ${op.n}`, efeitos: op.efeitos });
+    // modo sem opções (Endurecer): os efeitos ficam direto em h.resolve.efeitos
+    else if (h.resolve?.efeitos?.length) out.push({ nome: h.n, efeitos: h.resolve.efeitos });
   }
   return out;
 }
@@ -513,6 +517,21 @@ const CONDICOES_INFO = [
 ];
 const CONDICOES = CONDICOES_INFO.map((c) => c.n);
 const infoCond = (nome) => CONDICOES_INFO.find((c) => c.n.toLowerCase() === String(nome || "").toLowerCase());
+// Aplica uma condição a um combatente do rastreador seguindo a regra da mesa:
+// - condição com dano contínuo: se já ativa, empilha +1 turno (nunca o dano);
+// - condição de estado (sem dano): renova para a maior duração.
+// O rastreador decrementa as condições no INÍCIO do turno do afetado, antes de
+// ele agir; para as de estado valerem pelo turno inteiro guardamos +1.
+function aplicarCond(alvo, cond, turnos = 1) {
+  if (!alvo || !cond) return;
+  alvo.cond = alvo.cond || [];
+  const temDano = !!infoCond(cond)?.dano;
+  const base = Math.max(1, turnos || 1);
+  const alvoTurnos = temDano ? base : base + 1;
+  const ja = alvo.cond.find((c) => c.n === cond);
+  if (ja) ja.turnos = temDano ? ja.turnos + 1 : Math.max(ja.turnos, alvoTurnos);
+  else alvo.cond.push({ n: cond, turnos: alvoTurnos });
+}
 const combateVazio = () => ({ ativo: false, rodada: 1, turno: 0, ordem: [], avarias: [], agiram: [], nave: naveTaticaVazia() });
 // Estado tático da nave da tripulação durante o combate (Cap. 12).
 // A nave NÃO tem turno: ela é o cenário. Quem age são os tripulantes, nos seus postos.
@@ -1768,8 +1787,10 @@ async function telaMesa(id) {
     }
     let reduzido = 0;
     if (alvo.personagem_id) {
-      const pj = (pers || []).find((x) => x.id === alvo.personagem_id);
-      if (pj) reduzido = calc({ ...novaFichaDados(), ...pj.dados }).efeitos?.aoSofrer?.().reducao || 0;
+      // Lê a ficha fresca do banco: a cópia do render pode não ter os modos ligados (Endurecer).
+      const { data: fresco } = await sb.from("personagens").select("dados").eq("id", alvo.personagem_id).single();
+      const ddA = fresco?.dados || (pers || []).find((x) => x.id === alvo.personagem_id)?.dados;
+      if (ddA) reduzido = calc({ ...novaFichaDados(), ...ddA }).efeitos?.aoSofrer?.().reducao || 0;
     }
     const efetivo = Math.max(0, valor - reduzido);
     const antes = alvo.hp ?? 0;
@@ -1803,6 +1824,14 @@ async function telaMesa(id) {
     return out;
   };
   const auraNega = (oque) => aurasAtivas().some((a) => (a.nega || []).includes(oque));
+  // Linha do rastreador do personagem ativo; e a condição que trava a ação dele,
+  // se houver (Atordoado / Paralisado, + as passadas em `extra`). Mestre nunca trava.
+  const minhaLinhaCb = () => (camp.combate?.ativo ? camp.combate.ordem.find((x) => x.personagem_id === meuPers?.id) : null) || null;
+  const minhaTrava = (extra = []) => {
+    if (souMestre) return null;
+    const bloq = ["atordoado", "paralisado", ...extra];
+    return (minhaLinhaCb()?.cond || []).find((c) => bloq.includes(c.n.toLowerCase())) || null;
+  };
   if (!Array.isArray(camp.bestiario)) camp.bestiario = [];
   if (!camp.combate_nave || typeof camp.combate_nave !== "object" || !("inimigas" in camp.combate_nave)) camp.combate_nave = combateNaveVazio();
   if (!camp.faccoes || typeof camp.faccoes !== "object") camp.faccoes = {};
@@ -1859,7 +1888,7 @@ async function telaMesa(id) {
   //  atributo+cd → o alvo faz um teste de resistência (d20 + atributo) contra a CD (só pega se falhar)
   //  nenhum dos dois → efeito de área que pega todo mundo marcado
   // Depois aplica `dado` de dano e/ou a condição `cond` por `turnos` a quem o efeito pegou.
-  const aplicarEmAlvos = async ({ titulo, origem, dado = null, acerto = null, atributo = null, cd = null, cond = null, turnos = 2, area = false }) => {
+  const aplicarEmAlvos = async ({ titulo, origem, dado = null, acerto = null, atributo = null, pericia = null, cd = null, cond = null, turnos = 2, area = false }) => {
     if (!camp.combate?.ativo || !camp.combate.ordem.length) {
       await enviar("sistema", `★ ${origem}: sem combate no rastreador — o Mestre resolve.${dado ? ` (dano ${dado})` : ""}${cond ? ` (${cond} ${turnos}t)` : ""}`);
       return;
@@ -1892,17 +1921,21 @@ async function telaMesa(id) {
         const natA = d(20), tot = natA + acerto;
         pegou = natA === 20 || (natA !== 1 && tot >= defesa);
         det = ` [ataque ${natA}${sign(acerto)}=${tot} vs Def ${defesa} — ${pegou ? "acertou" : "errou"}]`;
-      } else if (atributo && cd != null) {
-        const bo = alvo.personagem_id
-          ? (calc({ ...novaFichaDados(), ...((pers || []).find((p) => p.id === alvo.personagem_id)?.dados || {}) }).attr[atributo] || 0)
-          : (NIVEIS_AMEACA[alvo.ameaca]?.ordem ?? Math.max(0, defesa - 10));
+      } else if ((atributo || pericia) && cd != null) {
+        let bo;
+        if (alvo.personagem_id) {
+          const kA = calc({ ...novaFichaDados(), ...((pers || []).find((p) => p.id === alvo.personagem_id)?.dados || {}) });
+          if (pericia) { const pa = (PERICIAS.find(([n]) => n === pericia) || [])[1]; bo = (kA.attr[pa] || 0) + (kA.per[pericia] || 0); }
+          else bo = kA.attr[atributo] || 0;
+        } else bo = NIVEIS_AMEACA[alvo.ameaca]?.ordem ?? Math.max(0, defesa - 10);
+        const rot = pericia || atributo;
         const natS = d(20), tot = natS + bo;
         pegou = tot < cd;
-        det = ` [${atributo} ${natS}${sign(bo)}=${tot} vs CD ${cd} — ${pegou ? "falhou" : "resistiu"}]`;
+        det = ` [${rot} ${natS}${sign(bo)}=${tot} vs CD ${cd} — ${pegou ? "falhou" : "resistiu"}]`;
       }
       let danoMsg = "";
       if (pegou && rolDano) { const rd = await aplicarDanoAlvo(alvo, rolDano); danoMsg = ` ${rd.msg}`; }
-      if (pegou && cond) alvo.cond = [...(alvo.cond || []).filter((c2) => c2.n !== cond), { n: cond, turnos }];
+      if (pegou && cond) aplicarCond(alvo, cond, turnos);
       linhas.push(`${pegou ? "💥" : "🛡"} ${alvo.nome}${det}${danoMsg}${pegou && cond ? ` · ${cond} ${turnos}t` : ""}${foraDeCombate(alvo) ? " 💀 CAIU" : ""}`);
     }
     await salvarCombate();
@@ -3046,7 +3079,7 @@ async function telaMesa(id) {
           manobra: base.manobra, dano: base.dano });
       } else { const b = v.startsWith("c:") ? camp.bestiario[+v.slice(2)] : todasCriaturas()[+v.slice(2)]; if (!b) return;
         const iguais = camp.combate.ordem.filter((x) => x.nome.replace(/ #\d+$/, "") === b.n).length;
-        camp.combate.ordem.push({ id: cbId(), nome: iguais ? `${b.n} #${iguais + 1}` : b.n, ini: d(20), hp: b.hp, hp_max: b.hp, cd: b.cd, tipo: "inimigo", ameaca: b.ameaca, ataques: b.ataques });
+        camp.combate.ordem.push({ id: cbId(), nome: iguais ? `${b.n} #${iguais + 1}` : b.n, ini: d(20), hp: b.hp, hp_max: b.hp, cd: b.cd, tipo: "inimigo", ameaca: b.ameaca, ataques: b.ataques, habs: b.habs || [] });
       }
       ordenarCombate(camp.combate); await salvarCombate(); render();
     });
@@ -3111,6 +3144,16 @@ async function telaMesa(id) {
         rolarEEnviar(`Teste de ${pn}`, k.attr[at] + k.per[pn]); };
       app.querySelectorAll("[data-atq]").forEach((b) => b.onclick = async () => {
         const a = armasEq[+b.dataset.atq];
+        // Em combate, o jogador só ataca no próprio turno. O Mestre rola por ele
+        // pelo botão ⚔ da linha dele no rastreador.
+        if (camp.combate?.ativo && !souMestre) {
+          const minhaLinha = camp.combate.ordem.find((x) => x.personagem_id === meuPers.id);
+          const ehMinhaVez = camp.combate.ordem[camp.combate.turno]?.personagem_id === meuPers.id;
+          if (minhaLinha && !ehMinhaVez)
+            return alert(`Não é o seu turno (vez de ${camp.combate.ordem[camp.combate.turno]?.nome || "outro combatente"}). O Mestre pode rolar por você no rastreador.`);
+        }
+        const trava = minhaTrava();
+        if (trava) return alert(`${meuPers.nome} está ${trava.n} e não pode agir neste turno.`);
         const itemInv = (meuPers.dados.inventario || []).find((x) => x.nome === a.nome && x.equip);
         const catBase = todasArmas().find((x) => x.n === a.nome);
         const cat = armaMontada(catBase, itemInv);
@@ -3155,17 +3198,27 @@ async function telaMesa(id) {
           : [];
         let alvoNave = null, alvoCombatente = null;
         if (alvosCombate.length) {
+          const inimigos = alvosCombate.filter((x) => x.tipo === "inimigo" || x.lado === "inimiga");
+          const alvoPadrao = (inimigos[0] || alvosCombate[0]).id;
           const r = await modalForm({ titulo: `⚔ ${a.nome}`,
-            descricao: "Escolha um alvo do combate para resolver o acerto, ou deixe sem alvo para apenas rolar.",
-            campos: [{ k: "alvo", label: "Mirar em", tipo: "select",
-              opcoes: [{ v: "", l: "— sem alvo (resolvo na mesa) —" },
+            descricao: "Mire num combatente — o acerto e o dano se resolvem sozinhos. Só escolha “sem alvo” se estiver atacando algo fora do rastreador.",
+            campos: [{ k: "alvo", label: "Mirar em", tipo: "select", valor: alvoPadrao,
+              opcoes: [
                 ...alvosCombate.map((x) => ({ v: x.id, l: ehNave(x)
                   ? `🚀 ${x.nome} — casco ${x.casco}/${x.casco_max}, Def ${10 + (x.manobra || 0)}`
-                  : `${x.nome} — ${vidaAtual(x)}/${vidaMax(x)} PV, Def ${x.cd ?? 10}` })) ] }],
+                  : `${x.nome} — ${vidaAtual(x)}/${vidaMax(x)} PV, Def ${x.cd ?? 10}` })),
+                { v: "", l: "— sem alvo (o Mestre resolve) —" } ] }],
             okLabel: "Atacar" });
           if (r && r.alvo) { const alv = camp.combate.ordem.find((x) => x.id === r.alvo);
             if (ehNave(alv)) alvoNave = alv; else alvoCombatente = alv; }
         }
+        // Condições em jogo: as minhas atrapalham; as do alvo abrem brecha.
+        const condsMinhas = (minhaLinhaCb()?.cond || []).map((c) => c.n.toLowerCase());
+        const condsAlvo = (alvoCombatente?.cond || []).map((c) => c.n.toLowerCase());
+        const desvPorCond = condsMinhas.some((n) => /cego|amedrontado|envenenado/.test(n));   // Desvantagem no ataque
+        const enfraquecido = condsMinhas.includes("enfraquecido");                              // metade do dano físico
+        const alvoMarcado = condsAlvo.includes("marcado");                                      // +2 no acerto de quem o ataca
+        const alvoAberto = condsAlvo.some((n) => /atordoado|paralisado|caído|cego/.test(n));    // Vantagem contra ele
         const furtivo = $("#atq-furtivo")?.checked;
         const assassino = f.classe === "Assassino";
         // Ágil: usa o melhor de For/Des no acerto e no dano
@@ -3173,13 +3226,16 @@ async function telaMesa(id) {
         const mod = k.attr[atkAttr] + k.per[cat.per]
           + (cat.tipo === "fogo" && f.implantes.includes("Olho Biônico de Precisão") ? 2 : 0)
           + (furtivo && pr.oculta ? 2 : 0)          // Oculta: +2 no furtivo
+          + (alvoMarcado ? 2 : 0)                   // alvo Marcado
           + (k.efeitos ? k.efeitos.modificarAtaque({ acerto: 0, dano: 0, arma: cat, situacao: { desprevenido: !!furtivo, em_nave: !!camp.combate?.naveEmCena } }).acerto : 0)
           + (cat._efeitos || []).filter((e) => e.momento === "ao_atacar" && e.tipo === "acerto").reduce((x, e) => x + (e.valor || 0), 0);
-        // Vantagem declarada por efeito (arma Aderência etc.); só concede, não impõe desvantagem.
+        // Vantagem/desvantagem líquida: soma as fontes e reduz a −1 / 0 / +1.
         const vantEfeito = !!(k.efeitos && k.efeitos.modificarAtaque({ acerto: 0, dano: 0, arma: cat, situacao: { desprevenido: !!furtivo, em_nave: !!camp.combate?.naveEmCena } }).vantagem);
-        const vantAtaque = vantEfeito && vantagem >= 0 ? 1 : vantagem;
+        const vantSoma = (vantagem || 0) + (vantEfeito ? 1 : 0) + (alvoAberto ? 1 : 0) - (desvPorCond ? 1 : 0);
+        const vantAtaque = vantSoma > 0 ? 1 : vantSoma < 0 ? -1 : 0;
+        const marcasVant = [vantEfeito ? "efeito" : "", alvoAberto ? "alvo exposto" : "", desvPorCond ? "condição" : ""].filter(Boolean).join(", ");
         let nat, detVant = "";
-        if (vantAtaque !== 0) { const r1 = d(20), r2 = d(20); nat = vantAtaque > 0 ? Math.max(r1, r2) : Math.min(r1, r2); detVant = ` [${vantAtaque > 0 ? "vant" : "desv"}${vantEfeito && vantagem >= 0 ? " (efeito)" : ""} ${r1}/${r2}]`; } else nat = d(20);
+        if (vantAtaque !== 0) { const r1 = d(20), r2 = d(20); nat = vantAtaque > 0 ? Math.max(r1, r2) : Math.min(r1, r2); detVant = ` [${vantAtaque > 0 ? "vant" : "desv"}${marcasVant ? ` (${marcasVant})` : ""} ${r1}/${r2}]`; } else nat = d(20);
         const total = nat + mod;
         const danoBase = danoArma(cat, f.nivel);
         const pd = parseDice(danoBase);
@@ -3201,8 +3257,8 @@ async function telaMesa(id) {
         // Assassino veterano acumula os dois, chegando a ×4.
         const multCrit = (nat === 20 ? 2 : 1) * (modAtq.multDano || 1);
         const somaDados = dados.reduce((x, y) => x + y, 0);
-        const danoFinal = (somaDados + danoMod) * multCrit;
-        const marcadores = [nat === 20 ? "CRÍTICO ×2" : "", furtivo && assassino ? "FURTIVO ×2" : furtivo ? "furtivo +2 acerto" : "", pr.agil ? `Ágil (${atkAttr})` : "", pr.brutal ? "Brutal (vantagem)" : ""].filter(Boolean).join(" · ");
+        const danoFinal = Math.floor((somaDados + danoMod) * multCrit * (enfraquecido ? 0.5 : 1));   // Enfraquecido: metade
+        const marcadores = [nat === 20 ? "CRÍTICO ×2" : "", furtivo && assassino ? "FURTIVO ×2" : furtivo ? "furtivo +2 acerto" : "", pr.agil ? `Ágil (${atkAttr})` : "", pr.brutal ? "Brutal (vantagem)" : "", enfraquecido ? "Enfraquecido ½" : "", alvoMarcado ? "alvo Marcado +2" : ""].filter(Boolean).join(" · ");
         // Palavras-chave declaradas: condições ao acertar e perfuração de armadura.
         let efeitoKw = "";
         if (nat !== 1 && total >= 0) {
@@ -3239,7 +3295,7 @@ async function telaMesa(id) {
             let resistiu = false, det = "";
             if (ac.cd) { const b = resistDe(alvo, "Con"); const n2 = d(20); const t2 = n2 + b;
               resistiu = t2 >= ac.cd; det = ` [Con ${n2}${sign(b)}=${t2} vs CD ${ac.cd}]`; }
-            if (!resistiu) alvo.cond = [...(alvo.cond || []).filter((c2) => c2.n !== ac.cond), { n: ac.cond, turnos: ac.turnos || 1 }];
+            if (!resistiu) aplicarCond(alvo, ac.cond, ac.turnos || 1);
             linhas.push(`${resistiu ? "🛡" : "🏷"} ${ac.origem || ac.cond}: ${resistiu ? "resistiu" : `${ac.cond} ${ac.turnos || 1}t`}${det}`);
           }
           return linhas;
@@ -3358,6 +3414,8 @@ async function telaMesa(id) {
         const ats = habilidadesAtivas(f);
         const h = ats.find((x) => x.id === bt.dataset.habUsar); if (!h) return;
         if (h.descanso && f.usos?.[h.id]) return;
+        const trvH = minhaTrava(["silenciado"]);
+        if (trvH) return alert(`${meuPers.nome} está ${trvH.n} e não pode usar ${h.nome} neste turno.`);
         const hRaw = (() => {   // a declaração completa, com resolve/duracao
           const raca = RACAS.find((r) => r.nome === f.raca), cl = CLASSES[f.classe];
           return [...(raca?.habilidades || []), ...(cl?.hab || []), cl?.vet, raca?.lendaria]
@@ -3442,7 +3500,7 @@ async function telaMesa(id) {
           let extra;
           if (venceu) {
             extra = `Venceu a disputa (${meu} × ${contra}) — ${R.vitoria}.`;
-            alvo.cond = [...(alvo.cond || []).filter((c2) => c2.n !== "dominado"), { n: "dominado", turnos: 1 }];
+            aplicarCond(alvo, "dominado", 1);
             await salvarCombate();
           } else {
             extra = `Perdeu a disputa (${meu} × ${contra}) — ${meuPers.nome} sofre ${R.derrota.danoProprio} de dano.`;
@@ -3474,7 +3532,7 @@ async function telaMesa(id) {
           if (inimigos.length && !r2?.alvo) return;
           if (r2?.alvo) {
             const alvo = camp.combate.ordem.find((c2) => c2.id === r2.alvo);
-            alvo.cond = [...(alvo.cond || []).filter((c2) => c2.n !== R.cond), { n: R.cond, turnos: R.turnos }];
+            aplicarCond(alvo, R.cond, R.turnos);
             await salvarCombate();
             await enviar("sistema", `★ ${meuPers.nome} usa ${h.nome}: ${alvo.nome} é derrubado (${R.cond} ${R.turnos} turno) — sem dano.`);
           } else await enviar("sistema", `★ ${meuPers.nome} usa ${h.nome} — o alvo é derrubado, sem sofrer dano.`);
@@ -3558,7 +3616,7 @@ async function telaMesa(id) {
         } else if (cfg.efeito === "condicao") {
           await aplicarEmAlvos({ titulo: `${cfg.ic} ${cfg.n}`, origem: `${meuPers.nome} — ${cfg.n}`,
             dado: cfg.dano || null, cond: cfg.cond || null, turnos: cfg.turnos || 2, area: true,
-            atributo: cfg.cd ? "Con" : null, cd: cfg.cd || null });
+            pericia: cfg.pericia || null, atributo: cfg.pericia ? null : (cfg.cd ? (cfg.atributo || "Con") : null), cd: cfg.cd || null });
         } else {
           await enviar("sistema", `${cfg.ic} ${meuPers.nome} usa ${cfg.n}${alvo.id !== meuPers.id ? ` em ${alvo.nome}` : ""}. ${cfg.d}`);
         }
@@ -3566,6 +3624,8 @@ async function telaMesa(id) {
       });
       $("#conjurar").onclick = async () => {
         const s = SCRIPTS.find((x) => x.n === $("#sel-scr").value);
+        const trvC = minhaTrava(["silenciado"]);
+        if (trvC) return enviar("sistema", `${meuPers.nome} está ${trvC.n} e não consegue conjurar ${s.n}.`);
         if (auraNega("tecnomancia")) return enviar("sistema", `🌀 ${meuPers.nome} tenta conjurar ${s.n} — a matriz não responde. Uma zona de nulidade está ativa no campo (${aurasAtivas().filter((a) => a.nega?.includes("tecnomancia")).map((a) => a.criatura).join(", ")}).`);
         if (s.c > k.ramLivre) return enviar("sistema", `${p.nome || perfil.apelido} tentou conjurar ${s.n} sem RAM suficiente (Overclock manual: 1d6/ponto).`);
         meuPers.dados = { ...f, ramGasta: (f.ramGasta || 0) + s.c };
