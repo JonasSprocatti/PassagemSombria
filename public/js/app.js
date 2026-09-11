@@ -4370,7 +4370,8 @@ async function telaMesa(id) {
           const ok = await aplicarEmAlvos({ titulo: `◈ ${s.n}`, origem: `${meuPers.nome} — ${s.n}`,
             dado: s.resolve.dado || s.dmg || null,
             acerto: s.resolve.area ? null : k.conj, area: !!s.resolve.area, raio: s.resolve.raio || null,
-            tipoDano: s.resolve.tipoDano || "físico" });
+            tipoDano: s.resolve.tipoDano || "físico",
+            cond: s.resolve.cond || null, turnos: s.resolve.turnos || 2 });
           if (ok === false) {   // cancelou sem mirar: devolve a RAM
             meuPers.dados = { ...meuPers.dados, ramGasta: Math.max(0, (meuPers.dados.ramGasta || 0) - s.c) };
             await sb.from("personagens").update({ dados: meuPers.dados }).eq("id", meuPers.id);

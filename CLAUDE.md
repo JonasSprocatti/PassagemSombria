@@ -103,7 +103,7 @@ Seções demarcadas por comentários `// ---------------- NOME ----------------`
 - **1×/sessão**: `abilidadesDeSessao(f)` cataloga `freq:"sessao"` (ou texto "1x/sessão"); o Mestre abre uma sessão pelo painel (`mestre-sessao` → `descanso` com `payload.tipo="sessao"`), e cada cliente limpa os `usos` correspondentes.
 - **Overclock de RAM**: sem RAM, `#conjurar` oferece pagar com Vida — Bateria Interna (1d8, scripts de custo ≤2) ou Overclock manual (1d6 por ponto que falta).
 - **Teste oposto** (`#teste-oposto`): escolhe a sua perícia, o alvo e a perícia dele; rola os dois e o empate favorece a defesa.
-- **Ainda narrativas** (mensagem de sistema, Mestre adjudica): Repulsão Cinética (`tipo:"condicao"`, sem teste), "Espere, podemos resolver isto", scripts de controle sem dano (Cegueira Cibernética, Hackear Implante Motor, etc.), e a resistência adaptativa do Enxame (muda de tipo a cada combate).
+- **Ainda narrativas** (mensagem de sistema, Mestre adjudica): Repulsão Cinética (`tipo:"condicao"`, sem teste), "Espere, podemos resolver isto", scripts de controle sem dano (Hackear Implante Motor, etc.), e a resistência adaptativa do Enxame (muda de tipo a cada combate). **Cegueira Cibernética** foi mecanizado: `resolve:{tipo:"ataque",cond:"Cego",turnos:2}` (sem `dado`) — o `#conjurar` já suportava `tipo:"ataque"` com dano; passei a repassar `cond`/`turnos` pra `aplicarEmAlvos` também nesse branch, então script ofensivo agora pode ser "dano", "condição" ou os dois. Rola `d20 + conj` vs Defesa do alvo; acertou → aplica Cego 2 turnos via `aplicarCond`.
 
 ## Supabase
 
