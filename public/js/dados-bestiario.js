@@ -23,7 +23,7 @@ export const BESTIARIO = [
   // ---------------- CRIAS DO VAZIO (Cap. 14) ----------------
   C("Enxame Adaptativo", "Crias do Vazio", "Lacaio", 15, 12, 12,
     [{ n: "Garras Serrilhadas", bonus: 3, dano: "1d4" }],
-    [{ n: "Evolução Reativa", d: "Se um membro é atingido por um tipo de dano (fogo, elétrico, corte…), todo o Enxame ganha resistência (−3) a esse tipo pelo resto do combate." }],
+    [{ n: "Evolução Reativa", d: "Se um membro é atingido por um tipo de dano (fogo, elétrico, corte…), todo o Enxame ganha resistência (−3) a esse tipo pelo resto do combate.", gatilho: "ao_sofrer", efeito: { tipo: "adaptar", valor: 3 } }],
     { nota: "Ataca em grupos de 5 a 10." }),
   C("Sanguessuga Estelar", "Crias do Vazio", "Comum", 30, 12, 9,
     [{ n: "Mordida Etérea", bonus: 4, dano: "1d6+1" }],

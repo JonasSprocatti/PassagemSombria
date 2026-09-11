@@ -89,7 +89,14 @@ export const novaFichaDados = () => ({
   metodoNivel: "manual", xp: 0, xpMeta: 1000, marcos: 0, log: [], usarVidaFixa: false,
 });
 
-export function calc(f) {
+// `opcoes.semImplantes`: a pessoa está dentro de uma aura que desliga cibernética
+// (Zona Morta do Silenciador Cósmico, Campo de Não-Existência da Ferida do Mundo).
+// Recalcula a ficha inteira como se ela não tivesse implante nenhum — some o bônus
+// de RAM do Chip, a CD das Placas, e todo efeito declarado de implante.
+export function calc(f, opcoes = {}) {
+  const semImplantes = !!opcoes.semImplantes;
+  // Fonte única da verdade pros implantes que estão REALMENTE funcionando agora.
+  const implantesAtivos = semImplantes ? [] : (f.implantes || []);
   const r = RACAS.find((x) => x.nome === f.raca), c = CLASSES[f.classe];
   const attr = {};
   ["For", "Des", "Con", "Int", "Sab", "Car"].forEach((a) => {
@@ -105,18 +112,18 @@ export function calc(f) {
   const isCin = !!c?.cinetico;
   const limite = Math.max(1, 2 + (isCin ? attr.Int : attr.Con));
   const limiteOrg = Math.max(1, 2 + attr.Con);
-  const carga = isCin ? Math.max(0, (f.implantes?.length || 0) - limiteOrg) : 0;
-  const chip = f.implantes?.includes("Chip de Expansão de RAM") ? 2 : 0;
+  const carga = isCin ? Math.max(0, implantesAtivos.length - limiteOrg) : 0;
+  const chip = implantesAtivos.includes("Chip de Expansão de RAM") ? 2 : 0;
   const impares = [3, 5, 7, 9].filter((n) => n <= f.nivel).length;
   const ramMax = Math.max(0, 1 + attr.Int + Math.floor(per["Tecnomancia"] / 2) + impares + chip - carga);
   const ramLivre = Math.max(0, ramMax - (f.ramGasta || 0));
-  const bonusRes = isCin && f.nivel >= 5 ? Math.floor((f.implantes?.length || 0) / 3) : 0;
+  const bonusRes = isCin && f.nivel >= 5 ? Math.floor(implantesAtivos.length / 3) : 0;
   const conj = attr.Int + per["Tecnomancia"] + bonusRes;
   const arm = (f.inventario || []).find((i) => i.tipo === "armadura" && i.equip);
   const armRef = arm ? ARMADURAS.find((a) => a.n === arm.nome) : null;
   const t = armRef?.t || "leve";
   const desAdj = t === "pesada" ? 0 : t === "media" ? Math.min(2, attr.Des) : attr.Des;
-  const placas = f.implantes?.includes("Placas Subdérmicas de Titânio") ? 1 : 0;
+  const placas = implantesAtivos.includes("Placas Subdérmicas de Titânio") ? 1 : 0;
   const cd = 10 + desAdj + (armRef?.cd || 0) + placas + (f.cdExtra || 0);
   const deckMax = Math.max(3, f.nivel + per["Tecnomancia"]);
   const iniBonus = (f.classe === "Batedor" ? 2 : 0) + (f.filosofia === "Código do Sobrevivente" ? 2 : 0);
@@ -127,7 +134,7 @@ export function calc(f) {
   // Efeitos declarados (implantes, filosofias, raças, classes, armaduras) entram
   // por cima. É aditivo: o cálculo clássico acima continua valendo, e conteúdo
   // novo passa a funcionar sem precisar de código.
-  const fe = FichaEfeitos.de(f, {
+  const fe = FichaEfeitos.de({ ...f, implantes: implantesAtivos }, {
     RACAS: CONTEUDO_EXTRA.racas || RACAS,
     CLASSES: CONTEUDO_EXTRA.classes || CLASSES,
     FILOSOFIAS: CONTEUDO_EXTRA.filosofias || FILOSOFIAS,
@@ -142,7 +149,8 @@ export function calc(f) {
   // os quatro implantes que já estavam no cálculo clássico não podem contar duas vezes
   const jaContados = ["Chip de Expansão de RAM", "Placas Subdérmicas de Titânio"];
   fe.fontes = fe.fontes.filter((x) => !jaContados.includes(x.nome));
-  fe.aplicarNaFicha(k, { implantes: f.implantes || [], nivel: f.nivel || 1 });
+  fe.aplicarNaFicha(k, { implantes: implantesAtivos, nivel: f.nivel || 1 });
+  k.implantesInertes = semImplantes && (f.implantes || []).length > 0;
   k.ramLivre = Math.max(0, k.ramMax - (f.ramGasta || 0));   // recalcula após os efeitos
   // Pentes que a pessoa carrega: 5 + mod de Força (1 no cano + o resto na reserva).
   k.pentesMax = Math.max(2, 5 + (k.attr.For || 0));
@@ -184,6 +192,8 @@ export const CONDICOES_INFO = [
   { n: "Caído",        ic: "⬇", dano: null,  d: "Deslocamento pela metade. Levantar: Ação Principal + Ação de Movimento, remove na hora." },
   { n: "Marcado",      ic: "🎯", dano: null,  d: "Aliados de quem marcou ganham +2 no acerto contra o alvo." },
   { n: "Lento",        ic: "🐌", dano: null,  d: "Perde a Ação de Movimento no próximo turno." },
+  { n: "Motor Travado", ic: "🦿", dano: null, d: "Implantes motores sob controle alheio: deslocamento pela metade e não pode Esquivar." },
+  { n: "Hesitante",    ic: "😐", dano: null,  d: "Baixou a arma por um instante: perde a Ação Principal neste turno." },
   { n: "Amedrontado",  ic: "😨", dano: null,  d: "Desvantagem contra a fonte do medo; não pode se aproximar dela." },
   { n: "Acovardado",   ic: "😖", dano: null,  d: "Cabeça baixa sob fogo: ataca com Desvantagem." },
   { n: "Dominado",     ic: "🕸", dano: null,  d: "Age sob comando de quem o dominou: perde a Ação Principal." },
@@ -223,6 +233,16 @@ export const ALCANCE_ARMA = { curto: 15, medio: 30, longo: 40 };
 // Distância entre dois combatentes no campo, em metros (null se algum não tem posição).
 export const distCombate = (a, b) => (a?.pos && b?.pos)
   ? Math.hypot(a.pos.x - b.pos.x, (a.pos.lane - b.pos.lane) * PISTA_M) : null;
+// Empurra `alvo` para LONGE de `origem`, N metros, sem sair do campo. Devolve a
+// nova posição `{x, lane}` — função pura: não muta nada, quem chama é que aplica.
+// Empurrão só mexe no eixo X (a profundidade de pista é rasa demais pra valer a pena).
+export const empurrarDe = (origem, alvo, metros) => {
+  if (!origem?.pos || !alvo?.pos || !metros) return null;
+  const dx = alvo.pos.x - origem.pos.x;
+  const dir = dx === 0 ? 1 : Math.sign(dx);   // em cima um do outro: empurra pra direita
+  const x = Math.max(0, Math.min(CAMPO_LARGURA, Math.round((alvo.pos.x + dir * metros) * 10) / 10));
+  return { x, lane: alvo.pos.lane };
+};
 // Posição inicial: aliados à esquerda, inimigos à direita, espalhados nas pistas.
 export const posInicial = (ordem, tipo) => {
   const aliado = tipo === "jogador";

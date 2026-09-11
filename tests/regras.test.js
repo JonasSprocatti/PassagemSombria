@@ -4,9 +4,9 @@ import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import {
   calc, novaFichaDados, dcSalvaguarda, danoCritico, parseDice,
-  aplicarCond, infoCond, distCombate, posInicial,
+  aplicarCond, infoCond, distCombate, posInicial, empurrarDe,
   tipoDanoArma, tipoDanoAtaque, imuneAoDano, alcanceDaArma,
-  ALCANCE_CAC, ALCANCE_ARMA, PISTA_M,
+  ALCANCE_CAC, ALCANCE_ARMA, PISTA_M, CAMPO_LARGURA, CONDICOES_INFO,
 } from "../public/js/regras.js";
 
 describe("danoCritico", () => {
@@ -162,6 +162,81 @@ describe("tipos de dano e alcance", () => {
   });
   test("arma de fogo sem chave de alcance é curto", () => {
     assert.equal(alcanceDaArma({ tipo: "fogo" }, {}), ALCANCE_ARMA.curto);
+  });
+});
+
+describe("empurrarDe (Repulsão Cinética e afins)", () => {
+  test("empurra o alvo para LONGE da origem, no eixo X", () => {
+    const origem = { pos: { x: 5, lane: 1 } }, alvo = { pos: { x: 8, lane: 1 } };
+    assert.deepEqual(empurrarDe(origem, alvo, 3), { x: 11, lane: 1 });
+  });
+
+  test("alvo à esquerda da origem é empurrado para a esquerda", () => {
+    const origem = { pos: { x: 8, lane: 0 } }, alvo = { pos: { x: 5, lane: 0 } };
+    assert.deepEqual(empurrarDe(origem, alvo, 3), { x: 2, lane: 0 });
+  });
+
+  test("em cima um do outro: empurra para a direita, não trava em 0", () => {
+    const origem = { pos: { x: 10, lane: 0 } }, alvo = { pos: { x: 10, lane: 0 } };
+    assert.equal(empurrarDe(origem, alvo, 3).x, 13);
+  });
+
+  test("não joga ninguém para fora do campo", () => {
+    assert.equal(empurrarDe({ pos: { x: 5, lane: 0 } }, { pos: { x: 1, lane: 0 } }, 10).x, 0);
+    assert.equal(empurrarDe({ pos: { x: 0, lane: 0 } }, { pos: { x: 39, lane: 0 } }, 10).x, CAMPO_LARGURA);
+  });
+
+  test("mantém a pista (empurrão não muda profundidade)", () => {
+    assert.equal(empurrarDe({ pos: { x: 0, lane: 2 } }, { pos: { x: 4, lane: 2 } }, 3).lane, 2);
+  });
+
+  test("sem posição, ou sem metros, devolve null (vira narração)", () => {
+    assert.equal(empurrarDe({ pos: { x: 0, lane: 0 } }, {}, 3), null);
+    assert.equal(empurrarDe({ pos: { x: 0, lane: 0 } }, { pos: { x: 4, lane: 0 } }, 0), null);
+  });
+});
+
+describe("calc com implantes inertes (Zona Morta)", () => {
+  const comImplantes = () => ({
+    ...novaFichaDados(),
+    implantes: ["Chip de Expansão de RAM", "Placas Subdérmicas de Titânio"],
+  });
+
+  test("normalmente o Chip dá +2 de RAM e as Placas +1 de Defesa", () => {
+    const k = calc(comImplantes());
+    assert.equal(k.ramMax, 3);   // 1 de base + 2 do Chip
+    assert.equal(k.cd, 11);      // 10 de base + 1 das Placas
+    assert.equal(k.implantesInertes, false);
+  });
+
+  test("dentro da Zona Morta, a ficha é recalculada sem implante nenhum", () => {
+    const k = calc(comImplantes(), { semImplantes: true });
+    assert.equal(k.ramMax, 1);
+    assert.equal(k.cd, 10);
+    assert.equal(k.implantesInertes, true);
+  });
+
+  test("quem não tem implante não é marcado como inerte (não muda nada pra ele)", () => {
+    const k = calc(novaFichaDados(), { semImplantes: true });
+    assert.equal(k.implantesInertes, false);
+    assert.equal(k.cd, 10);
+  });
+});
+
+describe("condições novas (Motor Travado e Hesitante)", () => {
+  test("estão cadastradas e são condições de estado, sem dano contínuo", () => {
+    for (const nome of ["Motor Travado", "Hesitante"]) {
+      const c = infoCond(nome);
+      assert.ok(c, `${nome} precisa existir em CONDICOES_INFO`);
+      assert.equal(c.dano, null, `${nome} não causa dano por turno`);
+      assert.ok(c.ic, `${nome} precisa de ícone`);
+    }
+  });
+
+  test("toda condição tem nome, ícone e descrição — nada pela metade", () => {
+    for (const c of CONDICOES_INFO) {
+      assert.ok(c.n && c.ic && c.d, `condição incompleta: ${JSON.stringify(c)}`);
+    }
   });
 });
 

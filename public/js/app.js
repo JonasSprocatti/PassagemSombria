@@ -17,7 +17,7 @@ import {
   d, sign, rollNd, parseDice, rolaDadoVida, rolaVidaInicial, migrarPericias, danoCritico,
   novaFichaDados, calc, pentesReservaDe, dcSalvaguarda, ganhosDoNivel, CONTEUDO_EXTRA, modosAtivosDe,
   CONDICOES_INFO, CONDICOES, infoCond, aplicarCond,
-  CAMPO_LARGURA, CAMPO_PISTAS, PISTA_M, CAMPO_JANELA, ALCANCE_CAC, ALCANCE_ARMA, distCombate, posInicial,
+  CAMPO_LARGURA, CAMPO_PISTAS, PISTA_M, CAMPO_JANELA, ALCANCE_CAC, ALCANCE_ARMA, distCombate, posInicial, empurrarDe,
   TIPOS_DANO, semAcento, tipoDanoArma, tipoDanoAtaque, imuneAoDano, alcanceDaArma,
 } from "./regras.js";
 
@@ -1677,13 +1677,41 @@ async function telaMesa(id) {
     if (lim && valor < lim.efeito.limiar) {
       return { aplicado: 0, absorvido: true, msg: `couraça: golpe abaixo de ${lim.efeito.limiar} não arranha` };
     }
+    // ---- Resistência adaptativa (Enxame Adaptativo) -------------------------
+    // 1) Se este bicho já apanhou deste tipo de dano neste combate, ele endureceu:
+    //    abate a resistência guardada em `alvo.resist[tipo]`.
+    // 2) Depois, se ele TEM a habilidade de adaptar, aprende com este golpe — e o
+    //    aprendizado vale para todas as linhas do mesmo bicho no rastreador
+    //    ("todo o Enxame ganha resistência"), não só a linha atingida.
+    let msgResist = "";
+    if (tipoDano !== "verdadeiro") {
+      const jaResiste = (alvo.resist || {})[tipoDano] || 0;
+      if (jaResiste) {
+        const antes = valor;
+        valor = Math.max(0, valor - jaResiste);
+        msgResist = `🧬 resistência a ${tipoDano} −${antes - valor} · `;
+        if (valor === 0) return { aplicado: 0, absorvido: true, msg: `${msgResist}o golpe não passa` };
+      }
+      const adapt = habsDoCombatente(alvo).find((h) => h.efeito?.tipo === "adaptar");
+      if (adapt && !jaResiste) {
+        const ganho = adapt.efeito.valor || 3;
+        const base0 = String(alvo.nome || "").replace(/ #\d+$/, "");
+        for (const c2 of camp.combate?.ordem || []) {
+          if (String(c2.nome || "").replace(/ #\d+$/, "") !== base0) continue;
+          c2.resist = { ...(c2.resist || {}), [tipoDano]: ganho };
+        }
+        msgResist = `🧬 adapta-se: ${base0} passa a resistir a ${tipoDano} (−${ganho}) · `;
+      }
+    }
     // ---- Alvo com ficha: redução → escudo pessoal → PV Temporário → corpo ----
     if (alvo.personagem_id) {
       // Lê a ficha fresca do banco: a cópia do render pode não ter os modos ligados (Endurecer).
       const { data: fresco } = await sb.from("personagens").select("dados").eq("id", alvo.personagem_id).single();
       const pjA = (pers || []).find((x) => x.id === alvo.personagem_id);
       const dd = { ...novaFichaDados(), ...(fresco?.dados || pjA?.dados || {}) };
-      const kA = calc(dd);
+      // Se o alvo está dentro de uma Zona Morta, a cibernética dele não conta na conta
+      // do dano — inclusive a redução vinda de implante.
+      const kA = calc(dd, { semImplantes: auraNega("implantes", alvo) });
       // Endurecer e afins só abatem dano FÍSICO.
       const reduzido = tipoDano === "físico" ? (kA.efeitos?.aoSofrer?.().reducao || 0) : 0;
       let resta = Math.max(0, valor - reduzido);
@@ -1703,7 +1731,7 @@ async function telaMesa(id) {
       if (pjA) pjA.dados = dd;
       if (meuPers && meuPers.id === alvo.personagem_id) meuPers.dados = dd;
       alvo.hp = dd.pvAtual;   // o rastreador acompanha a ficha
-      return { aplicado: resta, reduzido, escudo: noEscudo, temp: noTemp, msg: partes.join(" · ") };
+      return { aplicado: resta, reduzido, escudo: noEscudo, temp: noTemp, msg: msgResist + partes.join(" · ") };
     }
     // ---- Criatura: PV Temporário vive na própria linha do rastreador ----
     let resta = valor;
@@ -1724,7 +1752,7 @@ async function telaMesa(id) {
       }
     }
     return { aplicado: resta, temp: noTemp, mortos,
-      msg: `${noTemp ? `✚ PV temp absorve ${noTemp} · ` : ""}−${resta}${mortos ? ` · ${mortos} caiu${mortos > 1 ? "ram" : ""}, restam ${alvo.qtd}` : ""} (${alvo.hp}/${alvo.hp_max})` };
+      msg: `${msgResist}${noTemp ? `✚ PV temp absorve ${noTemp} · ` : ""}−${resta}${mortos ? ` · ${mortos} caiu${mortos > 1 ? "ram" : ""}, restam ${alvo.qtd}` : ""} (${alvo.hp}/${alvo.hp_max})` };
   };
   // Instinto Evasivo do Piloto: +Defesa na nave da tripulação enquanto ele está no leme.
   const bonusDefVeiculo = () => {
@@ -1769,7 +1797,7 @@ async function telaMesa(id) {
   const minhaLinhaCb = () => (camp.combate?.ativo ? camp.combate.ordem.find((x) => x.personagem_id === meuPers?.id) : null) || null;
   const minhaTrava = (extra = []) => {
     if (souMestre) return null;
-    const bloq = ["atordoado", "paralisado", "dominado", "surpreso", ...extra];
+    const bloq = ["atordoado", "paralisado", "dominado", "surpreso", "hesitante", ...extra];
     return (minhaLinhaCb()?.cond || []).find((c) => bloq.includes(c.n.toLowerCase())) || null;
   };
   // ---- Economia de ações ----------------------------------------------------
@@ -1871,14 +1899,16 @@ async function telaMesa(id) {
   //  nenhum dos dois → efeito de área que pega todo mundo marcado
   // Depois aplica `dado` de dano e/ou a condição `cond` por `turnos` a quem o efeito pegou.
   //  area + raio → escolhe um epicentro no campo e pega todo mundo dentro do raio
-  const aplicarEmAlvos = async ({ titulo, origem, dado = null, acerto = null, atributo = null, pericia = null, cd = null, cond = null, turnos = 2, area = false, raio = null, tipoDano = "físico" }) => {
+  // `empurrao`: metros que o alvo atingido é jogado para longe do epicentro (ou de
+  // quem conjurou, quando não há epicentro) no campo tático — Repulsão Cinética e afins.
+  const aplicarEmAlvos = async ({ titulo, origem, dado = null, acerto = null, atributo = null, pericia = null, cd = null, cond = null, turnos = 2, area = false, raio = null, tipoDano = "físico", empurrao = 0 }) => {
     if (!camp.combate?.ativo || !camp.combate.ordem.length) {
       await enviar("sistema", `★ ${origem}: sem combate no rastreador — o Mestre resolve.${dado ? ` (dano ${dado})` : ""}${cond ? ` (${cond} ${turnos}t)` : ""}`);
       return true;   // narrado; não é cancelamento
     }
     const vivos = camp.combate.ordem.filter((c2) => !ehNave(c2) && !foraDeCombate(c2) && c2.personagem_id !== meuPers?.id);
     if (!vivos.length) { await enviar("sistema", `★ ${origem}: nenhum alvo válido no rastreador.`); return true; }
-    let alvos, epiNome = "";
+    let alvos, epiNome = "", epiObj = null;
     // Área com raio declarado e posições no campo: escolhe o epicentro e o raio
     // decide quem pega — inclusive aliados, que é o risco real de uma granada.
     const todosComPos = camp.combate.ordem.filter((c2) => !ehNave(c2) && !foraDeCombate(c2) && c2.pos);
@@ -1894,7 +1924,7 @@ async function telaMesa(id) {
           }) }], okLabel: "Lançar" });
       if (!r?.epi) return false;
       const epi = todosComPos.find((c2) => c2.id === r.epi);
-      epiNome = epi?.nome || "";
+      epiNome = epi?.nome || ""; epiObj = epi || null;
       alvos = todosComPos.filter((c2) => (distCombate(epi, c2) ?? 99) <= raio);
     } else if (area) {
       const r = await modalForm({ titulo, descricao: "Marque quem está na área de efeito.",
@@ -1936,7 +1966,16 @@ async function telaMesa(id) {
       let danoMsg = "";
       if (pegou && rolDano) { const rd = await aplicarDanoAlvo(alvo, rolDano, tipoDano); danoMsg = ` ${rd.msg}`; if (rd.imune) pegou = false; }
       if (pegou && cond) aplicarCond(alvo, cond, turnos, minhaLinhaCb()?.id || null);
-      linhas.push(`${pegou ? "💥" : "🛡"} ${alvo.nome}${det}${danoMsg}${pegou && cond ? ` · ${cond} ${turnos}t` : ""}${foraDeCombate(alvo) ? " 💀 CAIU" : ""}`);
+      // Empurrão: joga o alvo pra longe do epicentro (ou de quem conjurou). Só quem
+      // tem posição no campo é empurrado — sem mapa, vira só narração.
+      let empMsg = "";
+      if (pegou && empurrao) {
+        const fonte = epiObj || minhaLinhaCb();
+        const nova = empurrarDe(fonte, alvo, empurrao);
+        if (nova) { const antes = alvo.pos.x; alvo.pos = nova;
+          empMsg = ` ↗ empurrado ${Math.abs(nova.x - antes).toFixed(1).replace(".", ",")} m`; }
+      }
+      linhas.push(`${pegou ? "💥" : "🛡"} ${alvo.nome}${det}${danoMsg}${pegou && cond ? ` · ${cond} ${turnos}t` : ""}${empMsg}${foraDeCombate(alvo) ? " 💀 CAIU" : ""}`);
     }
     await salvarCombate();
     await enviar("sistema", `★ ${origem}${epiNome ? ` — impacto em ${epiNome} (raio ${raio} m)` : ""}${rolDano ? ` — dano ${dado} [${rolDano}]` : ""}: ${linhas.join("  ·  ")}`);
@@ -1946,7 +1985,11 @@ async function telaMesa(id) {
   const render = async () => {
     if (canalMesa) { sb.removeChannel(canalMesa); canalMesa = null; }
     const f = meuPers ? { ...novaFichaDados(), ...meuPers.dados } : null;
-    const k = f ? calc(f) : null;
+    // Dentro de uma Zona Morta (aura que anula "implantes"), a ficha é recalculada
+    // como se a pessoa não tivesse cibernética nenhuma: some o +2 de RAM do Chip,
+    // a CD das Placas e todo efeito declarado de implante, enquanto ela estiver no raio.
+    const semImplantes = auraNega("implantes");
+    const k = f ? calc(f, { semImplantes }) : null;
     const armasEq = f ? (f.inventario || []).filter((i) => i.tipo === "arma" && i.equip) : [];
     const nave = camp.nave;
     const meuPosto = membros?.find((m) => m.perfil_id === usuario.id)?.posto;
@@ -1966,7 +2009,7 @@ async function telaMesa(id) {
     const tokenSelObj = camp.combate.ordem.find((c) => c.id === tokenSel && !ehNave(c)) || null;
     shell("mesa", `
       <nav class="topo"><a class="btn-ghost" href="#/campanhas">← CAMPANHAS</a>
-        <div class="topo-status">${esc(camp.nome)} · código <b class="chrome">${camp.codigo}</b></div><span style="display:flex;gap:6px"><button id="atalhos" class="btn-ghost so-desktop" title="Atalhos de teclado (?)">⌨</button><button id="abrir-diario" class="btn-ghost" title="Diário da campanha">📔 DIÁRIO</button>${ehMestreReal ? `<button id="modo-jogador" class="btn-ghost ${modoJogador ? "on" : ""}" title="${modoJogador ? "Você está jogando como tripulante. Clique para voltar a ser Mestre." : "Testar/jogar como um tripulante comum — some as ferramentas e os privilégios de Mestre."}">${modoJogador ? "🎭 MODO JOGADOR" : "👑 MESTRE"}</button>` : ""}${souMestre ? `<button id="abrir-mestre" class="btn-ghost" title="Tela do Mestre">🎛 MESTRE</button>` : ""}<button id="abrir-mapa" class="btn-ghost" title="Mapa do sistema (compartilhado)">🗺 MAPA</button></span></nav>
+        <div class="topo-status">${esc(camp.nome)} · código <b class="chrome">${camp.codigo}</b></div><span style="display:flex;gap:6px"><button id="atalhos" class="btn-ghost so-desktop" title="Atalhos de teclado (?)">⌨</button><button id="abrir-diario" class="btn-ghost" title="Diário da campanha">📔 DIÁRIO</button>${ehMestreReal ? `<button id="modo-jogador" class="btn-ghost ${modoJogador ? "on" : ""}" title="${modoJogador ? "Você está jogando como tripulante. Clique para voltar a ser Mestre." : "Testar/jogar como um tripulante comum — some as ferramentas e os privilégios de Mestre."}">${modoJogador ? "🎭 MODO JOGADOR" : "👑 MESTRE"}</button>` : ""}${souMestre ? `<button id="abrir-mestre" class="btn-ghost" title="Tela do Mestre">🎛 MESTRE</button>` : ""}<a href="#/biblioteca/regras" target="_blank" rel="noopener" class="btn-ghost" title="Manual de regras — abre numa aba nova, a mesa continua aberta aqui">📖 REGRAS</a><button id="abrir-mapa" class="btn-ghost" title="Mapa do sistema (compartilhado)">🗺 MAPA</button></span></nav>
       <div class="mesa">
         <div class="mesa-lateral">
           <nav class="mesa-abas" role="tablist">
@@ -2086,6 +2129,7 @@ async function telaMesa(id) {
                   <div class="vb-trilho"><span class="rastro"></span><span class="cb-hp-barra vb-fill ram" style="width:${ramP}%"></span></div></div>
               </div>`; })()}
             <p class="regra">CD ${k.cd} · conj +${k.conj}${k.pvTemp ? ` · <b class="tech-c">✚ ${k.pvTemp} PV temp</b>` : ""}${k.escudoMax ? ` · <b class="sombra-c">🛡 escudo ${k.escudoLivre}/${k.escudoMax}</b>` : ""}${f.pvAtual <= 0 ? ` · <b class="perigo-c">☠ inconsciente</b>` : ""}</p>
+            ${k.implantesInertes ? `<p class="regra perigo-c"><b>⧉ Implantes inertes:</b> você está dentro de uma zona que desliga cibernética — os números acima já estão recalculados sem eles. Saia do raio para voltar ao normal.</p>` : ""}
             ${(() => {
               const res = normalizaPentes(f);
               const totalReserva = Object.values(res).reduce((a2, b2) => a2 + b2, 0);
@@ -3169,8 +3213,8 @@ async function telaMesa(id) {
           // Lento é "perde a Ação de Movimento" — bloqueia como Paralisado/Congelado,
           // não é "metade do deslocamento" (isso é só o Caído).
           if (conds.some((n) => /paralisado|congelado|lento/.test(n))) return alert(`${c.nome} não pode se mover (${conds.find((n) => /paralisado|congelado|lento/.test(n))}).`);
-          // Caído, ou ter tentado apagar o próprio fogo neste turno: metade do deslocamento.
-          if (conds.some((n) => /caído/.test(n)) || c._movMetade === camp.combate.rodada) maxMov = Math.floor(maxMov / 2);
+          // Caído, Motor Travado, ou ter tentado apagar o próprio fogo neste turno: metade do deslocamento.
+          if (conds.some((n) => /caído|motor travado/.test(n)) || c._movMetade === camp.combate.rodada) maxMov = Math.floor(maxMov / 2);
         }
         tok.classList.add("arrastando");
         let nx = c.pos.x, nlane = c.pos.lane;
@@ -4021,7 +4065,7 @@ async function telaMesa(id) {
           const ok = await aplicarEmAlvos({ titulo: `★ ${h.nome}`, origem: `${meuPers.nome} — ${h.nome}`,
             dado: R.dado || null, atributo: R.atributo || null, cd: R.atributo ? dcSalvaguarda(k, R.atributo) : null,
             cond: R.cond || null, turnos: R.turnos || 2, area: !!R.area, raio: R.raio || null,
-            tipoDano: R.tipoDano || "físico" });
+            tipoDano: R.tipoDano || "físico", empurrao: R.empurrao || 0 });
           if (ok === false) return;   // cancelou sem mirar: não gasta a habilidade
           if (h.descanso) { const usos = { ...(meuPers.dados.usos || {}), [h.id]: true };
             meuPers.dados = { ...meuPers.dados, usos }; f.usos = usos;
@@ -4542,7 +4586,7 @@ async function telaMesa(id) {
 
 // ---------------- BIBLIOTECA (todas as informações detalhadas) ----------------
 function telaBiblioteca(aba = "racas") {
-  const abas = [["racas", "Raças"], ["classes", "Classes"], ["armas", "Arsenal"], ["armaduras", "Armaduras"], ["implantes", "Implantes"], ["scripts", "Scripts"], ["filosofias", "Filosofias"], ["naves", "Naves"], ["consumiveis", "Consumíveis"], ["bestiario", "Bestiário"], ["npcs", "NPCs"], ["mecanicas", "Mecânicas"]];
+  const abas = [["regras", "📖 Regras"], ["racas", "Raças"], ["classes", "Classes"], ["armas", "Arsenal"], ["armaduras", "Armaduras"], ["implantes", "Implantes"], ["scripts", "Scripts"], ["filosofias", "Filosofias"], ["naves", "Naves"], ["consumiveis", "Consumíveis"], ["bestiario", "Bestiário"], ["npcs", "NPCs"], ["mecanicas", "Mecânicas"]];
   let corpo = "";
   const cardCriatura = (c) => { const nv = NIVEIS_AMEACA[c.ameaca] || { cor: "#8189a3" };
     return `<details class="det grande best-card" style="border-left:3px solid ${nv.cor}"><summary>${img(c.n)}<b>${esc(c.n)}</b>${c.apelido ? ` <i class="dim">${esc(c.apelido)}</i>` : ""} <span class="best-tag" style="color:${nv.cor};border-color:${nv.cor}">${esc(c.ameaca)}</span>${c.raca ? ` <i class="dim">${esc(c.raca)}</i>` : ""}</summary>
@@ -4613,6 +4657,96 @@ function telaBiblioteca(aba = "racas") {
   }
   if (aba === "consumiveis") corpo = `<p class="regra">Itens de uso único. Gastam-se ao serem usados e pedem um alvo quando curam — na mesa, pelo botão <b>🎒 Usar item</b>.</p>`
     + todosConsumiveis().map((c) => `<details class="det grande"><summary>${img(c.n)}<b>${c.ic} ${esc(c.n)}</b> · <b class="chrome">${c.p} CG</b> <span class="dim">(${esc(c.acao)})</span></summary>${imgFig(c.n)}<p>${esc(c.d)}</p>${c.dado ? `<p class="regra"><b class="tech-c">Efeito:</b> cura ${c.dado} no alvo.</p>` : ""}</details>`).join("");
+  // ---- REGRAS: o manual de bolso da mesa ----------------------------------
+  // Gerado a partir das MESMAS constantes que o app usa para resolver as ações
+  // (CONDICOES_INFO, TIPOS_DANO, ALCANCE_*, TIROS_POR_PENTE…). Se a regra mudar
+  // no código, o texto aqui muda junto — não existe versão "de papel" para desatualizar.
+  if (aba === "regras") {
+    const m = (n) => String(n).replace(".", ",");
+    const cardCond = (c) => `<div class="det regra-cond"><b class="tech-c">${c.ic} ${esc(c.n)}</b>${c.dano ? ` <span class="best-tag" style="color:var(--perigo);border-color:var(--perigo)">${c.dano}/turno</span>` : ""}<br><span class="regra">${esc(c.d)}</span></div>`;
+    corpo = `
+    <p class="regra">Como o app resolve cada coisa na mesa. O que está aqui é o que o sistema realmente faz quando você clica — não é resumo, é a regra em vigor.</p>
+
+    <details class="det grande" open><summary><b>🎲 O teste básico</b></summary>
+      <p>Quase tudo se resolve com <b class="chrome">1d20 + atributo + perícia</b> contra uma CD (dificuldade). Igual ou maior que a CD, passou.</p>
+      <p class="regra"><b>Vantagem</b> rola dois d20 e fica com o <b>maior</b>. <b>Desvantagem</b> rola dois e fica com o <b>menor</b>. Quando as duas aparecem juntas, elas se cancelam: o app soma todas as fontes e o resultado final só pode ser vantagem, normal ou desvantagem — nunca "vantagem dupla".</p>
+      <p class="regra"><b>Teste oposto:</b> os dois lados rolam perícia e o maior vence. <b>Empate favorece quem se defende.</b></p>
+      <p class="regra">Perícias do sistema: ${PERICIAS.map(([p, a]) => `${esc(p)} <span class="dim">(${a})</span>`).join(" · ")}.</p></details>
+
+    <details class="det grande"><summary><b>⚔ A rodada de combate</b></summary>
+      <p>A ordem sai de <b>1d20 + Destreza</b> (Batedor e Código do Sobrevivente somam +2). Cada um age no seu turno, de cima para baixo, e a rodada vira quando todos agiram.</p>
+      <h4 class="sub">Economia de ações</h4>
+      <p class="regra">Por turno você tem <b class="chrome">1 Ação Principal</b> (P), <b class="chrome">1 Ação de Movimento</b> (M) e, por rodada, <b class="chrome">1 Reação</b> (R). Ações Livres não gastam nada.</p>
+      <p class="regra">P e M recarregam no <b>seu</b> turno. A Reação recarrega na virada da <b>rodada</b> — por isso ela funciona fora do seu turno, que é justamente a graça dela.</p>
+      <p class="regra">O indicador <b>P M R</b> aparece na sua linha do rastreador enquanto é a sua vez: aceso = disponível, apagado = já gastou. Atacar, conjurar, usar habilidade ou item, mover no campo e trocar pente consomem a ação que estiver escrita em cada um.</p>
+      <p class="regra"><i>Fora do seu turno o app te bloqueia. O Mestre pode forçar qualquer coisa — ele confirma e segue.</i></p></details>
+
+    <details class="det grande"><summary><b>🎯 Acertar e causar dano</b></summary>
+      <p>Ataque é <b class="chrome">1d20 + atributo + perícia</b> contra a <b>Defesa</b> do alvo. Arma branca usa Força + Armas Brancas; arma de fogo usa Destreza + Armas de Fogo. Armas <b>Ágeis</b> podem trocar Força por Destreza.</p>
+      <h4 class="sub">Crítico</h4>
+      <p class="regra">Um <b class="chrome">20 natural</b> é crítico. Um alvo <b>Paralisado a até 2 m</b> também é crítico automático — mas um <b>1 natural</b> continua errando, sempre.</p>
+      <p class="regra"><b>A conta do crítico:</b> soma os dados <b>e o bônus primeiro</b>, e só então multiplica o total. <code>1d6 tirou 5, +3 de bônus → (5+3) × 2 = <b>16</b></code>. Nunca é "rolar o dobro de dados" — o bônus entra na multiplicação.</p>
+      <p class="regra">Efeitos que dobram crítico por cima (Ataque Furtivo do Assassino veterano) multiplicam de novo, chegando a ×4.</p>
+      <h4 class="sub">Modificadores de acerto</h4>
+      <p class="regra">Alvo <b>Marcado</b>: +2 para quem o ataca. Alvo <b>Atordoado, Paralisado, Caído, Cego ou Surpreso</b>: Vantagem contra ele. Atacante <b>Cego, Acovardado ou Envenenado</b>: Desvantagem. <b>Amedrontado</b>: Desvantagem só contra a fonte do medo.</p></details>
+
+    <details class="det grande"><summary><b>🛡 Defesa, escudo e absorção</b></summary>
+      <p>A <b>Defesa</b> é <b class="chrome">10 + Destreza + armadura</b> (+1 com Placas Subdérmicas). Armadura média limita a Destreza a +2; armadura pesada zera.</p>
+      <p class="regra"><b>Cobertura</b> (só contra tiro — corpo a corpo ignora): parcial 🧱 <b>+2</b> de Defesa, total 🏚 <b>+5</b>.</p>
+      <p class="regra"><b>Perfurante</b> e <b>Derretimento</b> descontam da Defesa do alvo antes de comparar. O log sempre mostra a conta: <code>Def 15 −2🗡 = 13</code>.</p>
+      <h4 class="sub">Ordem em que o dano é absorvido</h4>
+      <p class="regra">1. <b>Imunidade</b> ao tipo → o golpe simplesmente não acontece.<br>
+        2. <b>Couraça</b> de criatura (golpe abaixo do limiar não arranha).<br>
+        3. <b>Resistência adaptativa</b> 🧬 (o bicho já apanhou daquele tipo antes).<br>
+        4. <b>Redução</b> de dano — só contra dano físico (Endurecer e afins).<br>
+        5. <b>Escudo pessoal</b> 🛡 — recarrega em qualquer descanso.<br>
+        6. <b>PV Temporário</b> ✚ — some no descanso e <b>não acumula</b>: fica sempre o maior valor, nunca a soma.<br>
+        7. <b>Corpo</b> — o que sobrou vira PV perdido.</p></details>
+
+    <details class="det grande"><summary><b>🔥 Tipos de dano</b></summary>
+      <p class="regra">Todo dano tem um tipo. Ele decide imunidades, resistências e o que a Zona Morta faz com você.</p>
+      <p>${TIPOS_DANO.map((t) => `<span class="best-tag">${esc(t)}</span>`).join(" ")}</p>
+      <p class="regra">O tipo vem da palavra-chave da arma (plasma e Derretimento queimam, toxinas corroem, EMP eletrocuta), do texto do ataque da criatura, ou da munição especial carregada — nessa ordem, o mais específico ganha.</p>
+      <p class="regra"><b class="chrome">Verdadeiro</b> é a exceção: atravessa imunidade, resistência e couraça. Nada segura.</p></details>
+
+    <details class="det grande"><summary><b>🏷 Condições — todas as ${CONDICOES_INFO.length}</b></summary>
+      <p class="regra">Condições contam turnos sozinhas e caem no início do turno de quem as carrega. As que causam <b>dano contínuo</b> empilham <b>+1 turno</b> se aplicadas de novo (o dado nunca aumenta); as de <b>estado</b> renovam para a maior duração.</p>
+      ${CONDICOES_INFO.map(cardCond).join("")}
+      <p class="regra" style="margin-top:10px"><b>Livrar-se antes da hora:</b> <b>Em chamas</b> — Ação Principal + Reação, deslocamento pela metade no turno, e um d20 puro: 10 ou mais apaga. <b>Caído</b> — Ação Principal + Ação de Movimento levanta na hora. <b>Sangrando</b> — Kit de Primeiros Socorros estanca.</p></details>
+
+    <details class="det grande"><summary><b>🗺 Campo tático — distância e alcance</b></summary>
+      <p>O campo tem <b class="chrome">${CAMPO_LARGURA} m</b> de frente e <b>${CAMPO_PISTAS} pistas</b> de profundidade (frente / meio / fundo), com ${m(PISTA_M)} m entre pistas. Arraste o seu token no seu turno — mover gasta a Ação de Movimento.</p>
+      <p class="regra"><b>Quanto você anda:</b> o seu Deslocamento (9 m de base, 18 m para Mercusys, + 2 m por ponto de Destreza). <b>Metade</b> se estiver Caído, com Motor Travado, ou se tentou apagar fogo neste turno. <b>Zero</b> se estiver Paralisado, Congelado ou Lento.</p>
+      <h4 class="sub">Alcance das armas</h4>
+      <p class="regra"><b>Corpo a corpo:</b> ${m(ALCANCE_CAC)} m — o comprimento real de um braço com lâmina. A palavra-chave <b>Alcance</b> estende para 3 m.</p>
+      <p class="regra"><b>Fogo:</b> curto <b>${ALCANCE_ARMA.curto} m</b> · médio <b>${ALCANCE_ARMA.medio} m</b> (Alcance Maior) · longo <b>${ALCANCE_ARMA.longo} m</b> (Mira Telescópica).</p>
+      <p class="regra">Fora do alcance, o tiro <b>nem acontece</b> — você não gasta munição. O seletor de alvo só lista quem dá para acertar. O Mestre enxerga todo mundo e pode forçar, e aí o log registra "não alcança".</p>
+      <h4 class="sub">Área e empurrão</h4>
+      <p class="regra">Efeitos com raio pedem um <b>ponto de impacto</b>: você escolhe quem está no centro e o app marca automaticamente todo mundo dentro do raio — <b>aliado incluído</b>. É o risco real de uma granada.</p>
+      <p class="regra">Efeitos com empurrão jogam o alvo para longe do centro, e o token anda no mapa de verdade.</p></details>
+
+    <details class="det grande"><summary><b>🔫 Munição e pentes</b></summary>
+      <p>Cada arma de fogo tem <b>${TIROS_POR_PENTE} tiros</b> por pente, e cada arma carrega o <b>seu próprio</b> pente. A mochila é compartilhada.</p>
+      <p class="regra"><b>Quantos pentes você carrega:</b> 5 + modificador de Força (mínimo 2) — um no cano e o resto na mochila. Braço forte, mais chumbo.</p>
+      <p class="regra">Trocar o pente gasta a <b>Ação de Movimento</b>. Pente vazio e mochila vazia significa que só um saque ou um descanso resolve.</p>
+      <p class="regra"><b>Munição especial</b> troca o tipo de dano e pode aplicar condição ao acertar — ela manda por cima da palavra-chave da arma.</p></details>
+
+    <details class="det grande"><summary><b>◈ Tecnomancia, RAM e Overclock</b></summary>
+      <p>Scripts custam <b>Slots de RAM</b>. A RAM máxima é <b>1 + Inteligência + metade de Tecnomancia + 1 por nível ímpar</b> (+2 com o Chip de Expansão).</p>
+      <p class="regra"><b>Sem RAM, dá para forçar pagando com o corpo:</b> <b class="sombra-c">Bateria Interna</b> (implante, scripts de custo até 2) cobra <b>1d8</b> de Vida e não gasta RAM; <b class="sombra-c">Overclock manual</b> cobra <b>1d6 por ponto que falta</b> e consome o que ainda havia.</p>
+      <p class="regra">Uma <b>Zona Morta</b> de criatura desliga tudo isso dentro do raio: ninguém conjura, e os implantes ficam inertes — a ficha é recalculada sem eles enquanto você estiver lá dentro.</p></details>
+
+    <details class="det grande"><summary><b>🌙 Descanso</b></summary>
+      <p><b class="tech-c">Curto (1 h):</b> reinicia habilidades "1×/descanso curto", recarrega o escudo pessoal e dissolve o PV Temporário. Mercusys regenera +1d4 PV; os outros curam com Kits Médicos.</p>
+      <p><b class="tech-c">Longo (8 h):</b> PV cheio, RAM recarregada, pentes repostos e todas as habilidades reiniciadas. A nave também recupera <b>1d10+5</b> de Casco.</p>
+      <p><b class="tech-c">Sessão:</b> habilidades "1×/sessão" só voltam quando o Mestre abre uma sessão nova pela Tela do Mestre.</p>
+      <p class="regra">O Mestre pode convocar um descanso para a mesa inteira de uma vez — todo mundo recebe o efeito ao mesmo tempo.</p></details>
+
+    <details class="det grande"><summary><b>💀 Cair, morrer e ser derrotado</b></summary>
+      <p>A <b>0 PV</b> o personagem cai inconsciente e sai do fluxo de turnos. O rastreador marca ☠ e a linha esmaece.</p>
+      <p class="regra">Criaturas em <b>bando</b> (×N no rastreador) funcionam como uma fila: o dano mata uma e o excesso transborda para a próxima, na mesma rolagem.</p>
+      <p class="regra">Naves não caem: perdem <b>Escudos</b> primeiro, depois <b>Casco</b>. Casco a zero é abate. Crítico ou dano pesado no casco dispara uma <b>Falha Crítica</b> (avaria), que só sai com reparo.</p></details>`;
+  }
   if (aba === "mecanicas") {
     const ms = extras("mecanicas");
     corpo = `<p class="regra">Regras, mecânicas e conteúdo acrescentados pela administração da mesa — sempre em dia com a última versão do livro.</p>`
@@ -4753,6 +4887,7 @@ async function painelAdmin(voltarPara = "racas") {
       { v: "invocar", l: "👹 Invoca lacaios" },
       { v: "imunidade", l: "🛡 Imunidade / couraça" },
       { v: "zona", l: "🚫 Zona de negação" },
+      { v: "adaptar", l: "🧬 Adapta-se ao tipo de dano" },
     ];
 
     const ov2 = document.createElement("div"); ov2.className = "ss-overlay ov-modal"; ov2.style.zIndex = "10010";
@@ -4774,6 +4909,8 @@ async function painelAdmin(voltarPara = "racas") {
         <label>Ignora dano abaixo de<input data-ef="limiar" type="number" value="${e.limiar ?? ""}" placeholder="ex: 10"/></label>`;
       if (e.tipo === "zona") return `<label>Raio (m)<input data-ef="raio" type="number" value="${e.raio ?? 15}"/></label>
         <label>Anula<input data-ef="nega" value="${esc((e.nega || []).join(", "))}" placeholder="cura, tecnomancia, implantes"/></label>`;
+      if (e.tipo === "adaptar") return `<label>Resistência ganha<input data-ef="valor" type="number" value="${e.valor ?? 3}" min="1"/></label>
+        <p class="regra">Ao sofrer um tipo de dano pela primeira vez, todas as linhas desta criatura no rastreador passam a abater esse valor daquele tipo, pelo resto do combate.</p>`;
       return "";
     };
 

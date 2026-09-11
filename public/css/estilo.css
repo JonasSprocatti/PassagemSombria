@@ -116,6 +116,15 @@ input:focus,select:focus,button:focus-visible{outline:2px solid var(--tech);outl
 .det p{margin:8px 0;color:var(--ink)}
 .det.grande p:first-of-type{color:var(--dim)}
 .sub{font-family:'Chakra Petch',sans-serif;font-size:14px;margin:16px 0 8px;color:var(--chrome)}
+/* ---- BIBLIOTECA › REGRAS: fichas de condição em grade, para bater o olho ---- */
+.regra-cond{margin-bottom:6px;padding:8px 12px}
+.regra-cond .regra{margin:2px 0 0}
+@media(min-width:720px){
+  details.det.grande .regra-cond{display:inline-block;width:calc(50% - 5px);vertical-align:top;margin-right:6px}
+  details.det.grande .regra-cond:nth-child(2n){margin-right:0}
+}
+.det code{background:var(--panel);border:1px solid var(--line);padding:1px 5px;font-size:12px;color:var(--chrome)}
+.det h4.sub{margin:14px 0 6px;font-size:13px}
 .filtros{display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap}
 .filtros a{text-decoration:none;background:none;border:1px solid var(--line);color:var(--dim);padding:7px 13px;font-family:'IBM Plex Mono',monospace;font-size:11px}
 .filtros a.on{color:var(--chrome);border-color:var(--chrome)}
