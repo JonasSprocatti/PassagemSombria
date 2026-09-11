@@ -1843,6 +1843,20 @@ async function telaMesa(id) {
   for (const c of camp.combate.ordem || []) if (!ehNave(c) && !c.pos) c.pos = posInicial(camp.combate.ordem, c.tipo);
   const snapshot = (rotulo) => { pilhaUndo.push({ rotulo, combate: JSON.parse(JSON.stringify(camp.combate || {})), nave: JSON.parse(JSON.stringify(camp.nave || null)), combate_nave: JSON.parse(JSON.stringify(camp.combate_nave || {})) }); if (pilhaUndo.length > 10) pilhaUndo.shift(); };
   const salvarCombate = async () => { const { error } = await salvarCampanha({ combate: camp.combate }).eq("id", id); if (error) alert("Não consegui salvar o combate: " + error.message); };
+  // A Defesa (`c.cd`) de um jogador no rastreador é uma FOTO tirada ao entrar em
+  // combate (#cb-iniciar) — não recalcula sozinha. Sem isto, ativar um modo que
+  // mexe na CD (Criogénese: Escudo de gelo, Placas, Defensiva/Aparar) em pleno
+  // combate não muda o que os ataques realmente checam, e o alvo segue tomando
+  // dano como se o escudo não existisse. Chamar sempre que `dadosFicha.modos`
+  // mudar para alguém que já está no rastreador.
+  const sincronizarCdCombate = (personagemId, dadosFicha) => {
+    const linha = camp.combate?.ordem?.find((c2) => c2.personagem_id === personagemId);
+    if (!linha) return false;
+    const novoCd = calc({ ...novaFichaDados(), ...dadosFicha }).cd;
+    if (linha.cd === novoCd) return false;
+    linha.cd = novoCd;
+    return true;
+  };
   // Espelha na ficha do jogador a variação de PV sofrida no rastreador.
   // Sem isto, o rastreador e a ficha viviam com valores diferentes — e a ficha,
   // sempre cheia, fazia qualquer cura parecer "restaurou tudo".
@@ -3424,6 +3438,7 @@ async function telaMesa(id) {
             p2.dados = { ...dd2, modos, modosAte: ate };
             await sb.from("personagens").update({ dados: p2.dados }).eq("id", p2.id);
             if (meuPers && meuPers.id === p2.id) meuPers.dados = p2.dados;
+            if (expiraram.length) sincronizarCdCombate(p2.id, p2.dados);
             for (const nome of expiraram) await enviar("sistema", `⌛ ${p2.nome}: ${nome} acabou.`);
           }
         }
@@ -4021,6 +4036,7 @@ async function telaMesa(id) {
           const exp = { ...(meuPers.dados.modosAte || {}), [h.nome]: turnos };
           meuPers.dados = { ...meuPers.dados, modos, modosAte: exp }; f.modos = modos;
           await sb.from("personagens").update({ dados: meuPers.dados }).eq("id", meuPers.id);
+          if (sincronizarCdCombate(meuPers.id, meuPers.dados)) await salvarCombate();
           await enviar("rolagem", null, { titulo: `★ ${h.nome}`, detalhe: `${R.dado} [${v}]`,
             extra: `${op.n} — dura ${turnos} turno(s).` });
           return render();
@@ -4164,6 +4180,7 @@ async function telaMesa(id) {
           const exp = { ...(meuPers.dados.modosAte || {}), [h.nome]: turnos || 99 };
           meuPers.dados = { ...meuPers.dados, modos, modosAte: exp }; f.modos = modos;
           await sb.from("personagens").update({ dados: meuPers.dados }).eq("id", meuPers.id);
+          if (sincronizarCdCombate(meuPers.id, meuPers.dados)) await salvarCombate();
           await enviar("sistema", `★ ${meuPers.nome} ativa **${h.nome}**${escolha ? `: ${escolha}` : ""} — ${h.d}${turnos ? ` (${turnos} turnos)` : ""}${R.aviso ? ` ⚠ ${R.aviso}` : ""}`);
           return render();
         }
@@ -4181,6 +4198,7 @@ async function telaMesa(id) {
           if (r.op) modos[h.nome] = r.op; else delete modos[h.nome];
           meuPers.dados = { ...meuPers.dados, modos }; f.modos = modos;
           await sb.from("personagens").update({ dados: meuPers.dados }).eq("id", meuPers.id);
+          if (sincronizarCdCombate(meuPers.id, meuPers.dados)) await salvarCombate();
           const op2 = h.opcoes.find((o) => o.n === r.op);
           await enviar("sistema", r.op
             ? `${op2.ic} ${meuPers.nome} respira **${r.op}** — ${op2.d}`
