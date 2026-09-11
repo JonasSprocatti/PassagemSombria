@@ -13,7 +13,7 @@ python -m http.server 3000   # abre http://localhost:3000
 
 Antes: preencher `public/js/config.js` com `SUPABASE_URL` e `SUPABASE_ANON_KEY` (não versionado / placeholders). Segurança real fica na RLS do Supabase, não no front.
 
-Não há testes automatizados nem lint. Verificação é manual no navegador (com um projeto Supabase configurado).
+Não há lint. Há um início de testes automatizados em `tests/` (ver seção **Testes automatizados** mais abaixo) cobrindo as funções puras de `dados-jogo.js` — o resto da verificação ainda é manual no navegador (com um projeto Supabase configurado).
 
 ## Estrutura de arquivos
 
@@ -23,7 +23,8 @@ Não há testes automatizados nem lint. Verificação é manual no navegador (co
 | `public/js/app.js` | **~4270 linhas — o app inteiro.** Roteador por hash, todas as telas, combate, chat, bancada, painel admin. Ponto de entrada. |
 | `public/js/config.js` | Credenciais Supabase (placeholders no repo). |
 | `public/js/dados-jogo.js` | Dados do sistema: `RACAS`, `CLASSES`, `FILOSOFIAS`, `ARMAS`, `ARMADURAS`, `IMPLANTES`, `SCRIPTS`, `NAVES`, `PERICIAS`, `KEYWORDS`/`PALAVRAS_CHAVE`, `CONSUMIVEIS`, pentes (`TIROS_POR_PENTE=3`, `PENTES_MAX=4`, `TIPOS_PENTE`), `MODS_ARMA`/`SLOTS_ARMA` (bancada), `UPGRADES_NAVE`, `AVARIAS`, `ESTACOES`. Helpers puros: `propsArma`, `chavesDaArma`, `custoTiro`, `modsDoSlot`, `acharMod`. |
-| `public/js/efeitos.js` | Motor de **efeitos declarados** de fichas: `FichaEfeitos`, `Portador`, `EFEITOS`, `MOMENTOS`, `CONDICOES_ALVO`, `validarEfeitos`. Permite que conteúdo novo (implante/raça/classe/arma) altere atributos sem novo código. |
+| `public/js/efeitos.js` | Motor de **efeitos declarados** de fichas: `FichaEfeitos`, `Portador`, `EFEITOS`, `MOMENTOS`, `CONDICOES_ALVO`, `validarEfeitos`. Permite que conteúdo novo (implante/raça/classe/arma) altere atributos sem novo código. Zero imports — importável direto no Node. |
+| `public/js/regras.js` | **Regras puras** (ficha, dados, condições, campo tático, tipos de dano): `calc`, `novaFichaDados`, `dcSalvaguarda`, `ganhosDoNivel`, `CONTEUDO_EXTRA`, `modosAtivosDe`, `aplicarCond`/`CONDICOES_INFO`/`infoCond`, `distCombate`/`posInicial`/constantes do campo tático, `tipoDanoArma`/`tipoDanoAtaque`/`imuneAoDano`/`alcanceDaArma`, `danoCritico`, `d`/`sign`/`rollNd`/`parseDice`. Extraído de `app.js` só pra ficar testável no Node sem simular navegador nem Supabase — ver **Testes automatizados**. `app.js` importa tudo isso de volta; nada mudou em comportamento. |
 | `public/js/criaturas.js` | Motor de efeitos automáticos de **criaturas/inimigos** em combate: `class Criatura`, `GATILHOS`, `EFEITOS`, `criar`, `validar`. Carregado sob demanda. |
 | `public/js/ui.js` | Modais reutilizáveis: `modalForm`, `confirmModal` (substituem `prompt`/`confirm`). Sons (`somDado`, `somCritico`…), `notificar`, prefs de som. Overlay `.mdl-overlay`. |
 | `public/js/conteudo.js` | Conteúdo global editável pelo painel admin (tabela `conteudo`): `carregarConteudo`, `conteudo()`, `comAjustes`, `imagemDe`, `thumb`, `figura`. Cache em memória. |
@@ -46,7 +47,7 @@ Seções demarcadas por comentários `// ---------------- NOME ----------------`
 | Linhas | Bloco |
 |---|---|
 | 1–95 | Imports, `sb` (client Supabase exportado), helpers de dados (`parseDice`, `rollNd`, `d`, `sign`), `sessaoAtiva`. |
-| 111–190 | **Ficha**: `novaFichaDados()` (shape do objeto `f`), `calc(f)` → `k` (derivados: `attr`, `per`, `ramMax/ramLivre`, `cd`, `conj`, `iniciativa`, `deslocamento`, `k.efeitos`), `ganhosDoNivel`. |
+| — | **Ficha**: `novaFichaDados()` (shape do objeto `f`), `calc(f)` → `k` (derivados: `attr`, `per`, `ramMax/ramLivre`, `cd`, `conj`, `iniciativa`, `deslocamento`, `k.efeitos`), `ganhosDoNivel` — hoje moram em `public/js/regras.js`, importados no topo de `app.js`. |
 | 192–318 | Ficha imprimível (`gerarFichaHTML`, imprimir/baixar). |
 | 319–440 | Descansos (curto/longo), `habilidadesAtivas`, `reporPentes`, `aplicarDescanso`, `danoArma`. |
 | 441–485 | Combate espacial + ferramentas do Mestre (`danoNave`, `orcamentoEncontro`, `sugerirEncontro`, `rolarTabela`). |
@@ -148,6 +149,20 @@ Seções demarcadas por comentários `// ---------------- NOME ----------------`
 ## Deploy (Vercel)
 
 Root Directory vazio · Output Directory `public` · sem Build/Install Command. Após mudança relevante em arquivo do `SHELL`, **incrementar `CACHE` em `public/sw.js`** senão o PWA serve a versão velha.
+
+## Testes automatizados
+
+`tests/*.test.js`, testador embutido do Node (`node:test` + `node:assert/strict`) — zero instalação, zero `package.json`/`node_modules` novo, roda com:
+
+```
+node --test tests/
+```
+
+Dois arquivos hoje:
+- `tests/dados-jogo.test.js` — `propsArma`/`chavesDaArma` e um teste de sanidade de conteúdo que percorre `ARMAS` inteiro conferindo que toda palavra-chave cadastrada é reconhecida. Pegou a própria regressão do fix de "texto duplicado nas palavras-chave" (`propsArma().efeito`) direto ao escrever o teste: preferir a frase COMPOSTA inteira em `KEYWORDS` antes de cair no fallback por palavra individual, senão armas com kw composto só (ex. "Pesada / Queimadura") perdiam metade da descrição.
+- `tests/regras.test.js` — `calc` (ficha derivada), `dcSalvaguarda`, `aplicarCond` (empilhar dano vs. renovar estado, `origemId`), `distCombate`/`posInicial`, tipos de dano/alcance, `parseDice`, e `danoCritico` (a fórmula "soma dados+bônus primeiro, multiplica depois" — regressão direta do bug de crítico corrigido nesta sessão).
+
+**Por que dá pra testar `calc()`/`aplicarCond()`/a fórmula de crítico agora**: elas foram extraídas de `app.js` para `public/js/regras.js`, um módulo sem nenhum import de rede (só `dados-jogo.js` e `efeitos.js`, ambos igualmente limpos). Antes disso não dava: a primeira linha de `app.js` é `import { createClient } from "https://esm.sh/@supabase/supabase-js@2"`, uma URL remota que o resolvedor de módulos padrão do Node não entende, então nada do arquivo era importável em teste. `app.js` continua com o mesmo comportamento — só passou a importar essas funções de volta de `regras.js` em vez de declará-las localmente. Se for extrair mais alguma coisa de lá no futuro: confira sempre se a função usa algo do DOM (`document`), de `sb` (Supabase) ou de estado que só existe dentro de `telaMesa`/`telaFicha` — só migra o que for de fato puro (recebe dado, devolve dado).
 
 ## Verificação de mudanças
 

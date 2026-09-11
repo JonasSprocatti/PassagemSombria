@@ -1292,11 +1292,15 @@ export function propsArma(cat) {
     if (c.efeitos) p.efeitos.push(...c.efeitos.map((e) => ({ ...e, origem: c.nome })));
   }
   p.chaves = chaves;
-  // Descrição legível de cada palavra-chave (uma por uma) — antes isto buscava
-  // KEYWORDS pela string crua e inteira da arma ("Destruidora, Perfurante, Aparar"),
-  // que nunca bate com nenhuma chave do dicionário, e caía no próprio texto de
-  // volta: exibia "Destruidora, Perfurante, Aparar: Destruidora, Perfurante, Aparar."
-  p.efeito = chaves.map((c) => KEYWORDS[c.nome]).filter(Boolean).join(" · ");
+  // Descrição legível: primeiro tenta a frase INTEIRA da arma em KEYWORDS — é assim
+  // que armas com um kw composto (ex. "Pesada / Queimadura") acertam a entrada certa
+  // e mais específica do dicionário. Só quando isso falha (arma com várias palavras-chave
+  // separadas por vírgula, que nunca bate inteira) é que junta uma descrição por palavra —
+  // sem isso, cada `chaves[i].nome` já vem fuzzy-casado pra chave mais próxima em
+  // PALAVRAS_CHAVE (ex. "Pesada / Queimadura" vira só "Pesada"), perdendo a parte
+  // "queimadura" da descrição. Bug real: o fix anterior do texto duplicado usava só
+  // o segundo caminho e emburrecia a descrição de toda arma com kw composto único.
+  p.efeito = KEYWORDS[(cat && cat.kw) || ""] || chaves.map((c) => KEYWORDS[c.nome]).filter(Boolean).join(" · ");
   return p;
 }
 

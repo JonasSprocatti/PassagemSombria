@@ -4,44 +4,27 @@
 // ============================================================
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./config.js";
-import { FichaEfeitos, MOMENTOS, EFEITOS as EFEITOS_FICHA, validarEfeitos } from "./efeitos.js";
-import { RACAS, CLASSES, FILOSOFIAS, IMPLANTES, SCRIPTS, ARMAS, ARMADURAS, PERICIAS, NAVES, ESTACOES, REGRAS_NAVE, RIQUEZA, TEMAS, CONVERTE_2D8, RENOME_PERICIAS, KEYWORDS, PALAVRAS_CHAVE, chavesDaArma, propsArma, AVARIAS, UPGRADES_NAVE, TURNOS_POR_PENTE, custoTiro, TIROS_POR_PENTE, TIPOS_PENTE, PENTE_PADRAO, CONSUMIVEIS, ehConsumivel, SLOTS_ARMA, SLOTS_POR_ARMA, MODS_ARMA, modsDoSlot, acharMod } from "./dados-jogo.js";
+import { EFEITOS as EFEITOS_FICHA, validarEfeitos } from "./efeitos.js";
+import { RACAS, CLASSES, FILOSOFIAS, IMPLANTES, SCRIPTS, ARMAS, ARMADURAS, PERICIAS, NAVES, ESTACOES, REGRAS_NAVE, RIQUEZA, TEMAS, CONVERTE_2D8, KEYWORDS, PALAVRAS_CHAVE, chavesDaArma, propsArma, AVARIAS, UPGRADES_NAVE, TURNOS_POR_PENTE, custoTiro, TIROS_POR_PENTE, TIPOS_PENTE, PENTE_PADRAO, CONSUMIVEIS, ehConsumivel, SLOTS_ARMA, SLOTS_POR_ARMA, MODS_ARMA, modsDoSlot, acharMod } from "./dados-jogo.js";
 import { BESTIARIO, NIVEIS_AMEACA } from "./dados-bestiario.js";
 import { NPCS, PAPEIS } from "./dados-npcs.js";
 import { FACCOES, NIVEIS_REPUTACAO, TABELAS, REFERENCIA  } from "./dados-mestre.js";
 import { modalForm, confirmModal, somMensagem, somDado, somCritico, somFalha, notificar, pedirNotificacao, getSom, setSom } from "./ui.js";
+// Regras puras (ficha, dados, condições, campo tático, tipos de dano) — extraídas
+// pra um módulo sem import de rede, testável direto com `node --test tests/`.
+// Ver public/js/regras.js.
+import {
+  d, sign, rollNd, parseDice, rolaDadoVida, rolaVidaInicial, migrarPericias, danoCritico,
+  novaFichaDados, calc, pentesReservaDe, dcSalvaguarda, ganhosDoNivel, CONTEUDO_EXTRA, modosAtivosDe,
+  CONDICOES_INFO, CONDICOES, infoCond, aplicarCond,
+  CAMPO_LARGURA, CAMPO_PISTAS, PISTA_M, CAMPO_JANELA, ALCANCE_CAC, ALCANCE_ARMA, distCombate, posInicial,
+  TIPOS_DANO, semAcento, tipoDanoArma, tipoDanoAtaque, imuneAoDano, alcanceDaArma,
+} from "./regras.js";
 
 export const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const app = document.getElementById("app");
 const $ = (s, el = document) => el.querySelector(s);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-const sign = (n) => (n >= 0 ? `+${n}` : `${n}`);
-const d = (f) => 1 + Math.floor(Math.random() * f);
-const rollNd = (n, f) => Array.from({ length: n }, () => d(f));
-// Dado de vida por grupo racial (Pesado 1d10 · Médio 1d8 · Leve 1d6), OU o valor fixo
-// (5/4/3). Devolve as faces, se foi fixo, e o valor rolado/fixo do dado.
-const rolaDadoVida = (raca, fixo = false) => {
-  const faces = raca?.dadoVida || 8;
-  const val = fixo ? (raca?.vidaFixa ?? Math.ceil((faces + 1) / 2)) : d(faces);
-  return { faces, fixo, val };
-};
-// Vida INICIAL (nível 1): 4d6, DESCARTA o menor, soma os 3 maiores + vidaMod da raça.
-// Diferente do dado por nível (rolaDadoVida): o nível 1 é sempre este 4d6 tira-menor.
-const rolaVidaInicial = (raca) => {
-  const ds = rollNd(4, 6);
-  const menor = Math.min(...ds);
-  const soma3 = ds.reduce((a, b) => a + b, 0) - menor;
-  return { ds, menor, soma3, subtotal: soma3 + (raca?.vidaMod || 0) };
-};
-// Migra perícias de fichas antigas para a nomenclatura unificada v1.4
-const migrarPericias = (pe) => {
-  const out = { ...(pe || {}) };
-  for (const [velho, novo] of Object.entries(RENOME_PERICIAS)) {
-    if (out[velho] != null) { out[novo] = (out[novo] || 0) + out[velho]; delete out[velho]; }
-  }
-  return out;
-};
-const parseDice = (s) => { const m = /^(\d*)d(\d+)([+-]\d+)?$/i.exec(String(s).trim()); return m ? { n: +(m[1] || 1), f: +m[2], mod: +(m[3] || 0) } : null; };
 // Rola uma expressão com vários termos: "1d20+2d10-1", "d20", "2d6 + 3". Devolve {total, detalhe} ou null.
 // vant: 1 = vantagem, -1 = desvantagem, 0 = normal.
 // Aplica-se ao primeiro d20 da expressão — que é o dado que decide o teste.
@@ -108,102 +91,8 @@ async function sessaoAtiva() {
 }
 
 
-// ---------------- FICHA: modelo e cálculos (mesmo formato do Deck de Campo) ----------------
-export const novaFichaDados = () => ({
-  nivel: 1, foto: null, tema: { ...TEMAS["Vácuo"] },
-  raca: "", classe: "", filosofia: "",
-  pontosAttr: { For: 0, Des: 0, Con: 0, Int: 0, Sab: 0, Car: 0 },
-  modoAttr: "pontos", rolagem: { For: null, Des: null, Con: null, Int: null, Sab: null, Car: null }, rolagemPool: [],
-  pvAtual: 0, pvMax: 0, cdExtra: 0, creditos: 100,
-  pvTemp: 0, escudoGasto: 0,          // PV Temporário e o quanto do escudo pessoal já foi consumido
-  periciasExtra: {}, implantes: [], patrocinados: [],
-  deck: [], ramGasta: 0, usos: {}, inventario: [], notas: "",
-  metodoNivel: "manual", xp: 0, xpMeta: 1000, marcos: 0, log: [], usarVidaFixa: false,
-});
-
-export function calc(f) {
-  const r = RACAS.find((x) => x.nome === f.raca), c = CLASSES[f.classe];
-  const attr = {};
-  ["For", "Des", "Con", "Int", "Sab", "Car"].forEach((a) => {
-    attr[a] = (r ? r.attrs[a] : 0) + (f.pontosAttr?.[a] || 0) + (f.modoAttr === "rolagem" && f.rolagem?.[a] != null ? CONVERTE_2D8(f.rolagem[a]) : 0);
-  });
-  const pontosDireito = Math.max(0, (f.nivel || 1) - 1) + (r?.livre && f.modoAttr !== "rolagem" ? 4 : 0);
-  const pontosGastos = Object.values(f.pontosAttr || {}).reduce((s, v) => s + (v || 0), 0);
-  const perDireito = Math.max(0, (f.nivel || 1) - 1) + (r?.livre ? 3 : 0);
-  const peMig = migrarPericias(f.periciasExtra);
-  const perGastas = Object.values(peMig).reduce((s, v) => s + (v || 0), 0);
-  const per = {};
-  PERICIAS.forEach(([p]) => { per[p] = (c?.pericias[p] || 0) + (peMig[p] || 0); });
-  const isCin = !!c?.cinetico;
-  const limite = Math.max(1, 2 + (isCin ? attr.Int : attr.Con));
-  const limiteOrg = Math.max(1, 2 + attr.Con);
-  const carga = isCin ? Math.max(0, (f.implantes?.length || 0) - limiteOrg) : 0;
-  const chip = f.implantes?.includes("Chip de Expansão de RAM") ? 2 : 0;
-  const impares = [3, 5, 7, 9].filter((n) => n <= f.nivel).length;
-  const ramMax = Math.max(0, 1 + attr.Int + Math.floor(per["Tecnomancia"] / 2) + impares + chip - carga);
-  const ramLivre = Math.max(0, ramMax - (f.ramGasta || 0));
-  const bonusRes = isCin && f.nivel >= 5 ? Math.floor((f.implantes?.length || 0) / 3) : 0;
-  const conj = attr.Int + per["Tecnomancia"] + bonusRes;
-  const arm = (f.inventario || []).find((i) => i.tipo === "armadura" && i.equip);
-  const armRef = arm ? ARMADURAS.find((a) => a.n === arm.nome) : null;
-  const t = armRef?.t || "leve";
-  const desAdj = t === "pesada" ? 0 : t === "media" ? Math.min(2, attr.Des) : attr.Des;
-  const placas = f.implantes?.includes("Placas Subdérmicas de Titânio") ? 1 : 0;
-  const cd = 10 + desAdj + (armRef?.cd || 0) + placas + (f.cdExtra || 0);
-  const deckMax = Math.max(3, f.nivel + per["Tecnomancia"]);
-  const iniBonus = (f.classe === "Batedor" ? 2 : 0) + (f.filosofia === "Código do Sobrevivente" ? 2 : 0);
-  const iniciativa = attr.Des + iniBonus;
-  const deslocBase = f.raca === "Mercusys" ? 18 : 9;
-  const deslocamento = deslocBase + 2 * attr.Des;
-  const k = { attr, per, isCin, limite, limiteOrg, carga, ramMax, ramLivre, conj, cd, armRef, deckMax, pontosDireito, pontosGastos, perDireito, perGastas, iniciativa, iniBonus, deslocBase, deslocamento };
-  // Efeitos declarados (implantes, filosofias, raças, classes, armaduras) entram
-  // por cima. É aditivo: o cálculo clássico acima continua valendo, e conteúdo
-  // novo passa a funcionar sem precisar de código.
-  const fe = FichaEfeitos.de(f, {
-    RACAS: CONTEUDO_EXTRA.racas || RACAS,
-    CLASSES: CONTEUDO_EXTRA.classes || CLASSES,
-    FILOSOFIAS: CONTEUDO_EXTRA.filosofias || FILOSOFIAS,
-    IMPLANTES: CONTEUDO_EXTRA.implantesTodos || IMPLANTES,
-    ARMADURAS: CONTEUDO_EXTRA.armadurasTodas || ARMADURAS,
-    modosAtivos: modosAtivosDe(f),
-    chavesDeArmasEquipadas: (f.inventario || [])
-      .filter((i) => i.equip && i.tipo === "arma")
-      .flatMap((i) => { const w = (CONTEUDO_EXTRA.armasTodas || ARMAS).find((x) => x.n === i.nome);
-        return w ? chavesDaArma(w).filter((c) => (c.efeitos || []).length)
-          .map((c) => ({ nome: `${c.nome} (${w.n})`, efeitos: c.efeitos })) : []; }) });
-  // os quatro implantes que já estavam no cálculo clássico não podem contar duas vezes
-  const jaContados = ["Chip de Expansão de RAM", "Placas Subdérmicas de Titânio"];
-  fe.fontes = fe.fontes.filter((x) => !jaContados.includes(x.nome));
-  fe.aplicarNaFicha(k, { implantes: f.implantes || [], nivel: f.nivel || 1 });
-  k.ramLivre = Math.max(0, k.ramMax - (f.ramGasta || 0));   // recalcula após os efeitos
-  // Pentes que a pessoa carrega: 5 + mod de Força (1 no cano + o resto na reserva).
-  k.pentesMax = Math.max(2, 5 + (k.attr.For || 0));
-  k.pentesReserva = k.pentesMax - 1;
-  // Escudo pessoal (armadura com `absorve`): soma que some antes do PV; recarrega no descanso.
-  k.escudoMax = armRef?.absorve || 0;
-  k.escudoLivre = Math.max(0, k.escudoMax - (f.escudoGasto || 0));
-  k.pvTemp = Math.max(0, f.pvTemp || 0);
-  k.efeitos = fe;
-  return k;
-}
-// Teto da reserva de pentes a partir da ficha bruta (para onde não há um `k` à mão).
-const pentesReservaDe = (f) => calc(f).pentesReserva;
-
-// CD de um teste de resistência forçado por uma habilidade/palavra-chave do
-// personagem: 8 + modificador do atributo-chave. Usado por salvaguardas e
-// palavras-chave de arma que não trazem uma CD fixa própria.
-const dcSalvaguarda = (k, atributo) => 8 + ((k?.attr?.[atributo]) || 0);
-
-// O que se ganha ao subir para o nível n (para o preview e o registro)
-export function ganhosDoNivel(n, f) {
-  const c = CLASSES[f.classe], r = RACAS.find((x) => x.nome === f.raca);
-  const g = ["+1 Ponto de Atributo (teto natural +6)", "Vida: role 1d" + (r?.dadoVida || 6) + " (ou pegue a média fixa " + (r?.vidaFixa || 3) + ") + Con", "+1 Ponto de Perícia"];
-  if ([3, 5, 7, 9].includes(n)) g.push("+1 Slot de RAM (nível ímpar)");
-  if (n === 5) { g.push("Teto de perícias sobe para +7"); if (c) g.push(`★ Especialização Veterana — ${c.vet.n}: ${c.vet.d}`); }
-  if (n === 10 && r?.lendaria) g.push(`★★ Lendária da raça — ${r.lendaria.n}: ${r.lendaria.d}`);
-  return g;
-}
-
+// (Ficha: novaFichaDados/calc/pentesReservaDe/dcSalvaguarda/ganhosDoNivel agora vivem
+// em regras.js — importados no topo do arquivo.)
 // ---------------- FICHA IMPRIMÍVEL (PDF / download) ----------------
 // Gera um documento HTML autossuficiente, tema claro (economiza tinta), pronto p/ impressão.
 function gerarFichaHTML(nome, f, k) {
@@ -377,23 +266,7 @@ function duracaoDe(h, nivel) {
   return t;
 }
 
-// Habilidades ativas que ficam LIGADAS (como o gás do Ven'y): devolve os
-// efeitos da opção escolhida, para o calc somá-los enquanto durar.
-function modosAtivosDe(f) {
-  const out = [];
-  const raca = RACAS.find((r) => r.nome === f.raca), classe = CLASSES[f.classe];
-  const fontes = [...(raca?.habilidades || []), ...(classe?.hab || []), ...(classe?.vet ? [classe.vet] : []), ...(raca?.lendaria ? [raca.lendaria] : [])];
-  for (const [id, escolha] of Object.entries(f.modos || {})) {
-    const h = fontes.find((x) => x.n === id);
-    if (!h) continue;
-    // opções podem estar em h.opcoes (gás do Ven'y) ou em h.resolve.opcoes (Êxtase da Batalha)
-    const op = (h.opcoes || h.resolve?.opcoes)?.find((o) => o.n === escolha);
-    if (op?.efeitos?.length) out.push({ nome: `${h.n}: ${op.n}`, efeitos: op.efeitos });
-    // modo sem opções (Endurecer): os efeitos ficam direto em h.resolve.efeitos
-    else if (h.resolve?.efeitos?.length) out.push({ nome: h.n, efeitos: h.resolve.efeitos });
-  }
-  return out;
-}
+// (modosAtivosDe agora vive em regras.js.)
 
 // Habilidades ATIVAS do personagem — as que ele declara usar em combate.
 // Reúne raça, classe, veterana e filosofia num formato único para a mesa.
@@ -521,100 +394,8 @@ function sugerirEncontro(orc) {
 }
 
 // ---------------- COMBATE: rastreador de iniciativa ----------------
-// Condições de combate. As que têm "dano" ferem automaticamente no início do turno
-// do afetado; "ic" é o ícone e "d" a regra resumida (usada no tooltip).
-const CONDICOES_INFO = [
-  { n: "Sangrando",    ic: "🩸", dano: "1d4", d: "Sofre 1d4 no início do seu turno até ser estabilizado." },
-  { n: "Em chamas",    ic: "🔥", dano: "1d6", d: "Sofre 1d6 de fogo no início do seu turno. Apagar: Ação Principal + Reação, deslocamento pela metade neste turno, d20 puro ≥10 apaga." },
-  { n: "Envenenado",   ic: "🧪", dano: "1d4", d: "Sofre 1d4; Desvantagem em ataques e em testes físicos (Atletismo, Acrobacia, Furtividade)." },
-  { n: "Atordoado",    ic: "💫", dano: null,  d: "Perde a Ação Principal. Ataques contra o alvo têm Vantagem." },
-  { n: "Paralisado",   ic: "🧊", dano: null,  d: "Não age nem se move. Ataques a até 2m são Críticos automáticos." },
-  { n: "Congelado",    ic: "❄", dano: null,  d: "Deslocamento zero. Ainda pode agir." },
-  { n: "Cego",         ic: "🌑", dano: null,  d: "Desvantagem em ataques e em testes visuais (Percepção, Investigação, Prestidigitação, Pilotagem); ataques contra o alvo têm Vantagem." },
-  { n: "Caído",        ic: "⬇", dano: null,  d: "Deslocamento pela metade. Levantar: Ação Principal + Ação de Movimento, remove na hora." },
-  { n: "Marcado",      ic: "🎯", dano: null,  d: "Aliados de quem marcou ganham +2 no acerto contra o alvo." },
-  { n: "Lento",        ic: "🐌", dano: null,  d: "Perde a Ação de Movimento no próximo turno." },
-  { n: "Amedrontado",  ic: "😨", dano: null,  d: "Desvantagem contra a fonte do medo; não pode se aproximar dela." },
-  { n: "Acovardado",   ic: "😖", dano: null,  d: "Cabeça baixa sob fogo: ataca com Desvantagem." },
-  { n: "Dominado",     ic: "🕸", dano: null,  d: "Age sob comando de quem o dominou: perde a Ação Principal." },
-  { n: "Surpreso",     ic: "❕", dano: null,  d: "Pego de surpresa: não age na rodada surpresa." },
-  { n: "Subsistema off", ic: "🔌", dano: null, d: "Um sistema da nave está desativado." },
-  { n: "Enfraquecido", ic: "💔", dano: null,  d: "Causa metade do dano em ataques físicos." },
-  { n: "Silenciado",   ic: "🔇", dano: null,  d: "Não conjura Scripts nem usa habilidades que exijam fala." },
-];
-const CONDICOES = CONDICOES_INFO.map((c) => c.n);
-const infoCond = (nome) => CONDICOES_INFO.find((c) => c.n.toLowerCase() === String(nome || "").toLowerCase());
-// Aplica uma condição a um combatente do rastreador seguindo a regra da mesa:
-// - condição com dano contínuo: se já ativa, empilha +1 turno (nunca o dano);
-// - condição de estado (sem dano): renova para a maior duração.
-// O rastreador decrementa as condições no INÍCIO do turno do afetado, antes de
-// ele agir; para as de estado valerem pelo turno inteiro guardamos +1.
-// `origemId` (opcional) = id da linha do rastreador que causou a condição — hoje só
-// usado por Amedrontado, pra restringir a Desvantagem e o bloqueio de aproximação
-// à fonte do medo específica, em vez de qualquer inimigo.
-function aplicarCond(alvo, cond, turnos = 1, origemId = null) {
-  if (!alvo || !cond) return;
-  alvo.cond = alvo.cond || [];
-  const temDano = !!infoCond(cond)?.dano;
-  const base = Math.max(1, turnos || 1);
-  const alvoTurnos = temDano ? base : base + 1;
-  const ja = alvo.cond.find((c) => c.n === cond);
-  if (ja) { ja.turnos = temDano ? ja.turnos + 1 : Math.max(ja.turnos, alvoTurnos); if (origemId) ja.origemId = origemId; }
-  else alvo.cond.push({ n: cond, turnos: alvoTurnos, ...(origemId ? { origemId } : {}) });
-}
+// (CONDICOES_INFO/CONDICOES/infoCond/aplicarCond agora vivem em regras.js.)
 const combateVazio = () => ({ ativo: false, rodada: 1, turno: 0, ordem: [], avarias: [], agiram: [], nave: naveTaticaVazia() });
-// ---- Campo tático (grade 2D rasa: X em metros × 3 pistas de profundidade) ----
-const CAMPO_LARGURA = 40;   // metros de frente
-const CAMPO_PISTAS = 3;     // frente / meio / fundo
-const PISTA_M = 1;          // separação entre pistas, em metros (profundidade rasa de beat'em up)
-const CAMPO_JANELA = 12;    // metros visíveis no modo aproximado
-const ALCANCE_CAC = 1.5;    // alcance de corpo-a-corpo — golpe de espada não chega a 2m
-const ALCANCE_ARMA = { curto: 15, medio: 30, longo: 40 };
-// Distância entre dois combatentes no campo, em metros (null se algum não tem posição).
-const distCombate = (a, b) => (a?.pos && b?.pos)
-  ? Math.hypot(a.pos.x - b.pos.x, (a.pos.lane - b.pos.lane) * PISTA_M) : null;
-// ---- Tipos de dano ----
-// "verdadeiro" atravessa qualquer resistência ou imunidade.
-const TIPOS_DANO = ["físico", "térmico", "químico", "elétrico", "psíquico", "gélido", "ácido", "verdadeiro"];
-const semAcento = (s) => String(s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
-// Tipo de dano de uma arma: deriva da palavra-chave, senão é físico.
-function tipoDanoArma(cat) {
-  const kw = semAcento(cat?.kw);
-  if (/derretimento|incendi|termic|plasma|maçarico|macarico/.test(kw)) return "térmico";
-  if (/toxic|toxina|acid/.test(kw)) return "químico";
-  if (/emp|anti-sintetic|eletric|choque/.test(kw)) return "elétrico";
-  return "físico";
-}
-// Tipo de dano de um ataque de criatura: lido do texto de `extra` ("psíquico", "ácido"…).
-function tipoDanoAtaque(atk) {
-  const e = semAcento(atk?.extra);
-  return TIPOS_DANO.find((t) => e.includes(semAcento(t))) || "físico";
-}
-// Imunidade declarada a um tipo de dano (habs com efeito imunidade cujo `a` é um tipo).
-function imuneAoDano(habs, tipo) {
-  if (!tipo || tipo === "verdadeiro") return null;
-  const alvo = semAcento(tipo);
-  return (habs || []).find((h) => h.efeito?.tipo === "imunidade" && h.efeito.a
-    && TIPOS_DANO.some((t) => semAcento(t) === semAcento(h.efeito.a))
-    && semAcento(h.efeito.a) === alvo) || null;
-}
-// Até onde a arma chega, em metros. Branca fica no corpo-a-corpo (a menos que a
-// palavra-chave Alcance estenda); de fogo vai do curto ao longo conforme a chave.
-function alcanceDaArma(cat, pr) {
-  const txt = String(pr?.alcanceTxt || "");
-  if (cat?.tipo === "branca") return pr?.alcance ? 3 : ALCANCE_CAC;
-  if (!pr?.alcance) return ALCANCE_ARMA.curto;
-  if (/longo|telesc/i.test(txt)) return ALCANCE_ARMA.longo;
-  return ALCANCE_ARMA.medio;
-}
-// Posição inicial: aliados à esquerda, inimigos à direita, espalhados nas pistas.
-const posInicial = (ordem, tipo) => {
-  const aliado = tipo === "jogador";
-  const mesmos = (ordem || []).filter((o) => o.pos && (o.tipo === "jogador") === aliado).length;
-  const lane = mesmos % CAMPO_PISTAS;
-  const fila = Math.floor(mesmos / CAMPO_PISTAS);
-  return { x: aliado ? 6 + fila * 3 : CAMPO_LARGURA - 6 - fila * 3, lane };
-};
 // Estado tático da nave da tripulação durante o combate (Cap. 12).
 // A nave NÃO tem turno: ela é o cenário. Quem age são os tripulantes, nos seus postos.
 const naveTaticaVazia = () => ({ evasiva: null, evasivaDe: null, alinhado: false, fraqueza: false, bloqueados: [] });
@@ -751,9 +532,8 @@ function shell(titulo, corpo, ativo = "") {
 }
 
 // ---------------- AUTH ----------------
-// Conteúdo cadastrado pela administração, espelhado aqui porque calc() é
-// síncrono e não pode esperar um import dinâmico.
-const CONTEUDO_EXTRA = { implantes: [], armaduras: [], armas: [], consumiveis: [], naves: [], npcs: [] };
+// (CONTEUDO_EXTRA agora vive em regras.js — importado no topo. É o mesmo objeto por
+// referência; as atribuições abaixo em CONTEUDO_EXTRA[...] continuam mutando-o normalmente.)
 // Arma com as modificações instaladas aplicadas: palavras-chave somadas,
 // efeitos acumulados e capacidade do pente ajustada.
 function armaMontada(cat, item) {
@@ -3336,10 +3116,8 @@ async function telaMesa(id) {
       const ntx = camp.combate.nave || naveTaticaVazia();
       const nat = d(20), total = nat + 4, def = ntx.evasiva != null ? ntx.evasiva : 10 + (alvo.manobra || 0);
       if (nat === 1 || total < def) return enviar("rolagem", null, { titulo: `🚀 ${atc.nome} dispara`, detalhe: `d20 [${nat}] +4 vs Defesa ${def}`, total, fumble: nat === 1, extra: "Errou." });
-      // Crítico: soma dados + bônus primeiro, só depois multiplica por 2 — não dobra a
-      // quantidade de dados rolados (isso deixaria o bônus fixo de fora da conta).
       const pd = parseDice(atc.dano); const dd = rollNd(pd.n, pd.f);
-      const bruto = (dd.reduce((x, y) => x + y, 0) + pd.mod) * (nat === 20 ? 2 : 1);
+      const bruto = danoCritico(dd.reduce((x, y) => x + y, 0), pd.mod, nat === 20 ? 2 : 1);
       const r = danoNave(alvo, bruto);
       let extra = `Escudos −${r.escudos}, Casco −${r.casco}. ${alvo.nome}: ${alvo.casco}/${alvo.casco_max}`;
       if ((nat === 20 || r.critico) && r.casco > 0) { const av = rolarAvaria(); (camp.combate.avarias = camp.combate.avarias || []).push(av); extra += `  ⚠ ${av.n}: ${av.e}`; }
@@ -3649,11 +3427,9 @@ async function telaMesa(id) {
       const paralisadoPerto2 = condsAlvo.includes("paralisado") && distAlvo2 != null && distAlvo2 <= 2.01;
       const critAuto2 = nat === 20 || (paralisadoPerto2 && nat !== 1);
       const mult = critAuto2 ? 2 : 1;
-      // Crítico: soma dados + bônus PRIMEIRO, só depois multiplica o total por 2 — nunca
-      // dobrar a quantidade de dados rolados (isso deixa o bônus fixo de fora da conta).
       const ds = pd ? rollNd(pd.n, pd.f) : [];
       const danoSoma = pd ? ds.reduce((x, y) => x + y, 0) + pd.mod : 0;
-      const danoTotal = danoSoma * mult;
+      const danoTotal = pd ? danoCritico(ds.reduce((x, y) => x + y, 0), pd.mod, mult) : 0;
       const danoTxt = pd ? ` · dano ${atk.dano}${mult > 1 ? ` ×${mult}` : ""}${paralisadoPerto2 && nat !== 20 ? " (crítico automático — Paralisado ≤2m)" : ""} [${ds.join(", ")}]${pd.mod ? ` ${sign(pd.mod)}` : ""}${mult > 1 ? ` = ${danoSoma} ×${mult}` : ""} = ${danoTotal}` : "";
       await enviar("rolagem", null, { titulo: `${c.personagem_id ? "🎯" : "👹"} ${c.nome} — ${atk.n}`,
         detalhe: `d20 [${nat}]${detVant} ${sign(atk.bonus)}${bonusMarcado ? ` +${bonusMarcado} Marcado` : ""} = acerto ${acerto}${danoTxt}`,
@@ -3939,7 +3715,7 @@ async function telaMesa(id) {
         // Assassino veterano acumula os dois, chegando a ×4.
         const multCrit = (critAuto ? 2 : 1) * (modAtq.multDano || 1);
         const somaDados = dados.reduce((x, y) => x + y, 0);
-        const danoFinal = Math.floor((somaDados + danoMod) * multCrit * (enfraquecido ? 0.5 : 1));   // Enfraquecido: metade
+        const danoFinal = Math.floor(danoCritico(somaDados, danoMod, multCrit) * (enfraquecido ? 0.5 : 1));   // Enfraquecido: metade
         const marcadores = [nat === 20 ? "CRÍTICO ×2" : (paralisadoPerto && nat !== 1) ? "CRÍTICO automático (alvo Paralisado ≤2m) ×2" : "", furtivo && assassino ? "FURTIVO ×2" : furtivo ? "furtivo +2 acerto" : "", pr.agil ? `Ágil (${atkAttr})` : "", pr.brutal ? "Brutal (vantagem)" : "", enfraquecido ? "Enfraquecido ½" : "", alvoMarcado ? "alvo Marcado +2" : ""].filter(Boolean).join(" · ");
         // Palavras-chave declaradas: condições ao acertar e perfuração de armadura.
         let efeitoKw = "";
@@ -4561,10 +4337,8 @@ async function telaMesa(id) {
       if (nat === 1 || total < def) {
         return enviar("rolagem", null, { titulo: `🚀 ${x.nome} dispara`, detalhe: `d20 [${nat}] +4 vs Defesa ${def}`, total, fumble: nat === 1, extra: "Errou — o disparo passa de raspão." });
       }
-      // Crítico: soma dados + bônus primeiro, só depois multiplica por 2 — não dobra a
-      // quantidade de dados rolados (isso deixaria o bônus fixo de fora da conta).
       const pd = parseDice(x.dano); const dados = rollNd(pd.n, pd.f);
-      const bruto = (dados.reduce((a2, b2) => a2 + b2, 0) + pd.mod) * (nat === 20 ? 2 : 1);
+      const bruto = danoCritico(dados.reduce((a2, b2) => a2 + b2, 0), pd.mod, nat === 20 ? 2 : 1);
       const r = danoNave(camp.nave, bruto);
       let extra = `Escudos absorveram ${r.escudos}; Casco sofreu ${r.casco}. Nave: ${camp.nave.casco}/${camp.nave.casco_max} casco · ${camp.nave.escudos}/${camp.nave.escudos_max} escudos.`;
       if ((nat === 20 || r.critico) && r.casco > 0) {
