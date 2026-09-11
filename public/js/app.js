@@ -525,13 +525,13 @@ function sugerirEncontro(orc) {
 // do afetado; "ic" é o ícone e "d" a regra resumida (usada no tooltip).
 const CONDICOES_INFO = [
   { n: "Sangrando",    ic: "🩸", dano: "1d4", d: "Sofre 1d4 no início do seu turno até ser estabilizado." },
-  { n: "Em chamas",    ic: "🔥", dano: "1d6", d: "Sofre 1d6 de fogo no início do seu turno. Apagar custa a Ação Principal." },
-  { n: "Envenenado",   ic: "🧪", dano: "1d4", d: "Sofre 1d4 e tem Desvantagem em ataques e testes." },
+  { n: "Em chamas",    ic: "🔥", dano: "1d6", d: "Sofre 1d6 de fogo no início do seu turno. Apagar: Ação Principal + Reação, deslocamento pela metade neste turno, d20 puro ≥10 apaga." },
+  { n: "Envenenado",   ic: "🧪", dano: "1d4", d: "Sofre 1d4; Desvantagem em ataques e em testes físicos (Atletismo, Acrobacia, Furtividade)." },
   { n: "Atordoado",    ic: "💫", dano: null,  d: "Perde a Ação Principal. Ataques contra o alvo têm Vantagem." },
   { n: "Paralisado",   ic: "🧊", dano: null,  d: "Não age nem se move. Ataques a até 2m são Críticos automáticos." },
   { n: "Congelado",    ic: "❄", dano: null,  d: "Deslocamento zero. Ainda pode agir." },
-  { n: "Cego",         ic: "🌑", dano: null,  d: "Desvantagem em ataques; ataques contra o alvo têm Vantagem." },
-  { n: "Caído",        ic: "⬇", dano: null,  d: "Deslocamento pela metade. Levantar custa a Ação de Movimento." },
+  { n: "Cego",         ic: "🌑", dano: null,  d: "Desvantagem em ataques e em testes visuais (Percepção, Investigação, Prestidigitação, Pilotagem); ataques contra o alvo têm Vantagem." },
+  { n: "Caído",        ic: "⬇", dano: null,  d: "Deslocamento pela metade. Levantar: Ação Principal + Ação de Movimento, remove na hora." },
   { n: "Marcado",      ic: "🎯", dano: null,  d: "Aliados de quem marcou ganham +2 no acerto contra o alvo." },
   { n: "Lento",        ic: "🐌", dano: null,  d: "Perde a Ação de Movimento no próximo turno." },
   { n: "Amedrontado",  ic: "😨", dano: null,  d: "Desvantagem contra a fonte do medo; não pode se aproximar dela." },
@@ -549,15 +549,18 @@ const infoCond = (nome) => CONDICOES_INFO.find((c) => c.n.toLowerCase() === Stri
 // - condição de estado (sem dano): renova para a maior duração.
 // O rastreador decrementa as condições no INÍCIO do turno do afetado, antes de
 // ele agir; para as de estado valerem pelo turno inteiro guardamos +1.
-function aplicarCond(alvo, cond, turnos = 1) {
+// `origemId` (opcional) = id da linha do rastreador que causou a condição — hoje só
+// usado por Amedrontado, pra restringir a Desvantagem e o bloqueio de aproximação
+// à fonte do medo específica, em vez de qualquer inimigo.
+function aplicarCond(alvo, cond, turnos = 1, origemId = null) {
   if (!alvo || !cond) return;
   alvo.cond = alvo.cond || [];
   const temDano = !!infoCond(cond)?.dano;
   const base = Math.max(1, turnos || 1);
   const alvoTurnos = temDano ? base : base + 1;
   const ja = alvo.cond.find((c) => c.n === cond);
-  if (ja) ja.turnos = temDano ? ja.turnos + 1 : Math.max(ja.turnos, alvoTurnos);
-  else alvo.cond.push({ n: cond, turnos: alvoTurnos });
+  if (ja) { ja.turnos = temDano ? ja.turnos + 1 : Math.max(ja.turnos, alvoTurnos); if (origemId) ja.origemId = origemId; }
+  else alvo.cond.push({ n: cond, turnos: alvoTurnos, ...(origemId ? { origemId } : {}) });
 }
 const combateVazio = () => ({ ativo: false, rodada: 1, turno: 0, ordem: [], avarias: [], agiram: [], nave: naveTaticaVazia() });
 // ---- Campo tático (grade 2D rasa: X em metros × 3 pistas de profundidade) ----
@@ -2041,13 +2044,23 @@ async function telaMesa(id) {
     return true;
   };
 
-  const rolarEEnviar = (titulo, mod, extras = {}) => {
+  // `vantOverride`: quando passado, substitui o toggle global de vant/desv da mesa —
+  // usado por testes de perícia travados por condição (Cego/Envenenado em testes específicos).
+  const rolarEEnviar = (titulo, mod, extras = {}, vantOverride) => {
+    const vv = vantOverride !== undefined ? vantOverride : vantagem;
     let nat, detVant = "";
-    if (vantagem !== 0) { const a = d(20), b = d(20); nat = vantagem > 0 ? Math.max(a, b) : Math.min(a, b); detVant = ` [${vantagem > 0 ? "vant" : "desv"} ${a}/${b}]`; }
+    if (vv !== 0) { const a = d(20), b = d(20); nat = vv > 0 ? Math.max(a, b) : Math.min(a, b); detVant = ` [${vv > 0 ? "vant" : "desv"} ${a}/${b}]`; }
     else nat = d(20);
     const total = nat + mod;
     return enviar("rolagem", null, { titulo: (privada ? "🔒 " : "") + titulo, detalhe: `d20 [${nat}]${detVant} ${sign(mod)}`, total, crit: nat === 20, fumble: nat === 1, ...(privada ? { privada: true } : {}), ...extras });
   };
+  // Cego/Envenenado só atrapalham testes de perícia que fazem sentido pra cada um —
+  // Cego, os que dependem de enxergar; Envenenado, os que dependem do corpo responder.
+  const PERICIAS_VISUAIS = ["Percepção", "Investigação", "Prestidigitação", "Pilotagem"];
+  const PERICIAS_FISICAS = ["Atletismo", "Acrobacia", "Furtividade"];
+  const desvPorTeste = (condsList, pericia) =>
+    (condsList.includes("cego") && PERICIAS_VISUAIS.includes(pericia)) ||
+    (condsList.includes("envenenado") && PERICIAS_FISICAS.includes(pericia));
 
   // Ataques de um combatente para o rastreador: os inimigos trazem `ataques`
   // do bestiário; para um jogador, derivamos da arma equipada na hora, para o
@@ -2142,7 +2155,7 @@ async function telaMesa(id) {
       }
       let danoMsg = "";
       if (pegou && rolDano) { const rd = await aplicarDanoAlvo(alvo, rolDano, tipoDano); danoMsg = ` ${rd.msg}`; if (rd.imune) pegou = false; }
-      if (pegou && cond) aplicarCond(alvo, cond, turnos);
+      if (pegou && cond) aplicarCond(alvo, cond, turnos, minhaLinhaCb()?.id || null);
       linhas.push(`${pegou ? "💥" : "🛡"} ${alvo.nome}${det}${danoMsg}${pegou && cond ? ` · ${cond} ${turnos}t` : ""}${foraDeCombate(alvo) ? " 💀 CAIU" : ""}`);
     }
     await salvarCombate();
@@ -2320,6 +2333,14 @@ async function telaMesa(id) {
                       title="${esc(t2.n)} — ${esc(t2.d)}" style="border-color:${q ? t2.cor : "var(--line)"};color:${q ? t2.cor : "var(--dim)"}">${t2.ic} ${q}</button>`; }).join("")}</div></div>`;
             })()}
             <div class="acoes-mesa">
+              ${(() => {
+                if (!camp.combate?.ativo) return "";
+                const condsSelf = (minhaLinhaCb()?.cond || []).map((c) => c.n.toLowerCase());
+                const btns = [];
+                if (condsSelf.includes("em chamas")) btns.push(`<button id="cb-apagar-fogo" class="mini" title="Ação Principal + Reação; deslocamento pela metade neste turno. Rola d20 puro (sem modificador) — 10 ou mais apaga.">🔥 Apagar fogo</button>`);
+                if (condsSelf.includes("caído")) btns.push(`<button id="cb-levantar" class="mini" title="Ação Principal + Ação de Movimento: levanta na hora, sem esperar a condição acabar.">🧎 Levantar</button>`);
+                return btns.join("");
+              })()}
               <select id="sel-per">${PERICIAS.map(([pn]) => `<option>${pn}</option>`).join("")}</select>
               <button id="rolar-per" class="mini">TESTE</button>
               <button id="teste-oposto" class="mini" title="Teste oposto: você e um alvo rolam perícias diferentes e o maior vence">⚖ OPOSTO</button>
@@ -3365,8 +3386,11 @@ async function telaMesa(id) {
         const conds = (c.cond || []).map((x) => x.n.toLowerCase());
         let maxMov = souMestre ? 9999 : (k?.deslocamento || 6);
         if (!souMestre) {
-          if (conds.some((n) => /paralisado|congelado/.test(n))) return alert(`${c.nome} não pode se mover (${conds.find((n) => /paralisado|congelado/.test(n))}).`);
-          if (conds.some((n) => /caído|lento/.test(n))) maxMov = Math.floor(maxMov / 2);
+          // Lento é "perde a Ação de Movimento" — bloqueia como Paralisado/Congelado,
+          // não é "metade do deslocamento" (isso é só o Caído).
+          if (conds.some((n) => /paralisado|congelado|lento/.test(n))) return alert(`${c.nome} não pode se mover (${conds.find((n) => /paralisado|congelado|lento/.test(n))}).`);
+          // Caído, ou ter tentado apagar o próprio fogo neste turno: metade do deslocamento.
+          if (conds.some((n) => /caído/.test(n)) || c._movMetade === camp.combate.rodada) maxMov = Math.floor(maxMov / 2);
         }
         tok.classList.add("arrastando");
         let nx = c.pos.x, nlane = c.pos.lane;
@@ -3384,14 +3408,18 @@ async function telaMesa(id) {
           const andou = Math.hypot(nx - origem.x, (nlane - origem.lane) * PISTA_M);
           if (andou < 0.4) return alternarSel(tok.dataset.token);   // clique sem arrastar: seleciona
           if (andou > maxMov + 0.01) { alert(`${c.nome} só anda ${maxMov} m neste turno (tentou ${andou.toFixed(1).replace(".", ",")} m).`); return render(); }
-          // Amedrontado não consegue se aproximar da fonte do medo (os inimigos).
-          if (!souMestre && conds.some((n) => /amedrontado/.test(n))) {
-            const hostis = camp.combate.ordem.filter((x) => !ehNave(x) && !foraDeCombate(x) && x.pos
+          // Amedrontado não consegue se aproximar da fonte do medo. Se a condição
+          // sabe quem causou o medo (origemId), é só contra ela; senão (condição
+          // antiga, sem origem registrada) cai no comportamento antigo — qualquer inimigo.
+          const medoObjM = (c.cond || []).find((x) => x.n.toLowerCase() === "amedrontado");
+          if (!souMestre && medoObjM) {
+            const fonte = medoObjM.origemId ? camp.combate.ordem.find((x) => x.id === medoObjM.origemId && x.pos) : null;
+            const hostis = fonte ? [fonte] : camp.combate.ordem.filter((x) => !ehNave(x) && !foraDeCombate(x) && x.pos
               && (x.tipo === "jogador") !== (c.tipo === "jogador"));
             const perto = (p2) => hostis.reduce((m, h2) => Math.min(m, distCombate({ pos: p2 }, h2) ?? 99), 99);
             const antesD = perto(origem), depoisD = perto({ x: nx, lane: nlane });
             if (hostis.length && depoisD < antesD - 0.01) {
-              alert(`${c.nome} está Amedrontado e não consegue se aproximar (de ${antesD.toFixed(1).replace(".", ",")} m para ${depoisD.toFixed(1).replace(".", ",")} m). Só dá para se afastar ou circular.`);
+              alert(`${c.nome} está Amedrontado${fonte ? ` (de ${fonte.nome})` : ""} e não consegue se aproximar (de ${antesD.toFixed(1).replace(".", ",")} m para ${depoisD.toFixed(1).replace(".", ",")} m). Só dá para se afastar ou circular.`);
               return render();
             }
           }
@@ -3458,6 +3486,7 @@ async function telaMesa(id) {
       // Reação recarrega a cada rodada; Principal e Movimento, no turno de cada um.
       if (camp.combate.rodada !== rodAntes) for (const c2 of camp.combate.ordem) if (c2.acoes) c2.acoes.r = false;
       if (atual) atual.acoes = { r: !!atual.acoes?.r };
+      if (atual) delete atual._movMetade;   // tentativa de apagar fogo só reduz o deslocamento no turno em que aconteceu
       if (atual) {
         // A Manobra Evasiva vale "até o próximo turno do piloto" — aqui ela expira.
         const ntv = camp.combate.nave || naveTaticaVazia();
@@ -3605,6 +3634,7 @@ async function telaMesa(id) {
           { v: "", l: "— só rolar (Mestre resolve) —" } ] }], okLabel: "Atacar" }) : { alvo: "" };
       if (!r) return;
       const alvo = r.alvo ? camp.combate.ordem.find((x) => x.id === r.alvo) : null;
+      const distAlvo2 = alvo ? alvos.find((o) => o.x.id === alvo.id)?.dist : null;
       const condsAlvo = (alvo?.cond || []).map((x) => x.n.toLowerCase());
       const bonusMarcado = condsAlvo.includes("marcado") ? 2 : 0;
       const alvoAberto = condsAlvo.some((n) => /atordoado|paralisado|caído|cego|surpreso/.test(n));
@@ -3613,13 +3643,16 @@ async function telaMesa(id) {
       let nat, detVant = "";
       if (vv !== 0) { const r1 = d(20), r2 = d(20); nat = vv > 0 ? Math.max(r1, r2) : Math.min(r1, r2); detVant = ` [${vv > 0 ? "vant" : "desv"} ${r1}/${r2}]`; } else nat = d(20);
       const acerto = nat + atk.bonus + bonusMarcado;
-      const mult = nat === 20 ? 2 : 1;
+      // Paralisado (regra da mesa): ataque a até 2m dele é Crítico automático (nat 1 ainda falha).
+      const paralisadoPerto2 = condsAlvo.includes("paralisado") && distAlvo2 != null && distAlvo2 <= 2.01;
+      const critAuto2 = nat === 20 || (paralisadoPerto2 && nat !== 1);
+      const mult = critAuto2 ? 2 : 1;
       const ds = pd ? rollNd(pd.n * mult, pd.f) : [];
       const danoTotal = pd ? ds.reduce((x, y) => x + y, 0) + pd.mod : 0;
-      const danoTxt = pd ? ` · dano ${atk.dano}${mult > 1 ? "×2" : ""} [${ds.join(", ")}] = ${danoTotal}` : "";
+      const danoTxt = pd ? ` · dano ${atk.dano}${mult > 1 ? "×2" : ""}${paralisadoPerto2 && nat !== 20 ? " (crítico automático — Paralisado ≤2m)" : ""} [${ds.join(", ")}] = ${danoTotal}` : "";
       await enviar("rolagem", null, { titulo: `${c.personagem_id ? "🎯" : "👹"} ${c.nome} — ${atk.n}`,
         detalhe: `d20 [${nat}]${detVant} ${sign(atk.bonus)}${bonusMarcado ? ` +${bonusMarcado} Marcado` : ""} = acerto ${acerto}${danoTxt}`,
-        total: acerto, crit: nat === 20, fumble: nat === 1,
+        total: acerto, crit: critAuto2, fumble: nat === 1,
         extra: atk.extra || "", ...(danoTotal ? { dano_total: danoTotal } : {}), ...(alvo ? { alvo_resolvido: true } : {}) });
       if (alvo && danoTotal) {
         const cobA = (alc == null || alc > 3) ? [0, 2, 5][alvo.cobertura || 0] : 0;   // cobertura só vale contra tiro
@@ -3635,7 +3668,7 @@ async function telaMesa(id) {
             if (habsAc.length) {
               const M = await criaturaMod(); const cr = M.criar({ ...c, habs: habsAc }, rolarTexto);
               for (const rr of cr.disparar(M.GATILHOS.AO_ACERTAR)) {
-                if (rr.tipo === "condicao") { aplicarCond(alvo, rr.cond, rr.turnos); await enviar("sistema", `🏷 ${c.nome} — ${rr.habilidade}: ${alvo.nome} fica ${rr.cond} por ${rr.turnos} turno(s).`); }
+                if (rr.tipo === "condicao") { aplicarCond(alvo, rr.cond, rr.turnos, c.id); await enviar("sistema", `🏷 ${c.nome} — ${rr.habilidade}: ${alvo.nome} fica ${rr.cond} por ${rr.turnos} turno(s).`); }
                 else if (rr.tipo === "dano") { const r3 = await aplicarDanoAlvo(alvo, rr.valor); await enviar("sistema", `☠ ${c.nome} — ${rr.habilidade}: ${rr.texto} em ${alvo.nome} · ${r3.msg}.`); }
                 else await enviar("sistema", `⚡ ${c.nome} — ${rr.habilidade}: ${rr.texto || "efeito ao acertar"}.`);
               }
@@ -3694,7 +3727,9 @@ async function telaMesa(id) {
     };
     if (f) {
       $("#rolar-per").onclick = () => { const pn = $("#sel-per").value; const at = PERICIAS.find(([x]) => x === pn)[1];
-        rolarEEnviar(`Teste de ${pn}`, k.attr[at] + k.per[pn]); };
+        const condsSelf = (minhaLinhaCb()?.cond || []).map((c) => c.n.toLowerCase());
+        const desv = desvPorTeste(condsSelf, pn);
+        rolarEEnviar(`Teste de ${pn}${desv ? " (Desvantagem)" : ""}`, k.attr[at] + k.per[pn], {}, desv ? -1 : undefined); };
       // Teste oposto genérico: Furtividade vs Percepção, Enganação vs Intuição, etc.
       $("#teste-oposto").onclick = async () => {
         const cands = (camp.combate?.ativo ? camp.combate.ordem.filter((x) => !ehNave(x) && !foraDeCombate(x) && x.personagem_id !== meuPers.id) : [])
@@ -3720,14 +3755,51 @@ async function telaMesa(id) {
             const atDele = PERICIAS.find(([x]) => x === r.dele)[1];
             deleMod = (kk.attr[atDele] || 0) + (kk.per[r.dele] || 0); }
         } else deleMod = NIVEIS_AMEACA[alvo.ameaca]?.ordem ?? Math.max(0, (alvo.cd ?? 10) - 10);
-        const n1 = d(20), t1 = n1 + meuMod;
-        const n2 = d(20), t2 = n2 + deleMod;
+        const condsMeu = (minhaLinhaCb()?.cond || []).map((c) => c.n.toLowerCase());
+        const condsDele = (alvo.cond || []).map((c) => c.n.toLowerCase());
+        const desvMeu = desvPorTeste(condsMeu, r.minha);
+        const desvDele = desvPorTeste(condsDele, r.dele);
+        const rolar2 = (desv) => desv ? Math.min(d(20), d(20)) : d(20);
+        const n1 = rolar2(desvMeu), t1 = n1 + meuMod;
+        const n2 = rolar2(desvDele), t2 = n2 + deleMod;
         const venci = t1 > t2;
         await enviar("rolagem", null, { titulo: `⚖ ${r.minha} × ${r.dele}`,
-          detalhe: `${meuPers.nome} d20 [${n1}] ${sign(meuMod)} = ${t1}  ·  ${alvo.nome} d20 [${n2}] ${sign(deleMod)} = ${t2}`,
+          detalhe: `${meuPers.nome} d20 [${n1}]${desvMeu ? " (desv)" : ""} ${sign(meuMod)} = ${t1}  ·  ${alvo.nome} d20 [${n2}]${desvDele ? " (desv)" : ""} ${sign(deleMod)} = ${t2}`,
           total: t1, crit: n1 === 20, fumble: n1 === 1,
           extra: venci ? `${meuPers.nome} vence a disputa.` : `${alvo.nome} resiste (empate favorece a defesa).` });
       };
+      // Em chamas: apaga gastando Ação Principal + Reação, com deslocamento pela
+      // metade neste turno (independente do resultado) — d20 puro, sem modificador.
+      $("#cb-apagar-fogo")?.addEventListener("click", async () => {
+        if (camp.combate?.ativo && !souMestre && camp.combate.ordem[camp.combate.turno]?.personagem_id !== meuPers.id)
+          return alert(`Não é o seu turno (vez de ${camp.combate.ordem[camp.combate.turno]?.nome || "outro combatente"}).`);
+        const travaFogo = minhaTrava(); if (travaFogo) return alert(`${meuPers.nome} está ${travaFogo.n} e não pode agir neste turno.`);
+        if (!(await gastarAcao("Ação Principal", "apagar o fogo"))) return render();
+        if (!(await gastarAcao("Reação", "apagar o fogo"))) return render();
+        const linha = minhaLinhaCb(); if (!linha) return render();
+        linha._movMetade = camp.combate.rodada;   // limpo na virada de turno, em #cb-prox
+        const nat = d(20);
+        const apagou = nat >= 10;
+        if (apagou) linha.cond = (linha.cond || []).filter((c2) => c2.n.toLowerCase() !== "em chamas");
+        await salvarCombate();
+        await enviar("rolagem", null, { titulo: `🔥 ${meuPers.nome} tenta apagar o fogo`,
+          detalhe: `d20 puro [${nat}]${nat < 10 ? " < 10" : " ≥ 10"}`, total: nat,
+          extra: `${apagou ? "🧯 Apagou — Em chamas removido." : "O fogo continua."} Deslocamento pela metade neste turno.` });
+        render();
+      });
+      // Caído: levanta na hora gastando Ação Principal + Ação de Movimento.
+      $("#cb-levantar")?.addEventListener("click", async () => {
+        if (camp.combate?.ativo && !souMestre && camp.combate.ordem[camp.combate.turno]?.personagem_id !== meuPers.id)
+          return alert(`Não é o seu turno (vez de ${camp.combate.ordem[camp.combate.turno]?.nome || "outro combatente"}).`);
+        const travaLev = minhaTrava(); if (travaLev) return alert(`${meuPers.nome} está ${travaLev.n} e não pode agir neste turno.`);
+        if (!(await gastarAcao("Ação Principal", "levantar"))) return render();
+        if (!(await gastarAcao("Ação de Movimento", "levantar"))) return render();
+        const linha = minhaLinhaCb(); if (!linha) return render();
+        linha.cond = (linha.cond || []).filter((c2) => c2.n.toLowerCase() !== "caído");
+        await salvarCombate();
+        await enviar("sistema", `🧎 ${meuPers.nome} se levanta.`);
+        render();
+      });
       app.querySelectorAll("[data-atq]").forEach((b) => b.onclick = async () => {
         const a = armasEq[+b.dataset.atq];
         // Em combate, o jogador só ataca no próprio turno. O Mestre rola por ele
@@ -3808,9 +3880,14 @@ async function telaMesa(id) {
             if (esc2) { distAlvo = esc2.dist; if (ehNave(esc2.x)) alvoNave = esc2.x; else alvoCombatente = esc2.x; } }
         }
         // Condições em jogo: as minhas atrapalham; as do alvo abrem brecha.
-        const condsMinhas = (minhaLinhaCb()?.cond || []).map((c) => c.n.toLowerCase());
+        const condsMinhasObjs = minhaLinhaCb()?.cond || [];
+        const condsMinhas = condsMinhasObjs.map((c) => c.n.toLowerCase());
         const condsAlvo = (alvoCombatente?.cond || []).map((c) => c.n.toLowerCase());
-        const desvPorCond = condsMinhas.some((n) => /cego|amedrontado|acovardado|envenenado/.test(n));   // Desvantagem no ataque
+        // Amedrontado: Desvantagem só contra a fonte do medo (se soubermos qual é —
+        // condições antigas sem origem registrada continuam valendo pra qualquer alvo).
+        const medoObj = condsMinhasObjs.find((c) => c.n.toLowerCase() === "amedrontado");
+        const desvPorMedo = !!medoObj && (!medoObj.origemId || medoObj.origemId === alvoCombatente?.id);
+        const desvPorCond = condsMinhas.some((n) => /cego|acovardado|envenenado/.test(n)) || desvPorMedo;   // Desvantagem no ataque
         const enfraquecido = condsMinhas.includes("enfraquecido");                              // metade do dano físico
         const alvoMarcado = condsAlvo.includes("marcado");                                      // +2 no acerto de quem o ataca
         const alvoAberto = condsAlvo.some((n) => /atordoado|paralisado|caído|cego|surpreso/.test(n));   // Vantagem contra ele
@@ -3848,12 +3925,17 @@ async function telaMesa(id) {
           .reduce((x, e) => x + (e.valor || 0), 0);
         const modAcertoPecas = modsAtq.filter((e) => e.tipo === "acerto").reduce((x, e) => x + (e.valor || 0), 0);
         const danoMod = k.attr[atkAttr] + modKw + modAtq.dano + (cat.tipo === "branca" && f.implantes.includes("Braço Mecânico Hidráulico") ? 2 : 0);
+        // Paralisado (regra da mesa): qualquer ataque a até 2m dele que acerte é
+        // Crítico automático — não só Vantagem. `alvoAberto` já cobre a Vantagem;
+        // isto soma o multiplicador que faltava quando o alvo está perto o bastante.
+        const paralisadoPerto = condsAlvo.includes("paralisado") && distAlvo != null && distAlvo <= 2.01;
+        const critAuto = nat === 20 || (paralisadoPerto && nat !== 1);   // 1 natural ainda falha, mesmo contra alvo Paralisado
         // Multiplicador final: ×2 no crítico, ×2 no furtivo do Assassino — e o
         // Assassino veterano acumula os dois, chegando a ×4.
-        const multCrit = (nat === 20 ? 2 : 1) * (modAtq.multDano || 1);
+        const multCrit = (critAuto ? 2 : 1) * (modAtq.multDano || 1);
         const somaDados = dados.reduce((x, y) => x + y, 0);
         const danoFinal = Math.floor((somaDados + danoMod) * multCrit * (enfraquecido ? 0.5 : 1));   // Enfraquecido: metade
-        const marcadores = [nat === 20 ? "CRÍTICO ×2" : "", furtivo && assassino ? "FURTIVO ×2" : furtivo ? "furtivo +2 acerto" : "", pr.agil ? `Ágil (${atkAttr})` : "", pr.brutal ? "Brutal (vantagem)" : "", enfraquecido ? "Enfraquecido ½" : "", alvoMarcado ? "alvo Marcado +2" : ""].filter(Boolean).join(" · ");
+        const marcadores = [nat === 20 ? "CRÍTICO ×2" : (paralisadoPerto && nat !== 1) ? "CRÍTICO automático (alvo Paralisado ≤2m) ×2" : "", furtivo && assassino ? "FURTIVO ×2" : furtivo ? "furtivo +2 acerto" : "", pr.agil ? `Ágil (${atkAttr})` : "", pr.brutal ? "Brutal (vantagem)" : "", enfraquecido ? "Enfraquecido ½" : "", alvoMarcado ? "alvo Marcado +2" : ""].filter(Boolean).join(" · ");
         // Palavras-chave declaradas: condições ao acertar e perfuração de armadura.
         let efeitoKw = "";
         if (nat !== 1 && total >= 0) {
@@ -3872,10 +3954,13 @@ async function telaMesa(id) {
             munCond = { cond: tpm.cond, turnos: tpm.turnos, cd: tpm.cd, origem: tpm.n }; }
           else if (tpm && tpm.bonusSint) efeitoMun = `${tpm.ic} ${tpm.n}: +${tpm.bonusSint} contra sintéticos e implantes do alvo inertes por 1 turno`;
         }
-        const infoArma = [pr.area ? `◎ Área: ${pr.areaTxt}` : "", pr.alcance ? `⟿ Alcance: ${pr.alcanceTxt}` : "", cat.kw ? `🏷 ${cat.kw}: ${pr.efeito}` : ""].filter(Boolean).join("  ·  ");
+        // Área/Alcance da arma, se houver — as demais palavras-chave já aparecem
+        // nos marcadores (Brutal, Ágil…) e em "ignora N de armadura" acima; repeti-las
+        // aqui de novo só duplicava o texto sem acrescentar nada.
+        const infoArma = [pr.area ? `◎ Área: ${pr.areaTxt}` : "", pr.alcance ? `⟿ Alcance: ${pr.alcanceTxt}` : ""].filter(Boolean).join("  ·  ");
         enviar("rolagem", null, { titulo: (privada ? "🔒 " : "") + `Ataque — ${a.nome}${furtivo ? " 🥷" : ""}`,
           detalhe: `d20 [${nat}]${detVant} ${sign(mod)} · dano ${danoBase} [${dados.join(", ")}] ${sign(danoMod)}${multCrit > 1 ? ` ×${multCrit}` : ""}${marcadores ? " · " + marcadores : ""}`,
-          total: nat + mod, crit: nat === 20, fumble: nat === 1, ...(privada ? { privada: true } : {}), dano_total: danoFinal,
+          total: nat + mod, crit: critAuto, fumble: nat === 1, ...(privada ? { privada: true } : {}), dano_total: danoFinal,
           ...(pr.ignoraArmadura ? { ignoraArmadura: pr.ignoraArmadura } : {}),
           ...(alvoNave || alvoCombatente ? { alvo_resolvido: true } : {}),
           extra: `Dano: ${danoFinal}${multCrit > 1 ? ` (${somaDados} + ${danoMod} × ${multCrit})` : ""}${efeitoKw ? "  —  " + efeitoKw : ""}${efeitoMun ? "  —  " + efeitoMun : ""}${infoArma ? "  —  " + infoArma : ""}` });
@@ -3891,7 +3976,7 @@ async function telaMesa(id) {
             let resistiu = false, det = "";
             if (ac.cd) { const b = resistDe(alvo, "Con"); const n2 = d(20); const t2 = n2 + b;
               resistiu = t2 >= ac.cd; det = ` [Con ${n2}${sign(b)}=${t2} vs CD ${ac.cd}]`; }
-            if (!resistiu) aplicarCond(alvo, ac.cond, ac.turnos || 1);
+            if (!resistiu) aplicarCond(alvo, ac.cond, ac.turnos || 1, minhaLinhaCb()?.id || null);
             linhas.push(`${resistiu ? "🛡" : "🏷"} ${ac.origem || ac.cond}: ${resistiu ? "resistiu" : `${ac.cond} ${ac.turnos || 1}t`}${det}`);
           }
           return linhas;
@@ -3912,7 +3997,13 @@ async function telaMesa(id) {
         if (alvoCombatente) {             // resolve o tiro contra um combatente do rastreador
           // Cobertura só atrapalha tiro; quem está no corpo-a-corpo contorna o muro.
           const cob = cat.tipo === "branca" ? 0 : [0, 2, 5][alvoCombatente.cobertura || 0];
-          const def = Math.max(0, (alvoCombatente.cd ?? 10) + cob - (pr.ignoraArmadura || 0));
+          const defBase = alvoCombatente.cd ?? 10;
+          const def = Math.max(0, defBase + cob - (pr.ignoraArmadura || 0));
+          // Def mostrada por extenso (base → cobertura/perfuração → efetiva) — antes
+          // aparecia só "Def 13 · 🗡−2", que lia como se ainda faltasse subtrair algo.
+          const defTxt = (cob || pr.ignoraArmadura)
+            ? `Def ${defBase}${cob ? ` +${cob}🧱` : ""}${pr.ignoraArmadura ? ` −${pr.ignoraArmadura}🗡` : ""} = ${def}`
+            : `Def ${def}`;
           const fora = distAlvo != null && distAlvo > alcance + 0.01;
           const txtDist = distAlvo != null ? ` · ${distAlvo.toFixed(1).replace(".", ",")} m${fora ? ` ⚠ fora do alcance de ${String(alcance).replace(".", ",")} m` : ""}` : "";
           const acertou = !fora && (nat === 20 || (nat !== 1 && total >= def));
@@ -3923,9 +4014,9 @@ async function telaMesa(id) {
             const rd = await aplicarDanoAlvo(alvoCombatente, danoFinal, munTipo || tipoDanoArma(cat));
             const conds = (rd.absorvido || rd.imune) ? [] : aplicarCondsNoAlvo(alvoCombatente);
             await salvarCombate();
-            await enviar("sistema", `🎯 ${meuPers.nome} acerta ${alvoCombatente.nome} com ${a.nome} (Def ${def}${cob ? ` · 🧱+${cob} cobertura` : ""}${pr.ignoraArmadura ? ` · 🗡−${pr.ignoraArmadura}` : ""}${txtDist}): ${rd.msg}.${foraDeCombate(alvoCombatente) ? " 💀 CAIU!" : ""}${conds.length ? `  —  ${conds.join(" · ")}` : ""}`);
+            await enviar("sistema", `🎯 ${meuPers.nome} acerta ${alvoCombatente.nome} com ${a.nome} (${defTxt}${txtDist}): ${rd.msg}.${foraDeCombate(alvoCombatente) ? " 💀 CAIU!" : ""}${conds.length ? `  —  ${conds.join(" · ")}` : ""}`);
           } else {
-            await enviar("sistema", `❌ ${meuPers.nome} erra ${alvoCombatente.nome} com ${a.nome} (Def ${def}${txtDist}).`);
+            await enviar("sistema", `❌ ${meuPers.nome} erra ${alvoCombatente.nome} com ${a.nome} (${defTxt}${txtDist}).`);
           }
           render();
         }

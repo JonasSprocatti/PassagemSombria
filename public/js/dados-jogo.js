@@ -1292,7 +1292,11 @@ export function propsArma(cat) {
     if (c.efeitos) p.efeitos.push(...c.efeitos.map((e) => ({ ...e, origem: c.nome })));
   }
   p.chaves = chaves;
-  p.efeito = KEYWORDS[(cat && cat.kw) || ""] || (cat && cat.kw) || "";
+  // Descrição legível de cada palavra-chave (uma por uma) — antes isto buscava
+  // KEYWORDS pela string crua e inteira da arma ("Destruidora, Perfurante, Aparar"),
+  // que nunca bate com nenhuma chave do dicionário, e caía no próprio texto de
+  // volta: exibia "Destruidora, Perfurante, Aparar: Destruidora, Perfurante, Aparar."
+  p.efeito = chaves.map((c) => KEYWORDS[c.nome]).filter(Boolean).join(" · ");
   return p;
 }
 
