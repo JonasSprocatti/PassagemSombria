@@ -537,6 +537,7 @@ const combateVazio = () => ({ ativo: false, rodada: 1, turno: 0, ordem: [], avar
 const CAMPO_LARGURA = 40;   // metros de frente
 const CAMPO_PISTAS = 3;     // frente / meio / fundo
 const PISTA_M = 1;          // separação entre pistas, em metros (profundidade rasa de beat'em up)
+const CAMPO_JANELA = 12;    // metros visíveis no modo aproximado
 const ALCANCE_CAC = 1.5;    // alcance de corpo-a-corpo — golpe de espada não chega a 2m
 const ALCANCE_ARMA = { curto: 15, medio: 30, longo: 40 }; // usado quando as regras de distância forem ligadas
 // Distância entre dois combatentes no campo, em metros (null se algum não tem posição).
@@ -1752,6 +1753,8 @@ async function telaMesa(id) {
   // souMestre é o "Mestre efetivo": some quando o Mestre liga o Modo Jogador,
   // para testar (ou jogar) como um tripulante comum. Reatribuído no toggle.
   let souMestre = ehMestreReal && !modoJogador;
+  let tokenSel = null;     // token selecionado no campo tático (mostra alcance e distâncias)
+  let campoZoom = false;   // false = campo inteiro (40 m) · true = janela de 12 m com grade de 1 m
   let pintarMsg = null;          // aponta pro addMsg do render atual (renderização otimista)
   const historico = msgs || [];  // lista mutável de mensagens (sobrevive a re-renders)
   let mapaCtrl = null;           // controlador do mapa aberto (para sync via realtime)
@@ -1805,7 +1808,7 @@ async function telaMesa(id) {
       return { aplicado: r.casco + r.escudos, nave: r,
         msg: `escudos −${r.escudos}, casco −${r.casco} (${alvo.casco}/${alvo.casco_max})` };
     }
-    const lim = (alvo.habs || []).find((h) => h.efeito?.tipo === "imunidade" && h.efeito.limiar);
+    const lim = habsDoCombatente(alvo).find((h) => h.efeito?.tipo === "imunidade" && h.efeito.limiar);
     if (lim && valor < lim.efeito.limiar) {
       return { aplicado: 0, absorvido: true, msg: `couraça: golpe abaixo de ${lim.efeito.limiar} não arranha` };
     }
@@ -1838,7 +1841,7 @@ async function telaMesa(id) {
     const out = [];
     for (const c of camp.combate.ordem) {
       if (ehNave(c) || foraDeCombate(c)) continue;
-      for (const h of c.habs || []) {
+      for (const h of habsDoCombatente(c)) {
         if (!h.efeito || h.gatilho !== "aura") continue;
         const e = h.efeito;
         if (e.tipo === "zona") out.push({ criatura: c.nome, hab: h.n, raio: e.raio, nega: e.nega || [] });
@@ -1857,6 +1860,17 @@ async function telaMesa(id) {
     return (minhaLinhaCb()?.cond || []).find((c) => bloq.includes(c.n.toLowerCase())) || null;
   };
   if (!Array.isArray(camp.bestiario)) camp.bestiario = [];
+  // Habilidades declaradas de um combatente. Linhas antigas do rastreador foram
+  // salvas sem `habs` — reidrata pelo nome, senão auras/regeneração/invocação
+  // simplesmente não existiriam para quem já estava em campo.
+  const habsDoCombatente = (c) => {
+    if (c?.habs?.length) return c.habs;
+    if (!c || ehNave(c) || c.personagem_id) return [];
+    const base0 = String(c.nome || "").replace(/ #\d+$/, "");
+    const b = todasCriaturas().find((x) => x.n === base0) || (camp.bestiario || []).find((x) => x.n === base0);
+    if (b?.habs?.length) { c.habs = b.habs; return c.habs; }   // gruda na linha para o próximo salvamento
+    return [];
+  };
   if (!camp.combate_nave || typeof camp.combate_nave !== "object" || !("inimigas" in camp.combate_nave)) camp.combate_nave = combateNaveVazio();
   if (!camp.faccoes || typeof camp.faccoes !== "object") camp.faccoes = {};
   if (!Array.isArray(camp.contratos)) camp.contratos = [];
@@ -1975,6 +1989,19 @@ async function telaMesa(id) {
     const nave = camp.nave;
     const meuPosto = membros?.find((m) => m.perfil_id === usuario.id)?.posto;
     const cbn = camp.combate_nave || combateNaveVazio();
+    // Janela visível do campo tático: tudo (40 m) ou aproximada (12 m em volta do foco).
+    const vistaCampo = (() => {
+      if (!campoZoom) return { ini: 0, fim: CAMPO_LARGURA };
+      const foco = camp.combate.ordem.find((c) => c.id === tokenSel && !ehNave(c))
+        || camp.combate.ordem[camp.combate.turno]
+        || camp.combate.ordem.find((c) => !ehNave(c));
+      const cx = foco?.pos?.x ?? CAMPO_LARGURA / 2;
+      const ini = Math.max(0, Math.min(CAMPO_LARGURA - CAMPO_JANELA, cx - CAMPO_JANELA / 2));
+      return { ini, fim: ini + CAMPO_JANELA };
+    })();
+    const vistaLarg = vistaCampo.fim - vistaCampo.ini;
+    const pctX = (x) => ((x - vistaCampo.ini) / vistaLarg) * 100;
+    const tokenSelObj = camp.combate.ordem.find((c) => c.id === tokenSel && !ehNave(c)) || null;
     shell("mesa", `
       <nav class="topo"><a class="btn-ghost" href="#/campanhas">← CAMPANHAS</a>
         <div class="topo-status">${esc(camp.nome)} · código <b class="chrome">${camp.codigo}</b></div><span style="display:flex;gap:6px"><button id="atalhos" class="btn-ghost so-desktop" title="Atalhos de teclado (?)">⌨</button><button id="abrir-diario" class="btn-ghost" title="Diário da campanha">📔 DIÁRIO</button>${ehMestreReal ? `<button id="modo-jogador" class="btn-ghost ${modoJogador ? "on" : ""}" title="${modoJogador ? "Você está jogando como tripulante. Clique para voltar a ser Mestre." : "Testar/jogar como um tripulante comum — some as ferramentas e os privilégios de Mestre."}">${modoJogador ? "🎭 MODO JOGADOR" : "👑 MESTRE"}</button>` : ""}${souMestre ? `<button id="abrir-mestre" class="btn-ghost" title="Tela do Mestre">🎛 MESTRE</button>` : ""}<button id="abrir-mapa" class="btn-ghost" title="Mapa do sistema (compartilhado)">🗺 MAPA</button></span></nav>
@@ -2008,24 +2035,48 @@ async function telaMesa(id) {
                   const bloq = (camp.combate.avarias || []).some((av) => av.bloqueia === pk);
                   return `<span class="posto ${agiu ? "ok" : ""} ${quem ? "" : "vazio"} ${bloq ? "bloq" : ""}" title="${bloq ? "Posto inacessível por avaria" : quem ? esc(quem.perfis?.apelido || "") : "vago"}">${esc(ESTACOES[pk].n.split(" ")[0])}${bloq ? " ⛔" : agiu ? " ✓" : ""}</span>`; }).join("")}</div>
               </div>`; })() : ""}
-            ${camp.combate.ordem.some((c) => !ehNave(c)) ? `<div class="cb-campo" id="cb-campo" title="Campo tático — passe o mouse para o grid de 1 m; arraste o seu token no seu turno">
+            ${camp.combate.ordem.some((c) => !ehNave(c)) ? `<div class="cb-campo ${campoZoom ? "perto" : ""}" id="cb-campo" style="--g1:${((1 / vistaLarg) * 100).toFixed(3)}%;--g5:${((5 / vistaLarg) * 100).toFixed(3)}%">
+              <div class="cb-campo-topo">
+                <button id="cb-zoom" class="mini" title="${campoZoom ? "Ver o campo inteiro (40 m)" : "Aproximar: janela de 12 m com grade de 1 m"}">${campoZoom ? "🔎− afastar" : "🔎+ aproximar"}</button>
+                <span class="dim">${Math.round(vistaCampo.ini)}–${Math.round(vistaCampo.fim)} m · grade ${campoZoom ? "1" : "5"} m</span>
+                ${tokenSelObj ? `<button id="cb-limpar-sel" class="mini" title="Limpar seleção">✕ ${esc(tokenSelObj.nome.slice(0, 12))}</button>` : ""}
+              </div>
+              ${tokenSelObj?.pos ? (() => {
+                const a = Math.max(vistaCampo.ini, tokenSelObj.pos.x - ALCANCE_CAC);
+                const b2 = Math.min(vistaCampo.fim, tokenSelObj.pos.x + ALCANCE_CAC);
+                return b2 > a ? `<div class="cb-alcance" style="left:${pctX(a).toFixed(2)}%;width:${(pctX(b2) - pctX(a)).toFixed(2)}%" title="Alcance corpo-a-corpo de ${esc(tokenSelObj.nome)} — ${String(ALCANCE_CAC).replace(".", ",")} m"></div>` : "";
+              })() : ""}
               ${Array.from({ length: CAMPO_PISTAS }, (_, lane) => {
                 const naPista = camp.combate.ordem.filter((c) => !ehNave(c) && (c.pos?.lane ?? 1) === lane)
-                  .sort((a, b) => (a.pos?.x ?? 20) - (b.pos?.x ?? 20));
+                  .sort((a, b2) => (a.pos?.x ?? 20) - (b2.pos?.x ?? 20));
                 let stack = 0;
                 return `<div class="cb-pista" data-lane="${lane}" data-rot="${["frente", "meio", "fundo"][lane] || ""}">${naPista.map((c, idx) => {
                   const prev = naPista[idx - 1];
-                  stack = (prev && Math.abs((c.pos?.x ?? 20) - (prev.pos?.x ?? 20)) < 3) ? stack + 1 : 0;
-                  const px = ((c.pos?.x ?? 20) / CAMPO_LARGURA) * 100;
+                  const pertinho = vistaLarg / 14;   // metros que ainda causam sobreposição visual
+                  stack = (prev && Math.abs((c.pos?.x ?? 20) - (prev.pos?.x ?? 20)) < pertinho) ? stack + 1 : 0;
+                  const px = pctX(c.pos?.x ?? 20);
+                  if (px < -4 || px > 104) return "";
                   const meu = c.personagem_id && c.personagem_id === meuPers?.id;
                   const vez = camp.combate.ordem[camp.combate.turno]?.id === c.id;
                   const movivel = souMestre || (meu && vez);
                   const lado = (c.tipo === "inimigo" || c.lado === "inimiga") ? "inim" : "aliado";
-                  return `<span class="cb-token ${lado} ${foraDeCombate(c) ? "morto" : ""} ${vez ? "vez" : ""} ${movivel ? "movivel" : ""}" data-token="${c.id}" style="left:${px.toFixed(1)}%;--stack:${stack}" title="${esc(c.nome)} · x ${Math.round(c.pos?.x ?? 20)} m · pista ${(c.pos?.lane ?? 1) + 1}">${esc(c.nome.replace(/ #\d+$/, "").slice(0, 5))}</span>`;
+                  const dSel = tokenSelObj && tokenSelObj.id !== c.id ? distCombate(tokenSelObj, c) : null;
+                  const rel = dSel == null ? "" : (dSel <= ALCANCE_CAC ? "perto" : "longe");
+                  return `<span class="cb-token ${lado} ${foraDeCombate(c) ? "morto" : ""} ${vez ? "vez" : ""} ${movivel ? "movivel" : ""} ${c.id === tokenSel ? "sel" : ""} ${rel}" data-token="${c.id}" style="left:${px.toFixed(2)}%;--stack:${stack}" title="${esc(c.nome)} · x ${(c.pos?.x ?? 20).toFixed(1).replace(".", ",")} m · pista ${(c.pos?.lane ?? 1) + 1}${dSel != null ? ` · ${dSel.toFixed(1).replace(".", ",")} m de ${esc(tokenSelObj.nome)}` : ""}">${esc(c.nome.replace(/ #\d+$/, "").slice(0, 5))}</span>`;
                 }).join("")}</div>`;
               }).join("")}
-              <div class="cb-regua">${Array.from({ length: CAMPO_LARGURA / 5 + 1 }, (_, i) => i * 5).map((m) => `<span style="left:${(m / CAMPO_LARGURA) * 100}%">${m}</span>`).join("")}</div>
-            </div>` : ""}
+              <div class="cb-regua">${(() => { const passo = vistaLarg <= 15 ? 1 : 5; const out = [];
+                for (let m = Math.ceil(vistaCampo.ini / passo) * passo; m <= vistaCampo.fim + 0.001; m += passo)
+                  out.push(`<span class="${m % 5 === 0 ? "maior" : ""}" style="left:${pctX(m).toFixed(2)}%">${m}</span>`);
+                return out.join(""); })()}</div>
+            </div>
+            ${tokenSelObj ? `<div class="cb-distancias"><b class="chrome">${esc(tokenSelObj.nome)}</b> <span class="dim">corpo-a-corpo ${String(ALCANCE_CAC).replace(".", ",")} m</span>
+              ${camp.combate.ordem.filter((c) => !ehNave(c) && c.id !== tokenSelObj.id && !foraDeCombate(c))
+                .map((c) => ({ c, dd: distCombate(tokenSelObj, c) })).filter((o) => o.dd != null)
+                .sort((a, b2) => a.dd - b2.dd)
+                .map(({ c, dd }) => `<span class="cb-dist ${dd <= ALCANCE_CAC ? "ok" : ""}">${dd <= ALCANCE_CAC ? "⚔" : "·"} ${esc(c.nome.replace(/ #\d+$/, "").slice(0, 14))} <b>${dd.toFixed(1).replace(".", ",")}</b></span>`).join("")
+                || `<span class="dim">ninguém mais de pé no campo</span>`}</div>`
+              : `<p class="regra cb-campo-dica">Clique num token para ver o alcance corpo-a-corpo e a distância para os outros.</p>`}` : ""}
             <div class="cb-lista">${camp.combate.ordem.map((c, i) => `
               <div class="cb-linha ${i === camp.combate.turno ? "cb-atual" : ""} ${foraDeCombate(c) ? "cb-morto" : ""} ${ehNave(c) ? "cb-nave" : ""}">
                 <span class="cb-ini" title="Iniciativa">${c.ini}</span>
@@ -3037,8 +3088,14 @@ async function telaMesa(id) {
       await enviar("sistema", `${inf?.ic || "🏷"} ${c.nome} está ${r.cond} por ${r.turnos} turno(s).${inf?.dano ? ` Sofrerá ${inf.dano} no início de cada turno.` : ""}`);
       await salvarCombate(); render();
     });
-    // ---- Campo tático: arrastar o próprio token no turno (o Mestre move qualquer um) ----
+    // ---- Campo tático: selecionar (ver alcance) e arrastar o próprio token no turno ----
     const campoEl = $("#cb-campo");
+    const alternarSel = (idTok) => { tokenSel = tokenSel === idTok ? null : idTok; render(); };
+    $("#cb-zoom")?.addEventListener("click", () => { campoZoom = !campoZoom; render(); });
+    $("#cb-limpar-sel")?.addEventListener("click", () => { tokenSel = null; render(); });
+    if (campoEl) campoEl.querySelectorAll(".cb-token:not(.movivel)").forEach((tok) => {
+      tok.addEventListener("click", () => alternarSel(tok.dataset.token));
+    });
     if (campoEl) campoEl.querySelectorAll(".cb-token.movivel").forEach((tok) => {
       tok.addEventListener("pointerdown", (ev) => {
         ev.preventDefault();
@@ -3055,18 +3112,19 @@ async function telaMesa(id) {
         tok.classList.add("arrastando");
         let nx = c.pos.x, nlane = c.pos.lane;
         const mover = (e) => {
-          nx = Math.max(0, Math.min(CAMPO_LARGURA, ((e.clientX - rect.left) / rect.width) * CAMPO_LARGURA));
+          const frac = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+          nx = Math.max(0, Math.min(CAMPO_LARGURA, vistaCampo.ini + frac * vistaLarg));
           const li = pistas.findIndex((el) => { const r2 = el.getBoundingClientRect(); return e.clientY >= r2.top - 8 && e.clientY <= r2.bottom + 8; });
           if (li >= 0) nlane = li;
-          tok.style.left = ((nx / CAMPO_LARGURA) * 100).toFixed(1) + "%";
+          tok.style.left = pctX(nx).toFixed(2) + "%";
           if (pistas[nlane] && tok.parentElement !== pistas[nlane]) pistas[nlane].appendChild(tok);
         };
         const soltar = async () => {
           window.removeEventListener("pointermove", mover); window.removeEventListener("pointerup", soltar);
           tok.classList.remove("arrastando");
           const andou = Math.hypot(nx - origem.x, (nlane - origem.lane) * PISTA_M);
-          if (andou < 0.4) return render();   // clique sem arrastar: volta ao lugar
-          if (andou > maxMov + 0.01) { alert(`${c.nome} só anda ${maxMov}m neste turno (tentou ${Math.round(andou)}m).`); return render(); }
+          if (andou < 0.4) return alternarSel(tok.dataset.token);   // clique sem arrastar: seleciona
+          if (andou > maxMov + 0.01) { alert(`${c.nome} só anda ${maxMov} m neste turno (tentou ${andou.toFixed(1).replace(".", ",")} m).`); return render(); }
           snapshot("mover no campo");
           c.pos = { x: Math.round(nx * 10) / 10, lane: nlane };
           await salvarCombate(); render();
@@ -3078,8 +3136,8 @@ async function telaMesa(id) {
       const encerrou = camp.combate.ordem[camp.combate.turno];   // quem termina o turno agora
       proximoTurno(camp.combate); if (camp.combate.rodada !== rodAntes) camp.combate.agiram = []; const atual = camp.combate.ordem[camp.combate.turno];
       // FIM DE TURNO: efeitos declarados da criatura que acabou de agir
-      if (encerrou && encerrou !== atual && encerrou.habs?.some((h) => h.efeito && h.gatilho === "fim_turno")) {
-        const M = await criaturaMod(); const cr = M.criar(encerrou, rolarTexto);
+      if (encerrou && encerrou !== atual && habsDoCombatente(encerrou).some((h) => h.efeito && h.gatilho === "fim_turno")) {
+        const M = await criaturaMod(); const cr = M.criar({ ...encerrou, habs: habsDoCombatente(encerrou) }, rolarTexto);
         for (const r of cr.disparar(M.GATILHOS.FIM_TURNO)) {
           if (r.tipo === "cura") { encerrou.hp = Math.min(encerrou.hp_max, (encerrou.hp || 0) + r.valor);
             await enviar("sistema", `♻ ${encerrou.nome} — ${r.habilidade}: ${r.texto} (${encerrou.hp}/${encerrou.hp_max}).`); }
@@ -3116,9 +3174,9 @@ async function telaMesa(id) {
           await enviar("sistema", `🚀 A Manobra Evasiva se esgota: a Defesa da nave volta ao normal.`);
         }
         // 0) Efeitos automáticos da própria criatura (regeneração, auras, invocações)
-        if (atual.habs?.some((h) => h.efeito)) {
+        if (habsDoCombatente(atual).some((h) => h.efeito)) {
           const M = await criaturaMod();
-          const cr = M.criar(atual, rolarTexto);
+          const cr = M.criar({ ...atual, habs: habsDoCombatente(atual) }, rolarTexto);
           for (const r of cr.disparar(M.GATILHOS.INICIO_TURNO)) {
             if (r.tipo === "cura") { atual.hp = Math.min(atual.hp_max, (atual.hp || 0) + r.valor);
               await enviar("sistema", `♻ ${atual.nome} — ${r.habilidade}: ${r.texto} (${atual.hp}/${atual.hp_max}).`); }
@@ -3176,9 +3234,9 @@ async function telaMesa(id) {
       }
       // AO MORRER: efeitos declarados de quem caiu desde o último turno (varre uma vez).
       for (const c2 of camp.combate.ordem) {
-        if (c2._morreu || !foraDeCombate(c2) || !c2.habs?.some((h) => h.efeito && h.gatilho === "ao_morrer")) continue;
+        if (c2._morreu || !foraDeCombate(c2) || !habsDoCombatente(c2).some((h) => h.efeito && h.gatilho === "ao_morrer")) continue;
         c2._morreu = true;
-        const M = await criaturaMod(); const cr = M.criar(c2, rolarTexto);
+        const M = await criaturaMod(); const cr = M.criar({ ...c2, habs: habsDoCombatente(c2) }, rolarTexto);
         for (const r of cr.disparar(M.GATILHOS.AO_MORRER))
           await enviar("sistema", `💀 ${c2.nome} — ${r.habilidade}: ${r.texto || "efeito ao morrer"}.${r.tipo === "invocar" ? " O Mestre adiciona ao rastreador." : ""}`);
       }
