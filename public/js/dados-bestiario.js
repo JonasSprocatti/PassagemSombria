@@ -39,7 +39,7 @@ export const BESTIARIO = [
      { n: "Paranoia", d: "Imune a detecção térmica/tecnológica; só se revela por falhas de memória." }]),
   C("Espectro do Vácuo", "Crias do Vazio", "Elite", 45, 16, 15,
     [{ n: "Lâmina de Fenda", bonus: 6, dano: "1d10", extra: "psíquico; ignora armadura física" }],
-    [{ n: "Intangibilidade Cinética", d: "Imune a TODO dano físico. Só sofre de energia pura (plasma, íons, lasers) ou Scripts de Tecnomancia." }],
+    [{ n: "Intangibilidade Cinética", d: "Imune a TODO dano físico. Só sofre de energia pura (plasma, íons, lasers) ou Scripts de Tecnomancia." , gatilho: "aura", efeito: { tipo: "imunidade", a: "físico" }}],
     { nota: "Voa / atravessa paredes." }),
   C("Devorador de Mundos", "Crias do Vazio", "Chefe", 80, 14, 9,
     [{ n: "Mordida Voraz", bonus: 5, dano: "2d6+3" }],

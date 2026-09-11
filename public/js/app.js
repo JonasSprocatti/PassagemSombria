@@ -115,6 +115,7 @@ export const novaFichaDados = () => ({
   pontosAttr: { For: 0, Des: 0, Con: 0, Int: 0, Sab: 0, Car: 0 },
   modoAttr: "pontos", rolagem: { For: null, Des: null, Con: null, Int: null, Sab: null, Car: null }, rolagemPool: [],
   pvAtual: 0, pvMax: 0, cdExtra: 0, creditos: 100,
+  pvTemp: 0, escudoGasto: 0,          // PV Temporário e o quanto do escudo pessoal já foi consumido
   periciasExtra: {}, implantes: [], patrocinados: [],
   deck: [], ramGasta: 0, usos: {}, inventario: [], notas: "",
   metodoNivel: "manual", xp: 0, xpMeta: 1000, marcos: 0, log: [], usarVidaFixa: false,
@@ -178,6 +179,10 @@ export function calc(f) {
   // Pentes que a pessoa carrega: 5 + mod de Força (1 no cano + o resto na reserva).
   k.pentesMax = Math.max(2, 5 + (k.attr.For || 0));
   k.pentesReserva = k.pentesMax - 1;
+  // Escudo pessoal (armadura com `absorve`): soma que some antes do PV; recarrega no descanso.
+  k.escudoMax = armRef?.absorve || 0;
+  k.escudoLivre = Math.max(0, k.escudoMax - (f.escudoGasto || 0));
+  k.pvTemp = Math.max(0, f.pvTemp || 0);
   k.efeitos = fe;
   return k;
 }
@@ -350,6 +355,19 @@ function abilidadesDeDescanso(f) {
   if (raca?.lendaria && f.nivel >= 10) { const fr = freqDescanso(raca.lendaria) || "longo"; out.push({ id: "lend", nome: raca.lendaria.n, origem: `${raca.nome} · Lendária`, freq: fr }); }
   return out;
 }
+// Habilidades que recarregam por SESSÃO (o Mestre abre a sessão na tela dele).
+function abilidadesDeSessao(f) {
+  const out = [];
+  const raca = RACAS.find((r) => r.nome === f.raca), classe = CLASSES[f.classe];
+  const filo = f.filosofia ? FILOSOFIAS[f.filosofia] : null;
+  const ehSessao = (h) => h && (h.freq === "sessao" || /1x\s*\/\s*sess|por sess[ãa]o|1 vez por sess/i.test(`${h.n || ""} ${h.d || ""}`)
+    || (h.efeitos || []).some((e) => e.tipo === "recurso" && e.freq === "sessao"));
+  (classe?.hab || []).forEach((h, i) => { if (ehSessao(h)) out.push({ id: `cl${i}`, nome: h.n }); });
+  if (classe?.vet && f.nivel >= 5 && ehSessao(classe.vet)) out.push({ id: "vet", nome: classe.vet.n });
+  if (filo && ehSessao(filo)) out.push({ id: "filo", nome: f.filosofia });
+  (raca?.habilidades || []).forEach((h, i) => { if (ehSessao(h)) out.push({ id: `ra${i}`, nome: h.n }); });
+  return out;
+}
 // Duração de uma habilidade no nível atual (o Ven'y sobe para 5 e 8 turnos).
 function duracaoDe(h, nivel) {
   if (!h?.duracao) return null;
@@ -422,6 +440,10 @@ function aplicarDescanso(f, tipo) {
   f.usos = f.usos || {};
   const notas = [];
   let pvRec = 0, ramRec = 0, habsReset = 0;
+  // Qualquer descanso recarrega o escudo pessoal e dissolve o PV Temporário
+  // (que vale "até o fim da batalha").
+  if (f.escudoGasto) { notas.push("escudo pessoal recarregado"); f.escudoGasto = 0; }
+  if (f.pvTemp) { notas.push(`${f.pvTemp} PV Temporário se dissolve`); f.pvTemp = 0; }
   if (tipo === "longo") {
     pvRec = Math.max(0, (f.pvMax || 0) - (f.pvAtual || 0));
     f.pvAtual = f.pvMax || 0;
@@ -513,6 +535,10 @@ const CONDICOES_INFO = [
   { n: "Marcado",      ic: "🎯", dano: null,  d: "Aliados de quem marcou ganham +2 no acerto contra o alvo." },
   { n: "Lento",        ic: "🐌", dano: null,  d: "Perde a Ação de Movimento no próximo turno." },
   { n: "Amedrontado",  ic: "😨", dano: null,  d: "Desvantagem contra a fonte do medo; não pode se aproximar dela." },
+  { n: "Acovardado",   ic: "😖", dano: null,  d: "Cabeça baixa sob fogo: ataca com Desvantagem." },
+  { n: "Dominado",     ic: "🕸", dano: null,  d: "Age sob comando de quem o dominou: perde a Ação Principal." },
+  { n: "Surpreso",     ic: "❕", dano: null,  d: "Pego de surpresa: não age na rodada surpresa." },
+  { n: "Subsistema off", ic: "🔌", dano: null, d: "Um sistema da nave está desativado." },
   { n: "Enfraquecido", ic: "💔", dano: null,  d: "Causa metade do dano em ataques físicos." },
   { n: "Silenciado",   ic: "🔇", dano: null,  d: "Não conjura Scripts nem usa habilidades que exijam fala." },
 ];
@@ -544,6 +570,31 @@ const ALCANCE_ARMA = { curto: 15, medio: 30, longo: 40 };
 // Distância entre dois combatentes no campo, em metros (null se algum não tem posição).
 const distCombate = (a, b) => (a?.pos && b?.pos)
   ? Math.hypot(a.pos.x - b.pos.x, (a.pos.lane - b.pos.lane) * PISTA_M) : null;
+// ---- Tipos de dano ----
+// "verdadeiro" atravessa qualquer resistência ou imunidade.
+const TIPOS_DANO = ["físico", "térmico", "químico", "elétrico", "psíquico", "gélido", "ácido", "verdadeiro"];
+const semAcento = (s) => String(s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+// Tipo de dano de uma arma: deriva da palavra-chave, senão é físico.
+function tipoDanoArma(cat) {
+  const kw = semAcento(cat?.kw);
+  if (/derretimento|incendi|termic|plasma|maçarico|macarico/.test(kw)) return "térmico";
+  if (/toxic|toxina|acid/.test(kw)) return "químico";
+  if (/emp|anti-sintetic|eletric|choque/.test(kw)) return "elétrico";
+  return "físico";
+}
+// Tipo de dano de um ataque de criatura: lido do texto de `extra` ("psíquico", "ácido"…).
+function tipoDanoAtaque(atk) {
+  const e = semAcento(atk?.extra);
+  return TIPOS_DANO.find((t) => e.includes(semAcento(t))) || "físico";
+}
+// Imunidade declarada a um tipo de dano (habs com efeito imunidade cujo `a` é um tipo).
+function imuneAoDano(habs, tipo) {
+  if (!tipo || tipo === "verdadeiro") return null;
+  const alvo = semAcento(tipo);
+  return (habs || []).find((h) => h.efeito?.tipo === "imunidade" && h.efeito.a
+    && TIPOS_DANO.some((t) => semAcento(t) === semAcento(h.efeito.a))
+    && semAcento(h.efeito.a) === alvo) || null;
+}
 // Até onde a arma chega, em metros. Branca fica no corpo-a-corpo (a menos que a
 // palavra-chave Alcance estenda); de fogo vai do curto ao longo conforme a chave.
 function alcanceDaArma(cat, pr) {
@@ -1304,7 +1355,7 @@ async function telaFicha(id) {
         </div>
         <p class="regra">⏱️ Iniciativa <b class="chrome">${sign(k.iniciativa)}</b> (Des ${sign(k.attr.Des)}${k.iniBonus ? ` +${k.iniBonus} bônus de classe/filosofia` : ""}) · 🏃 Deslocamento <b class="chrome">${k.deslocamento}m</b> (base ${k.deslocBase} + 2m×Des${k.deslocBase === 18 ? ", ×2 Mercusys" : ""})</p>
         ${classe && raca && f.pvMax === 0 ? `<button id="pv-inicial" class="mini eq">🎲 ROLAR PV DO NÍVEL 1 (4d6 tira o menor ${sign(raca.vidaMod)} raça ${sign(k.attr.Con)} Con +${classe.pv} classe)</button>` : ""}
-        <p class="regra">Limite Cibernético: ${f.implantes.length}/${k.limite} · Patrimônio ref. NV${f.nivel}: ${RIQUEZA[f.nivel]} CG · Deck: ${f.deck.length}/${k.deckMax}${k.attr && ["For","Des","Con","Int","Sab","Car"].some((a) => k.attr[a] > 6) ? " · ⚠ atributo acima do teto +6" : ""}</p>
+        <p class="regra">Limite Cibernético: ${f.implantes.length}/${k.limite} · Patrimônio ref. NV${f.nivel}: ${RIQUEZA[f.nivel]} CG · Deck: ${f.deck.length}/${k.deckMax}${k.pvTemp ? ` · ✚ ${k.pvTemp} PV Temporário` : ""}${k.escudoMax ? ` · 🛡 Escudo pessoal ${k.escudoLivre}/${k.escudoMax}` : ""}${k.attr && ["For","Des","Con","Int","Sab","Car"].some((a) => k.attr[a] > 6) ? " · ⚠ atributo acima do teto +6" : ""}</p>
       </section>
 
       <section class="sec"><header><span class="tag">☾</span><h2>Descansos & Habilidades por Descanso</h2>
@@ -1739,12 +1790,16 @@ async function telaCampanhas() {
 
 // ---------------- MESA (chat + rolagens + dano + nave) ----------------
 async function telaMesa(id) {
-  const [{ data: camp }, { data: membros }, { data: pers }, { data: msgs }] = await Promise.all([
+  const [{ data: camp }, { data: membros }, { data: pers }, { data: msgsDesc }] = await Promise.all([
     sb.from("campanhas").select("*").eq("id", id).single(),
     sb.from("campanha_membros").select("perfil_id,posto,perfis(apelido)").eq("campanha_id", id),
     sb.from("personagens").select("id,nome,dono_id,dados").eq("campanha_id", id),
-    sb.from("mensagens").select("*,perfis:autor_id(apelido,avatar_url)").eq("campanha_id", id).order("criado_em", { ascending: true }).limit(120),
+    // Pega as 120 MAIS RECENTES (desc) e devolve pro chat em ordem cronológica (asc).
+    // Antes buscava com .order(asc).limit(120): pegava as 120 mais ANTIGAS, e com
+    // campanhas que já passaram desse teto, tudo recente sumia da tela ao recarregar.
+    sb.from("mensagens").select("*,perfis:autor_id(apelido,avatar_url)").eq("campanha_id", id).order("criado_em", { ascending: false }).limit(120),
   ]);
+  const msgs = msgsDesc ? [...msgsDesc].reverse() : msgsDesc;
   if (!camp) return (location.hash = "#/campanhas");
   const { data: meus } = await sb.from("personagens").select("id,nome").eq("dono_id", usuario.id);
   // Com mais de um personagem seu na mesma mesa, vale a escolha guardada neste
@@ -1809,8 +1864,11 @@ async function telaMesa(id) {
   // rastreador. Aplica, nesta ordem: couraça por limiar de criatura (Guardião
   // de Anéis), redução de dano do alvo (Endurecer, filosofias), e então o corpo.
   // O Mestre ainda ajusta livre pelos botões ±5 / definir HP — esses não passam aqui.
-  const aplicarDanoAlvo = async (alvo, valor) => {
+  const aplicarDanoAlvo = async (alvo, valor, tipoDano = "físico") => {
     if (!alvo || !(valor > 0)) return { aplicado: 0, msg: "" };
+    // Imunidade declarada a este tipo de dano (Espectro do Vácuo vs físico).
+    const imu = imuneAoDano(habsDoCombatente(alvo), tipoDano);
+    if (imu) return { aplicado: 0, imune: true, msg: `imune a dano ${tipoDano} (${imu.n}) — sem efeito` };
     if (ehNave(alvo)) {
       const r = danoNave(alvo, valor);
       if (alvo.nave_party && camp.nave) { camp.nave.casco = alvo.casco; camp.nave.escudos = alvo.escudos;
@@ -1822,19 +1880,54 @@ async function telaMesa(id) {
     if (lim && valor < lim.efeito.limiar) {
       return { aplicado: 0, absorvido: true, msg: `couraça: golpe abaixo de ${lim.efeito.limiar} não arranha` };
     }
-    let reduzido = 0;
+    // ---- Alvo com ficha: redução → escudo pessoal → PV Temporário → corpo ----
     if (alvo.personagem_id) {
       // Lê a ficha fresca do banco: a cópia do render pode não ter os modos ligados (Endurecer).
       const { data: fresco } = await sb.from("personagens").select("dados").eq("id", alvo.personagem_id).single();
-      const ddA = fresco?.dados || (pers || []).find((x) => x.id === alvo.personagem_id)?.dados;
-      if (ddA) reduzido = calc({ ...novaFichaDados(), ...ddA }).efeitos?.aoSofrer?.().reducao || 0;
+      const pjA = (pers || []).find((x) => x.id === alvo.personagem_id);
+      const dd = { ...novaFichaDados(), ...(fresco?.dados || pjA?.dados || {}) };
+      const kA = calc(dd);
+      // Endurecer e afins só abatem dano FÍSICO.
+      const reduzido = tipoDano === "físico" ? (kA.efeitos?.aoSofrer?.().reducao || 0) : 0;
+      let resta = Math.max(0, valor - reduzido);
+      const noEscudo = Math.min(kA.escudoLivre, resta);
+      if (noEscudo) { dd.escudoGasto = (dd.escudoGasto || 0) + noEscudo; resta -= noEscudo; }
+      const noTemp = Math.min(dd.pvTemp || 0, resta);
+      if (noTemp) { dd.pvTemp = (dd.pvTemp || 0) - noTemp; resta -= noTemp; }
+      const antesPv = dd.pvAtual || 0;
+      dd.pvAtual = Math.max(0, antesPv - resta);
+      const partes = [];
+      if (reduzido) partes.push(`−${reduzido} redução`);
+      if (noEscudo) partes.push(`🛡 escudo absorve ${noEscudo}`);
+      if (noTemp) partes.push(`✚ PV temp absorve ${noTemp}`);
+      partes.push(`−${resta} (${dd.pvAtual}/${dd.pvMax || alvo.hp_max})`);
+      dd.log = [{ q: new Date().toISOString(), t: `💥 ${valor} de dano — ${partes.join(" · ")}` }, ...(dd.log || [])].slice(0, 60);
+      await sb.from("personagens").update({ dados: dd }).eq("id", alvo.personagem_id);
+      if (pjA) pjA.dados = dd;
+      if (meuPers && meuPers.id === alvo.personagem_id) meuPers.dados = dd;
+      alvo.hp = dd.pvAtual;   // o rastreador acompanha a ficha
+      return { aplicado: resta, reduzido, escudo: noEscudo, temp: noTemp, msg: partes.join(" · ") };
     }
-    const efetivo = Math.max(0, valor - reduzido);
-    const antes = alvo.hp ?? 0;
-    alvo.hp = Math.max(0, antes - efetivo);
-    await sincronizarFicha(alvo, alvo.hp - antes);
-    return { aplicado: efetivo, reduzido,
-      msg: `${reduzido ? `−${reduzido} redução · ` : ""}−${efetivo} (${alvo.hp}/${alvo.hp_max})` };
+    // ---- Criatura: PV Temporário vive na própria linha do rastreador ----
+    let resta = valor;
+    const noTemp = Math.min(alvo.pvTemp || 0, resta);
+    if (noTemp) { alvo.pvTemp = (alvo.pvTemp || 0) - noTemp; resta -= noTemp; }
+    let mortos = 0;
+    if (!(alvo.qtd > 1)) {
+      alvo.hp = Math.max(0, (alvo.hp ?? 0) - resta);
+    } else {
+      // Bando: o excesso de dano transborda para o próximo lacaio da fila.
+      let sobra = resta;
+      while (sobra > 0 && alvo.qtd > 0) {
+        const tira = Math.min(sobra, alvo.hp);
+        alvo.hp -= tira; sobra -= tira;
+        if (alvo.hp > 0) break;
+        alvo.qtd -= 1; mortos++;
+        if (alvo.qtd > 0) alvo.hp = alvo.hp_max; else { alvo.hp = 0; break; }
+      }
+    }
+    return { aplicado: resta, temp: noTemp, mortos,
+      msg: `${noTemp ? `✚ PV temp absorve ${noTemp} · ` : ""}−${resta}${mortos ? ` · ${mortos} caiu${mortos > 1 ? "ram" : ""}, restam ${alvo.qtd}` : ""} (${alvo.hp}/${alvo.hp_max})` };
   };
   // Instinto Evasivo do Piloto: +Defesa na nave da tripulação enquanto ele está no leme.
   const bonusDefVeiculo = () => {
@@ -1850,7 +1943,7 @@ async function telaMesa(id) {
     return 10 + (camp.nave?.manobra || 0) + bonusDefVeiculo() + extra;
   };
   // Auras de criatura (gatilho "aura"): valem enquanto a criatura está viva no
-  // rastreador. Sem sistema de posição, a zona alcança todo o combate.
+  // rastreador. `fonte` guarda a linha dela para medir o raio no campo tático.
   const aurasAtivas = () => {
     if (!camp.combate?.ativo) return [];
     const out = [];
@@ -1859,20 +1952,49 @@ async function telaMesa(id) {
       for (const h of habsDoCombatente(c)) {
         if (!h.efeito || h.gatilho !== "aura") continue;
         const e = h.efeito;
-        if (e.tipo === "zona") out.push({ criatura: c.nome, hab: h.n, raio: e.raio, nega: e.nega || [] });
-        else if (e.tipo === "imunidade") out.push({ criatura: c.nome, hab: h.n, imune: e.a, limiar: e.limiar });
+        if (e.tipo === "zona") out.push({ criatura: c.nome, hab: h.n, raio: e.raio, nega: e.nega || [], fonte: c });
+        else if (e.tipo === "imunidade") out.push({ criatura: c.nome, hab: h.n, imune: e.a, limiar: e.limiar, fonte: c });
       }
     }
     return out;
   };
-  const auraNega = (oque) => aurasAtivas().some((a) => (a.nega || []).includes(oque));
+  // A zona só pega quem está dentro do raio da criatura. Sem posição dos dois
+  // lados (ou sem raio declarado), vale para o combate inteiro, como antes.
+  const aurasSobre = (quem, oque) => aurasAtivas().filter((a) => {
+    if (oque && !(a.nega || []).includes(oque)) return false;
+    if (!a.raio || !quem?.pos || !a.fonte?.pos) return true;
+    const dd = distCombate(a.fonte, quem);
+    return dd == null || dd <= a.raio;
+  });
+  const auraNega = (oque, quem) => aurasSobre(quem ?? minhaLinhaCb(), oque).length > 0;
   // Linha do rastreador do personagem ativo; e a condição que trava a ação dele,
   // se houver (Atordoado / Paralisado, + as passadas em `extra`). Mestre nunca trava.
   const minhaLinhaCb = () => (camp.combate?.ativo ? camp.combate.ordem.find((x) => x.personagem_id === meuPers?.id) : null) || null;
   const minhaTrava = (extra = []) => {
     if (souMestre) return null;
-    const bloq = ["atordoado", "paralisado", ...extra];
+    const bloq = ["atordoado", "paralisado", "dominado", "surpreso", ...extra];
     return (minhaLinhaCb()?.cond || []).find((c) => bloq.includes(c.n.toLowerCase())) || null;
+  };
+  // ---- Economia de ações ----------------------------------------------------
+  // Cada combatente gasta Ação Principal (p) e de Movimento (m) no próprio turno,
+  // e uma Reação (r) por rodada, que pode ser usada no turno de qualquer um.
+  // Ação Livre não consome nada. O Mestre sempre pode forçar.
+  const ROT_ACAO = { p: "Ação Principal", m: "Ação de Movimento", r: "Reação" };
+  const chaveAcao = (txt) => /principal/i.test(txt || "") ? "p"
+    : /movimento/i.test(txt || "") ? "m" : /rea[çc]/i.test(txt || "") ? "r" : null;
+  const gastarAcao = async (tipoTxt, oque = "") => {
+    const chave = chaveAcao(tipoTxt);
+    if (!chave || !camp.combate?.ativo) return true;   // livre, ou fora de combate
+    const linha = minhaLinhaCb();
+    if (!linha) return true;                            // não está no rastreador
+    linha.acoes = linha.acoes || {};
+    if (linha.acoes[chave]) {
+      if (!souMestre) { alert(`${meuPers.nome} já usou a ${ROT_ACAO[chave]} nesta rodada${oque ? ` (tentou: ${oque})` : ""}.`); return false; }
+      if (!(await confirmModal(`A ${ROT_ACAO[chave]} de ${linha.nome} já foi usada nesta rodada.\n\nUsar assim mesmo?`, { okLabel: "Usar mesmo assim" }))) return false;
+    }
+    linha.acoes[chave] = true;
+    await salvarCombate();
+    return true;
   };
   if (!Array.isArray(camp.bestiario)) camp.bestiario = [];
   // Habilidades declaradas de um combatente. Linhas antigas do rastreador foram
@@ -1941,15 +2063,33 @@ async function telaMesa(id) {
   //  atributo+cd → o alvo faz um teste de resistência (d20 + atributo) contra a CD (só pega se falhar)
   //  nenhum dos dois → efeito de área que pega todo mundo marcado
   // Depois aplica `dado` de dano e/ou a condição `cond` por `turnos` a quem o efeito pegou.
-  const aplicarEmAlvos = async ({ titulo, origem, dado = null, acerto = null, atributo = null, pericia = null, cd = null, cond = null, turnos = 2, area = false }) => {
+  //  area + raio → escolhe um epicentro no campo e pega todo mundo dentro do raio
+  const aplicarEmAlvos = async ({ titulo, origem, dado = null, acerto = null, atributo = null, pericia = null, cd = null, cond = null, turnos = 2, area = false, raio = null, tipoDano = "físico" }) => {
     if (!camp.combate?.ativo || !camp.combate.ordem.length) {
       await enviar("sistema", `★ ${origem}: sem combate no rastreador — o Mestre resolve.${dado ? ` (dano ${dado})` : ""}${cond ? ` (${cond} ${turnos}t)` : ""}`);
       return true;   // narrado; não é cancelamento
     }
     const vivos = camp.combate.ordem.filter((c2) => !ehNave(c2) && !foraDeCombate(c2) && c2.personagem_id !== meuPers?.id);
     if (!vivos.length) { await enviar("sistema", `★ ${origem}: nenhum alvo válido no rastreador.`); return true; }
-    let alvos;
-    if (area) {
+    let alvos, epiNome = "";
+    // Área com raio declarado e posições no campo: escolhe o epicentro e o raio
+    // decide quem pega — inclusive aliados, que é o risco real de uma granada.
+    const todosComPos = camp.combate.ordem.filter((c2) => !ehNave(c2) && !foraDeCombate(c2) && c2.pos);
+    if (area && raio && todosComPos.length) {
+      const inimigosPos = todosComPos.filter((c2) => c2.tipo === "inimigo" || c2.lado === "inimiga");
+      const r = await modalForm({ titulo,
+        descricao: `Área de ${raio} m de raio. Escolha quem está no centro do impacto — todo mundo dentro do raio é atingido, aliado ou não.`,
+        campos: [{ k: "epi", label: "Centro do impacto", tipo: "select",
+          valor: (inimigosPos[0] || todosComPos[0]).id,
+          opcoes: todosComPos.map((c2) => {
+            const pegos = todosComPos.filter((y) => (distCombate(c2, y) ?? 99) <= raio).length;
+            return { v: c2.id, l: `${c2.nome} — pega ${pegos} combatente${pegos === 1 ? "" : "s"}` };
+          }) }], okLabel: "Lançar" });
+      if (!r?.epi) return false;
+      const epi = todosComPos.find((c2) => c2.id === r.epi);
+      epiNome = epi?.nome || "";
+      alvos = todosComPos.filter((c2) => (distCombate(epi, c2) ?? 99) <= raio);
+    } else if (area) {
       const r = await modalForm({ titulo, descricao: "Marque quem está na área de efeito.",
         campos: vivos.map((c2) => ({ k: c2.id, label: `${c2.nome} — ${vidaAtual(c2)}/${vidaMax(c2)} PV`, tipo: "select",
           valor: c2.tipo === "inimigo" ? "1" : "", opcoes: [{ v: "1", l: "no efeito" }, { v: "", l: "fora" }] })),
@@ -1987,12 +2127,12 @@ async function telaMesa(id) {
         det = ` [${rot} ${natS}${sign(bo)}=${tot} vs CD ${cd} — ${pegou ? "falhou" : "resistiu"}]`;
       }
       let danoMsg = "";
-      if (pegou && rolDano) { const rd = await aplicarDanoAlvo(alvo, rolDano); danoMsg = ` ${rd.msg}`; }
+      if (pegou && rolDano) { const rd = await aplicarDanoAlvo(alvo, rolDano, tipoDano); danoMsg = ` ${rd.msg}`; if (rd.imune) pegou = false; }
       if (pegou && cond) aplicarCond(alvo, cond, turnos);
       linhas.push(`${pegou ? "💥" : "🛡"} ${alvo.nome}${det}${danoMsg}${pegou && cond ? ` · ${cond} ${turnos}t` : ""}${foraDeCombate(alvo) ? " 💀 CAIU" : ""}`);
     }
     await salvarCombate();
-    await enviar("sistema", `★ ${origem}${rolDano ? ` — dano ${dado} [${rolDano}]` : ""}: ${linhas.join("  ·  ")}`);
+    await enviar("sistema", `★ ${origem}${epiNome ? ` — impacto em ${epiNome} (raio ${raio} m)` : ""}${rolDano ? ` — dano ${dado} [${rolDano}]` : ""}: ${linhas.join("  ·  ")}`);
     return true;
   };
 
@@ -2077,7 +2217,7 @@ async function telaMesa(id) {
                   const lado = (c.tipo === "inimigo" || c.lado === "inimiga") ? "inim" : "aliado";
                   const dSel = tokenSelObj && tokenSelObj.id !== c.id ? distCombate(tokenSelObj, c) : null;
                   const rel = dSel == null ? "" : (dSel <= ALCANCE_CAC ? "perto" : "longe");
-                  return `<span class="cb-token ${lado} ${foraDeCombate(c) ? "morto" : ""} ${vez ? "vez" : ""} ${movivel ? "movivel" : ""} ${c.id === tokenSel ? "sel" : ""} ${rel}" data-token="${c.id}" style="left:${px.toFixed(2)}%;--stack:${stack}" title="${esc(c.nome)} · x ${(c.pos?.x ?? 20).toFixed(1).replace(".", ",")} m · pista ${(c.pos?.lane ?? 1) + 1}${dSel != null ? ` · ${dSel.toFixed(1).replace(".", ",")} m de ${esc(tokenSelObj.nome)}` : ""}">${esc(c.nome.replace(/ #\d+$/, "").slice(0, 5))}</span>`;
+                  return `<span class="cb-token ${lado} ${foraDeCombate(c) ? "morto" : ""} ${vez ? "vez" : ""} ${movivel ? "movivel" : ""} ${c.id === tokenSel ? "sel" : ""} ${rel}" data-token="${c.id}" style="left:${px.toFixed(2)}%;--stack:${stack}" title="${esc(c.nome)} · x ${(c.pos?.x ?? 20).toFixed(1).replace(".", ",")} m · pista ${(c.pos?.lane ?? 1) + 1}${dSel != null ? ` · ${dSel.toFixed(1).replace(".", ",")} m de ${esc(tokenSelObj.nome)}` : ""}">${esc(c.nome.replace(/ #\d+$/, "").slice(0, 5))}${c.qtd > 1 ? `×${c.qtd}` : ""}</span>`;
                 }).join("")}</div>`;
               }).join("")}
               <div class="cb-regua">${(() => { const passo = vistaLarg <= 15 ? 1 : 5; const out = [];
@@ -2095,11 +2235,19 @@ async function telaMesa(id) {
             <div class="cb-lista">${camp.combate.ordem.map((c, i) => `
               <div class="cb-linha ${i === camp.combate.turno ? "cb-atual" : ""} ${foraDeCombate(c) ? "cb-morto" : ""} ${ehNave(c) ? "cb-nave" : ""}">
                 <span class="cb-ini" title="Iniciativa">${c.ini}</span>
-                <span class="cb-nome">${i === camp.combate.turno ? "▶ " : ""}${ehNave(c) ? "🚀 " : ""}${esc(c.nome)}${c.tipo === "inimigo" ? ` <i class="dim">${esc(c.ameaca || "")}</i>` : ""}${ehNave(c) ? ` <i class="dim">Def ${10 + (c.manobra || 0)}</i>` : ""}</span>${(c.cond && c.cond.length) ? `<span class="cb-conds">${c.cond.map((cd) => `<span class="cb-cond ${infoCond(cd.n)?.dano ? "sangra" : "estado"}" title="${esc(cd.n)} · ${cd.turnos} turno(s)${infoCond(cd.n) ? " — " + esc(infoCond(cd.n).d) : ""}">${infoCond(cd.n)?.ic || "🏷"} ${esc(cd.n)} ${cd.turnos}</span>`).join("")}</span>` : ""}
+                <span class="cb-nome">${i === camp.combate.turno ? "▶ " : ""}${ehNave(c) ? "🚀 " : ""}${esc(c.nome)}${c.qtd > 1 ? ` <b class="chrome">×${c.qtd}</b>` : ""}${c.tipo === "inimigo" ? ` <i class="dim">${esc(c.ameaca || "")}</i>` : ""}${ehNave(c) ? ` <i class="dim">Def ${10 + (c.manobra || 0)}</i>` : ""}</span>${(!ehNave(c) && i === camp.combate.turno) ? `<span class="cb-acoes-uso" title="Ações desta rodada — as acesas ainda estão disponíveis">${[["p", "Principal"], ["m", "Movimento"], ["r", "Reação"]].map(([ch, rot]) => `<i class="${c.acoes?.[ch] ? "gasta" : ""}" title="${rot}${c.acoes?.[ch] ? " — já usada" : " — disponível"}">${rot[0]}</i>`).join("")}</span>` : ""}${(c.cond && c.cond.length) ? `<span class="cb-conds">${c.cond.map((cd) => `<span class="cb-cond ${infoCond(cd.n)?.dano ? "sangra" : "estado"}" title="${esc(cd.n)} · ${cd.turnos} turno(s)${infoCond(cd.n) ? " — " + esc(infoCond(cd.n).d) : ""}">${infoCond(cd.n)?.ic || "🏷"} ${esc(cd.n)} ${cd.turnos}</span>`).join("")}</span>` : ""}
                 <span class="cb-hp" data-barra="${c.id}" title="${ehNave(c) ? "Casco" : "Vida"}"><span class="rastro"></span><span class="cb-hp-barra" style="width:${Math.max(0, Math.min(100, vidaMax(c) ? vidaAtual(c) / vidaMax(c) * 100 : 0))}%;background:${(c.tipo === "inimigo" || c.lado === "inimiga") ? "var(--perigo)" : ehNave(c) ? "var(--chrome)" : "var(--tech)"}"></span><b>${vidaAtual(c)}/${vidaMax(c)}</b></span>${ehNave(c) ? `<span class="cb-hp ${c.escudosOff > 0 ? "off" : ""}" title="${c.escudosOff > 0 ? "Escudos inertes por Guerra Eletrônica — não absorvem dano" : "Escudos"}"><span class="rastro"></span><span class="cb-hp-barra" style="width:${Math.max(0, Math.min(100, c.escudos_max ? c.escudos / c.escudos_max * 100 : 0))}%;background:var(--tech)"></span><b>${c.escudosOff > 0 ? "⚡off" : `${c.escudos}/${c.escudos_max}`}</b></span>` : ""}
-                ${souMestre ? `<span class="cb-acoes">${(() => { const _atq = ataquesDoCombatente(c); return _atq ? _atq.map((atk, ai) => `<button class="cb-atk" data-cb="${c.id}" data-atk="${ai}" title="Rolar ${esc(atk.n)}${c.personagem_id ? ` por ${esc(c.nome)}` : ""}">⚔${_atq.length > 1 ? ai + 1 : ""}</button>`).join("") : ""; })()}${(ehNave(c) && c.lado === "inimiga") ? `<button class="cb-atk" data-cb-nave="${c.id}" title="Esta nave dispara">⚔</button>` : ""}<button class="cb-dmg" data-cb="${c.id}" data-d="-5">−5</button><button class="cb-dmg" data-cb="${c.id}" data-d="5">+5</button><input class="cb-hpset" data-cb="${c.id}" type="number" value="${vidaAtual(c)}" style="width:46px" title="${ehNave(c) ? "definir Casco" : "definir HP"}"><button class="cb-hpset-lbl cb-cond-add" data-cb="${c.id}" title="Adicionar condição">🏷</button><button class="cb-rm" data-cb="${c.id}" title="remover">✕</button></span>` : ""}
+                ${souMestre ? `<span class="cb-acoes">${(() => { const _atq = ataquesDoCombatente(c); return _atq ? _atq.map((atk, ai) => `<button class="cb-atk" data-cb="${c.id}" data-atk="${ai}" title="Rolar ${esc(atk.n)}${c.personagem_id ? ` por ${esc(c.nome)}` : ""}">⚔${_atq.length > 1 ? ai + 1 : ""}</button>`).join("") : ""; })()}${(ehNave(c) && c.lado === "inimiga") ? `<button class="cb-atk" data-cb-nave="${c.id}" title="Esta nave dispara">⚔</button>` : ""}<button class="cb-dmg" data-cb="${c.id}" data-d="-5">−5</button><button class="cb-dmg" data-cb="${c.id}" data-d="5">+5</button><input class="cb-hpset" data-cb="${c.id}" type="number" value="${vidaAtual(c)}" style="width:46px" title="${ehNave(c) ? "definir Casco" : "definir HP"}"><button class="cb-hpset-lbl cb-cond-add" data-cb="${c.id}" title="Adicionar condição">🏷</button><button class="cb-cob ${c.cobertura ? "on" : ""}" data-cb="${c.id}" title="Cobertura contra ataques à distância: ${["nenhuma", "parcial (+2 Def)", "total (+5 Def)"][c.cobertura || 0]}">${["🚫", "🧱", "🏚"][c.cobertura || 0]}</button><button class="cb-rm" data-cb="${c.id}" title="remover">✕</button></span>` : ""}
               </div>`).join("")}</div>
-            ${aurasAtivas().length ? `<div class="nave-buffs">${aurasAtivas().map((a) => `<span class="buff">🌀 <b>${esc(a.criatura)}</b> · ${esc(a.hab)}${a.nega?.length ? ` — ${a.nega.join(", ")} não funcionam${a.raio ? ` (raio ${a.raio}m)` : ""}` : a.imune ? ` — imune a ${esc(a.imune)}` : a.limiar ? ` — ignora dano abaixo de ${a.limiar}` : ""}</span>`).join("")}</div>` : ""}
+            ${aurasAtivas().length ? `<div class="nave-buffs">${aurasAtivas().map((a) => {
+              const dentro = (a.nega?.length && a.raio && a.fonte?.pos)
+                ? camp.combate.ordem.filter((x) => !ehNave(x) && !foraDeCombate(x) && x.id !== a.fonte.id && (distCombate(a.fonte, x) ?? 99) <= a.raio)
+                : null;
+              const alcance = a.nega?.length
+                ? ` — ${a.nega.join(", ")} não funcionam${a.raio ? ` num raio de ${a.raio} m` : ""}${dentro ? (dentro.length ? ` · no raio: ${dentro.map((x) => esc(x.nome.replace(/ #\d+$/, ""))).join(", ")}` : " · ninguém no raio") : ""}`
+                : a.imune ? ` — imune a ${esc(a.imune)}` : a.limiar ? ` — ignora dano abaixo de ${a.limiar}` : "";
+              return `<span class="buff">🌀 <b>${esc(a.criatura)}</b> · ${esc(a.hab)}${alcance}</span>`;
+            }).join("")}</div>` : ""}
             ${(camp.combate.avarias || []).length ? `<div class="avarias">${camp.combate.avarias.map((av, ai) => `<div class="avaria"><b>⚠ ${esc(av.n)}</b> <span class="regra">${esc(av.e)}</span>${souMestre ? `<button class="mini rm" data-av-fix2="${ai}">✔</button>` : ""}</div>`).join("")}</div>` : ""}
             ${camp.combate.ordem.some((x) => x.nave_party) ? `<p class="regra cbn-postos">Postos: ${POSTOS_ORDEM.map((pk) => { const q2 = (membros || []).find((m) => m.posto === pk); const ag = (camp.combate.agiram || []).includes(pk);
               return `<span class="cbn-posto ${ag ? "ok" : ""} ${q2 ? "" : "vazio"}">${esc(ESTACOES[pk].n.split(" ")[0])}${ag ? " ✓" : ""}</span>`; }).join(" ")}</p>` : ""}
@@ -2109,7 +2257,10 @@ async function telaMesa(id) {
                 🚀 ${camp.combate.naveEmCena ? "Nave em cena — tirar" : "Trazer a nave para a cena"}</button></div>` : ""}
             ${souMestre ? `<div class="cb-add">
               <select id="cb-quem"><optgroup label="Jogadores">${(pers || []).map((p) => `<option value="j:${p.id}">${esc(p.nome) || "sem nome"}</option>`).join("")}</optgroup>${camp.bestiario.length ? `<optgroup label="Minhas criaturas">${camp.bestiario.map((b, ci) => `<option value="c:${ci}">${esc(b.n)} · ${b.ameaca}</option>`).join("")}</optgroup>` : ""}<optgroup label="Inimigos (bestiário)">${todasCriaturas().map((b, bi) => b.ambiental ? "" : `<option value="e:${bi}">${esc(b.n)} · ${b.ameaca}</option>`).join("")}</optgroup><optgroup label="Naves inimigas">${NAVES.map((n, ni) => `<option value="ni:${ni}">🚀 ${esc(n.n)}</option>`).join("")}</optgroup></select>
-              <button id="cb-add-btn" class="mini">🎲 Add</button><button id="cb-criar" class="mini" title="Criar/editar criaturas do Mestre">🐉</button></div>
+              <button id="cb-add-btn" class="mini">🎲 Add</button><button id="cb-criar" class="mini" title="Criar/editar criaturas do Mestre">🐉</button>
+              <button id="cb-surpresa" class="mini" title="Declarar rodada surpresa: quem for pego não age no primeiro turno">❕ Surpresa</button>
+              <button id="cb-evento" class="mini" title="Agendar um evento para daqui a N turnos (contagem regressiva, explosão, reforços)">⏳ Evento</button></div>
+            ${(camp.combate.eventos || []).length ? `<div class="avarias">${camp.combate.eventos.map((ev, ei) => `<div class="avaria"><b>⏳ ${esc(ev.n)}</b> <span class="regra">em ${ev.turnos} rodada(s) — ${esc(ev.texto || "")}</span>${souMestre ? `<button class="mini rm" data-ev-del="${ei}" title="Cancelar">✕</button>` : ""}</div>`).join("")}</div>` : ""}
             <div class="cb-ctrl"><button id="cb-undo" class="mini" title="Desfazer a última ação">↶</button><button id="cb-prox" class="mini eq">▶ Próximo turno</button><button id="cb-timer" class="mini" title="Cronômetro do turno">⏱</button><button id="cb-fim" class="mini rm">⏹ Encerrar</button></div><div id="cb-timer-out" class="cb-timer"></div>` : ""}`}
           </section>` : ""}
           </div>
@@ -2127,7 +2278,7 @@ async function telaMesa(id) {
                 <div class="vb" data-barra="mesa-ram"><div class="vb-topo"><span>◈ RAM</span><b class="sombra-c">${k.ramLivre}<span class="dim">/${k.ramMax}</span></b></div>
                   <div class="vb-trilho"><span class="rastro"></span><span class="cb-hp-barra vb-fill ram" style="width:${ramP}%"></span></div></div>
               </div>`; })()}
-            <p class="regra">CD ${k.cd} · conj +${k.conj}${f.pvAtual <= 0 ? ` · <b class="perigo-c">☠ inconsciente</b>` : ""}</p>
+            <p class="regra">CD ${k.cd} · conj +${k.conj}${k.pvTemp ? ` · <b class="tech-c">✚ ${k.pvTemp} PV temp</b>` : ""}${k.escudoMax ? ` · <b class="sombra-c">🛡 escudo ${k.escudoLivre}/${k.escudoMax}</b>` : ""}${f.pvAtual <= 0 ? ` · <b class="perigo-c">☠ inconsciente</b>` : ""}</p>
             ${(() => {
               const res = normalizaPentes(f);
               const totalReserva = Object.values(res).reduce((a2, b2) => a2 + b2, 0);
@@ -2157,6 +2308,7 @@ async function telaMesa(id) {
             <div class="acoes-mesa">
               <select id="sel-per">${PERICIAS.map(([pn]) => `<option>${pn}</option>`).join("")}</select>
               <button id="rolar-per" class="mini">TESTE</button>
+              <button id="teste-oposto" class="mini" title="Teste oposto: você e um alvo rolam perícias diferentes e o maior vence">⚖ OPOSTO</button>
               ${armasEq.length ? `<label class="chk" style="margin:0" title="Ataque furtivo: +2 no acerto (armas Ocultas / Assassino) e dano DOBRADO para o Assassino."><input type="checkbox" id="atq-furtivo"/> 🥷 Furtivo</label>` : ""}
               ${armasEq.map((a, i) => { const cat = todasArmas().find((x) => x.n === a.nome); const pr = cat ? propsArma(cat) : {};
                 const tip = [cat?.kw ? `${cat.kw}: ${pr.efeito}` : "", pr.area ? `Área: ${pr.areaTxt}` : "", pr.alcance ? `Alcance: ${pr.alcanceTxt}` : "", pr.agil ? "Ágil (Des)" : ""].filter(Boolean).join(" · ");
@@ -2226,10 +2378,12 @@ async function telaMesa(id) {
               const pv = fx.pvMax ? Math.max(0, Math.min(100, 100 * fx.pvAtual / fx.pvMax)) : 0;
               const ram = kx.ramMax ? Math.max(0, Math.min(100, 100 * kx.ramLivre / kx.ramMax)) : 0;
               const crit = fx.pvAtual <= 0 ? "morto" : (fx.pvMax && fx.pvAtual / fx.pvMax <= 0.3) ? "ferido" : "";
+              const linhaCb = (camp.combate?.ordem || []).find((c2) => c2.personagem_id === x.id);
               return `<div class="pf-linha ${crit}" data-inspect="${x.id}" title="Ver ficha completa">
-                <span class="pf-nome">${esc(x.nome) || "sem nome"}${fx.pvAtual <= 0 ? " ☠" : ""}</span>
+                <span class="pf-nome">${esc(x.nome) || "sem nome"}${fx.pvAtual <= 0 ? " ☠" : ""}${fx.pvTemp ? ` <b class="tech-c">✚${fx.pvTemp}</b>` : ""}${kx.escudoLivre ? ` <b class="sombra-c">🛡${kx.escudoLivre}</b>` : ""}</span>
                 <span class="cb-hp" title="Pontos de Vida"><span class="cb-hp-barra" style="width:${pv}%;background:${crit === "ferido" ? "var(--perigo)" : "var(--tech)"}"></span><b>${fx.pvAtual}/${fx.pvMax}</b></span>
                 <span class="cb-hp" title="RAM"><span class="cb-hp-barra" style="width:${ram}%;background:var(--sombra)"></span><b>${kx.ramLivre}/${kx.ramMax}</b></span>
+                ${(linhaCb?.cond || []).length ? `<span class="cb-conds">${linhaCb.cond.map((cd) => `<span class="cb-cond ${infoCond(cd.n)?.dano ? "sangra" : "estado"}" title="${esc(cd.n)} · ${cd.turnos} turno(s)">${infoCond(cd.n)?.ic || "🏷"} ${esc(cd.n)} ${cd.turnos}</span>`).join("")}</span>` : ""}
               </div>`; }).join("") : `<p class="regra">Nenhum personagem vinculado ainda.</p>`}
           </section>
           <section class="sec"><header><span class="tag">👥</span><h2>Tripulação</h2></header>
@@ -2362,6 +2516,17 @@ async function telaMesa(id) {
       if (aoVivo && m.tipo === "descanso" && meuPers) {
         (async () => {
           const dados = { ...novaFichaDados(), ...meuPers.dados };
+          // Nova sessão não é descanso: só libera as habilidades de 1×/sessão.
+          if (m.payload?.tipo === "sessao") {
+            const cat = abilidadesDeSessao(dados); let n = 0;
+            dados.usos = dados.usos || {};
+            cat.forEach((a) => { if (dados.usos[a.id]) { delete dados.usos[a.id]; n++; } });
+            if (!n) return;
+            dados.log = [{ q: new Date().toISOString(), t: `📅 Nova sessão — ${n} habilidade(s) de 1×/sessão liberada(s)` }, ...(dados.log || [])].slice(0, 60);
+            const { error: e2 } = await sb.from("personagens").update({ dados }).eq("id", meuPers.id);
+            if (!e2) { meuPers.dados = dados; await enviar("sistema", `📅 ${meuPers.nome}: ${cat.map((a) => a.nome).join(", ")} disponível de novo.`); render(); }
+            return;
+          }
           const r = aplicarDescanso(dados, m.payload?.tipo === "longo" ? "longo" : "curto");
           dados.log = [{ q: new Date().toISOString(), t: `${m.payload?.tipo === "longo" ? "🌙" : "☾"} ${r.notas.join(" · ")}` }, ...(dados.log || [])].slice(0, 60);
           const { error } = await sb.from("personagens").update({ dados }).eq("id", meuPers.id);
@@ -2596,7 +2761,7 @@ async function telaMesa(id) {
       const painelMesa = () => `
         <div class="det grande"><b>☾ Descansos</b>
           <p class="regra">Convoca um descanso para toda a mesa. Cada jogador conectado com personagem vinculado recupera na própria ficha.</p>
-          <div class="filtros"><button id="mestre-curto" class="mini">☾ Curto (1h)</button><button id="mestre-longo" class="mini eq">🌙 Longo (8h)</button></div></div>
+          <div class="filtros"><button id="mestre-curto" class="mini">☾ Curto (1h)</button><button id="mestre-longo" class="mini eq">🌙 Longo (8h)</button><button id="mestre-sessao" class="mini" title="Reinicia as habilidades que são 1×/sessão (Mapa Mental, Charme Malandro, Cláusula de Contingência)">📅 Nova sessão</button></div></div>
         <div class="det grande"><b>🎁 Recompensas</b>
           <p class="regra">Distribui para todos os jogadores conectados, direto nas fichas.</p>
           <div class="filtros"><button id="mestre-xp" class="mini">🎖 Conceder XP</button><button id="mestre-cg" class="mini">🎁 Conceder Créditos</button><button id="mestre-mun" class="mini">🔫 Conceder pentes</button><button id="mestre-loot" class="mini">🎁 Conceder equipamento</button><button id="mestre-item" class="mini">🎁 Conceder item</button></div></div>
@@ -2693,6 +2858,11 @@ async function telaMesa(id) {
         // então aqui delegamos para eles disparando o clique no elemento equivalente.
         const liga = (idm, fn) => { const el2 = ov.querySelector("#" + idm); if (el2) el2.onclick = fn; };
         liga("mestre-curto", async () => { if (await confirmModal("Convocar Descanso Curto para toda a mesa?", { okLabel: "Convocar" })) { enviar("descanso", "O Mestre convocou um Descanso Curto (1h). Habilidades de descanso curto reiniciadas; cura via Kits Médicos.", { tipo: "curto" }); fechar(); } });
+        liga("mestre-sessao", async () => {
+          if (!(await confirmModal("Abrir uma nova sessão? Reinicia as habilidades que são 1×/sessão de todos os jogadores conectados.", { okLabel: "Abrir sessão" }))) return;
+          await enviar("descanso", "📅 Nova sessão. As habilidades de 1×/sessão voltam a ficar disponíveis.", { tipo: "sessao" });
+          fechar();
+        });
         liga("mestre-longo", async () => {
           if (!(await confirmModal("Convocar Descanso Longo para toda a mesa? PV restaurados, RAM recarregada, pentes repostos e todas as habilidades reiniciadas. A tripulação também aproveita para mexer no casco.", { okLabel: "Convocar" }))) return;
           await enviar("descanso", "O Mestre convocou um Descanso Longo (8h). PV restaurados, RAM recarregada e todas as habilidades reiniciadas.", { tipo: "longo" });
@@ -2973,6 +3143,60 @@ async function telaMesa(id) {
     const cbId = () => "c" + Math.random().toString(36).slice(2, 8);
     const cbFind = (idc) => camp.combate.ordem.find((x) => x.id === idc);
     $("#cb-iniciar")?.addEventListener("click", async () => { camp.combate = { ...combateVazio(), ativo: true }; await salvarCombate(); render(); });
+    // Rodada surpresa: quem não estava emboscando fica Surpreso por 1 turno.
+    // Sentidos Alertas (Batedor) e o Código do Sobrevivente passam batido.
+    $("#cb-surpresa")?.addEventListener("click", async () => {
+      const alvos = camp.combate.ordem.filter((x) => !ehNave(x) && !foraDeCombate(x));
+      if (!alvos.length) return alert("Adicione combatentes ao rastreador antes de declarar a surpresa.");
+      const r = await modalForm({ titulo: "❕ Rodada surpresa",
+        descricao: "Marque quem está emboscando. Todo o resto fica Surpreso e perde o primeiro turno — exceto quem é imune.",
+        campos: alvos.map((c2) => ({ k: c2.id, label: c2.nome, tipo: "select",
+          valor: c2.tipo === "inimigo" ? "1" : "", opcoes: [{ v: "1", l: "emboscando" }, { v: "", l: "foi pego" }] })),
+        okLabel: "Declarar" });
+      if (!r) return;
+      snapshot("rodada surpresa");
+      const pegos = [], imunes = [];
+      for (const c2 of alvos) {
+        if (r[c2.id]) continue;
+        let imune = false;
+        if (c2.personagem_id) {
+          const pj = (pers || []).find((p2) => p2.id === c2.personagem_id);
+          if (pj) { const dd = { ...novaFichaDados(), ...pj.dados }; const kk = calc(dd);
+            imune = dd.filosofia === "Código do Sobrevivente"
+              || (kk.efeitos?.imunidades?.() || []).some((i2) => /surpres/i.test(i2)); }
+        }
+        if (imune) imunes.push(c2.nome); else { aplicarCond(c2, "Surpreso", 1); pegos.push(c2.nome); }
+      }
+      await salvarCombate();
+      await enviar("sistema", `❕ Rodada surpresa!${pegos.length ? ` Pegos: ${pegos.join(", ")}.` : ""}${imunes.length ? ` Reagiram a tempo: ${imunes.join(", ")}.` : ""}`);
+      render();
+    });
+    // Evento agendado: contagem regressiva por rodada (reator, reforços, desabamento).
+    $("#cb-evento")?.addEventListener("click", async () => {
+      const r = await modalForm({ titulo: "⏳ Agendar evento",
+        descricao: "Conta para baixo a cada rodada e avisa na mesa quando chegar a zero.",
+        campos: [
+          { k: "n", label: "Nome", tipo: "texto", placeholder: "Sobrecarga do reator" },
+          { k: "t", label: "Em quantas rodadas", tipo: "numero", valor: 2, min: 1, max: 20 },
+          { k: "txt", label: "O que acontece", tipo: "area", rows: 2, placeholder: "6d10 de dano em área de 5 m" },
+        ], okLabel: "Agendar" });
+      if (!r?.n) return;
+      camp.combate.eventos = [...(camp.combate.eventos || []), { n: r.n, turnos: Math.max(1, +r.t || 1), texto: r.txt || "" }];
+      await salvarCombate();
+      await enviar("sistema", `⏳ ${r.n} — em ${Math.max(1, +r.t || 1)} rodada(s).${r.txt ? ` ${r.txt}` : ""}`);
+      render();
+    });
+    app.querySelectorAll("[data-ev-del]").forEach((b) => b.onclick = async () => {
+      (camp.combate.eventos || []).splice(+b.dataset.evDel, 1);
+      await salvarCombate(); render();
+    });
+    app.querySelectorAll(".cb-cob").forEach((b) => b.onclick = async () => {
+      const c = cbFind(b.dataset.cb); if (!c) return;
+      c.cobertura = ((c.cobertura || 0) + 1) % 3;
+      await salvarCombate();
+      await enviar("sistema", `${["🚫", "🧱", "🏚"][c.cobertura]} ${c.nome}: cobertura ${["nenhuma", "parcial (+2 Def contra tiro)", "total (+5 Def contra tiro)"][c.cobertura]}.`);
+      render();
+    });
     $("#cb-criar")?.addEventListener("click", () => {
       const ov = document.createElement("div"); ov.className = "ss-overlay ov-modal"; ov.style.zIndex = "10000";
       const listaHtml = () => camp.bestiario.map((b, i) => `<div class="inv"><span><b>${esc(b.n)}</b> · ${b.ameaca} · HP ${b.hp} CD ${b.cd}</span><button class="mini rm" data-del="${i}">✕</button></div>`).join("") || `<p class="regra">Nenhuma criatura criada ainda.</p>`;
@@ -3140,6 +3364,19 @@ async function telaMesa(id) {
           const andou = Math.hypot(nx - origem.x, (nlane - origem.lane) * PISTA_M);
           if (andou < 0.4) return alternarSel(tok.dataset.token);   // clique sem arrastar: seleciona
           if (andou > maxMov + 0.01) { alert(`${c.nome} só anda ${maxMov} m neste turno (tentou ${andou.toFixed(1).replace(".", ",")} m).`); return render(); }
+          // Amedrontado não consegue se aproximar da fonte do medo (os inimigos).
+          if (!souMestre && conds.some((n) => /amedrontado/.test(n))) {
+            const hostis = camp.combate.ordem.filter((x) => !ehNave(x) && !foraDeCombate(x) && x.pos
+              && (x.tipo === "jogador") !== (c.tipo === "jogador"));
+            const perto = (p2) => hostis.reduce((m, h2) => Math.min(m, distCombate({ pos: p2 }, h2) ?? 99), 99);
+            const antesD = perto(origem), depoisD = perto({ x: nx, lane: nlane });
+            if (hostis.length && depoisD < antesD - 0.01) {
+              alert(`${c.nome} está Amedrontado e não consegue se aproximar (de ${antesD.toFixed(1).replace(".", ",")} m para ${depoisD.toFixed(1).replace(".", ",")} m). Só dá para se afastar ou circular.`);
+              return render();
+            }
+          }
+          // Mover no campo custa a Ação de Movimento (só para quem é o dono do token).
+          if (!souMestre && !(await gastarAcao("Ação de Movimento", "mover no campo"))) return render();
           snapshot("mover no campo");
           c.pos = { x: Math.round(nx * 10) / 10, lane: nlane };
           await salvarCombate(); render();
@@ -3150,17 +3387,21 @@ async function telaMesa(id) {
     $("#cb-prox")?.addEventListener("click", async () => { let salvarNaveJunto = false; const rodAntes = camp.combate.rodada;
       const encerrou = camp.combate.ordem[camp.combate.turno];   // quem termina o turno agora
       proximoTurno(camp.combate); if (camp.combate.rodada !== rodAntes) camp.combate.agiram = []; const atual = camp.combate.ordem[camp.combate.turno];
-      // FIM DE TURNO: efeitos declarados da criatura que acabou de agir
-      if (encerrou && encerrou !== atual && habsDoCombatente(encerrou).some((h) => h.efeito && h.gatilho === "fim_turno")) {
-        const M = await criaturaMod(); const cr = M.criar({ ...encerrou, habs: habsDoCombatente(encerrou) }, rolarTexto);
-        for (const r of cr.disparar(M.GATILHOS.FIM_TURNO)) {
-          if (r.tipo === "cura") { encerrou.hp = Math.min(encerrou.hp_max, (encerrou.hp || 0) + r.valor);
-            await enviar("sistema", `♻ ${encerrou.nome} — ${r.habilidade}: ${r.texto} (${encerrou.hp}/${encerrou.hp_max}).`); }
-          else if (r.tipo === "dano") { encerrou.hp = Math.max(0, (encerrou.hp || 0) - r.valor);
-            await enviar("sistema", `☠ ${encerrou.nome} — ${r.habilidade}: ${r.texto}.`); }
-          else await enviar("sistema", `⚡ ${encerrou.nome} — ${r.habilidade}: ${r.texto || "efeito de fim de turno"}.`);
+      // FIM DE TURNO: efeitos declarados da criatura que acabou de agir.
+      // Em try/catch: se este bloco quebrar, o turno ainda avança e salva —
+      // sem isso, um erro aqui derrubava a rodada inteira sem persistir nada.
+      try {
+        if (encerrou && encerrou !== atual && habsDoCombatente(encerrou).some((h) => h.efeito && h.gatilho === "fim_turno")) {
+          const M = await criaturaMod(); const cr = M.criar({ ...encerrou, habs: habsDoCombatente(encerrou) }, rolarTexto);
+          for (const r of cr.disparar(M.GATILHOS.FIM_TURNO)) {
+            if (r.tipo === "cura") { encerrou.hp = Math.min(encerrou.hp_max, (encerrou.hp || 0) + r.valor);
+              await enviar("sistema", `♻ ${encerrou.nome} — ${r.habilidade}: ${r.texto} (${encerrou.hp}/${encerrou.hp_max}).`); }
+            else if (r.tipo === "dano") { encerrou.hp = Math.max(0, (encerrou.hp || 0) - r.valor);
+              await enviar("sistema", `☠ ${encerrou.nome} — ${r.habilidade}: ${r.texto}.`); }
+            else await enviar("sistema", `⚡ ${encerrou.nome} — ${r.habilidade}: ${r.texto || "efeito de fim de turno"}.`);
+          }
         }
-      }
+      } catch (eFimTurno) { console.error("fim_turno:", eFimTurno); }
       // Modos temporários dos jogadores (Êxtase, Endurecer, Fúria, gás do Ven'y)
       // contam para baixo a cada rodada e expiram sozinhos.
       if (camp.combate.rodada !== rodAntes) {
@@ -3181,6 +3422,21 @@ async function telaMesa(id) {
           }
         }
       }
+      // Eventos agendados contam para baixo a cada rodada e disparam no zero.
+      try {
+        if (camp.combate.rodada !== rodAntes && (camp.combate.eventos || []).length) {
+          const restantes = [];
+          for (const ev of camp.combate.eventos) {
+            ev.turnos -= 1;
+            if (ev.turnos <= 0) await enviar("sistema", `⏳ **${ev.n}** acontece agora!${ev.texto ? ` ${ev.texto}` : ""}`);
+            else { restantes.push(ev); if (ev.turnos <= 2) await enviar("sistema", `⏳ ${ev.n}: ${ev.turnos} rodada(s).`); }
+          }
+          camp.combate.eventos = restantes;
+        }
+      } catch (eEvento) { console.error("eventos:", eEvento); }
+      // Reação recarrega a cada rodada; Principal e Movimento, no turno de cada um.
+      if (camp.combate.rodada !== rodAntes) for (const c2 of camp.combate.ordem) if (c2.acoes) c2.acoes.r = false;
+      if (atual) atual.acoes = { r: !!atual.acoes?.r };
       if (atual) {
         // A Manobra Evasiva vale "até o próximo turno do piloto" — aqui ela expira.
         const ntv = camp.combate.nave || naveTaticaVazia();
@@ -3200,33 +3456,35 @@ async function telaMesa(id) {
           if (atual.escudosOff <= 0) await enviar("sistema", `📡 Os escudos de ${atual.nome} voltam a responder.`);
         }
         // 0) Efeitos automáticos da própria criatura (regeneração, auras, invocações)
-        if (habsDoCombatente(atual).some((h) => h.efeito)) {
-          const M = await criaturaMod();
-          const cr = M.criar({ ...atual, habs: habsDoCombatente(atual) }, rolarTexto);
-          for (const r of cr.disparar(M.GATILHOS.INICIO_TURNO)) {
-            if (r.tipo === "cura") { atual.hp = Math.min(atual.hp_max, (atual.hp || 0) + r.valor);
-              await enviar("sistema", `♻ ${atual.nome} — ${r.habilidade}: ${r.texto} (${atual.hp}/${atual.hp_max}).`); }
-            else if (r.tipo === "dano") { atual.hp = Math.max(0, (atual.hp || 0) - r.valor);
-              await enviar("sistema", `☠ ${atual.nome} — ${r.habilidade}: ${r.texto}.`); }
-            else if (r.tipo === "invocar") {
-              const base = todasCriaturas().find((x) => x.n === r.criatura) || (camp.bestiario || []).find((x) => x.n === r.criatura);
-              if (base) {
-                for (let n = 0; n < (r.qtd || 1); n++) {
-                  const iguais = camp.combate.ordem.filter((x) => x.nome.replace(/ #\d+$/, "") === base.n).length;
-                  camp.combate.ordem.push({ id: cbId(), nome: iguais ? `${base.n} #${iguais + 1}` : base.n, ini: d(20),
-                    hp: base.hp, hp_max: base.hp, cd: base.cd, tipo: "inimigo", ameaca: base.ameaca, ataques: base.ataques,
-                    habs: base.habs || [], pos: posInicial(camp.combate.ordem, "inimigo") });
-                }
-                await enviar("sistema", `👹 ${atual.nome} — ${r.habilidade}: ${r.texto}. ${r.qtd || 1}× ${base.n} entra no rastreador.`);
-              } else await enviar("sistema", `👹 ${atual.nome} — ${r.habilidade}: ${r.texto}. (Criatura "${r.criatura}" não encontrada — o Mestre adiciona.)`);
+        try {
+          if (habsDoCombatente(atual).some((h) => h.efeito)) {
+            const M = await criaturaMod();
+            const cr = M.criar({ ...atual, habs: habsDoCombatente(atual) }, rolarTexto);
+            for (const r of cr.disparar(M.GATILHOS.INICIO_TURNO)) {
+              if (r.tipo === "cura") { atual.hp = Math.min(atual.hp_max, (atual.hp || 0) + r.valor);
+                await enviar("sistema", `♻ ${atual.nome} — ${r.habilidade}: ${r.texto} (${atual.hp}/${atual.hp_max}).`); }
+              else if (r.tipo === "dano") { atual.hp = Math.max(0, (atual.hp || 0) - r.valor);
+                await enviar("sistema", `☠ ${atual.nome} — ${r.habilidade}: ${r.texto}.`); }
+              else if (r.tipo === "invocar") {
+                const base = todasCriaturas().find((x) => x.n === r.criatura) || (camp.bestiario || []).find((x) => x.n === r.criatura);
+                if (base) {
+                  for (let n = 0; n < (r.qtd || 1); n++) {
+                    const iguais = camp.combate.ordem.filter((x) => x.nome.replace(/ #\d+$/, "") === base.n).length;
+                    camp.combate.ordem.push({ id: cbId(), nome: iguais ? `${base.n} #${iguais + 1}` : base.n, ini: d(20),
+                      hp: base.hp, hp_max: base.hp, cd: base.cd, tipo: "inimigo", ameaca: base.ameaca, ataques: base.ataques,
+                      habs: base.habs || [], pos: posInicial(camp.combate.ordem, "inimigo") });
+                  }
+                  await enviar("sistema", `👹 ${atual.nome} — ${r.habilidade}: ${r.texto}. ${r.qtd || 1}× ${base.n} entra no rastreador.`);
+                } else await enviar("sistema", `👹 ${atual.nome} — ${r.habilidade}: ${r.texto}. (Criatura "${r.criatura}" não encontrada — o Mestre adiciona.)`);
+              }
+              else if (r.tipo === "condicao") {
+                if (r.alvo === "proprio") { aplicarCond(atual, r.cond, r.turnos); await enviar("sistema", `🏷 ${atual.nome} — ${r.habilidade}: fica ${r.cond} por ${r.turnos} turno(s).`); }
+                else await enviar("sistema", `🏷 ${atual.nome} — ${r.habilidade}: ${r.texto || `aplica ${r.cond}`} (o Mestre resolve o alvo).`);
+              }
+              else await enviar("sistema", `⚡ ${atual.nome} — ${r.habilidade}: ${r.texto || "efeito passivo — o Mestre aplica"}.`);
             }
-            else if (r.tipo === "condicao") {
-              if (r.alvo === "proprio") { aplicarCond(atual, r.cond, r.turnos); await enviar("sistema", `🏷 ${atual.nome} — ${r.habilidade}: fica ${r.cond} por ${r.turnos} turno(s).`); }
-              else await enviar("sistema", `🏷 ${atual.nome} — ${r.habilidade}: ${r.texto || `aplica ${r.cond}`} (o Mestre resolve o alvo).`);
-            }
-            else await enviar("sistema", `⚡ ${atual.nome} — ${r.habilidade}: ${r.texto || "efeito passivo — o Mestre aplica"}.`);
           }
-        }
+        } catch (eInicioTurno) { console.error("inicio_turno:", eInicioTurno); }
         // 1) Condições que ferem: rolam o dano no início do turno do afetado
         let totalDano = 0; const detalhes = [];
         for (const cd of (atual.cond || [])) {
@@ -3259,13 +3517,15 @@ async function telaMesa(id) {
         await enviar("sistema", `⚔ Rodada ${camp.combate.rodada} · vez de ${atual.nome}${atual.cond && atual.cond.length ? ` (${atual.cond.map((x) => `${infoCond(x.n)?.ic || ""}${x.n}`).join(", ")})` : ""}${impedido ? " — não pode agir neste turno!" : ""}.`);
       }
       // AO MORRER: efeitos declarados de quem caiu desde o último turno (varre uma vez).
-      for (const c2 of camp.combate.ordem) {
-        if (c2._morreu || !foraDeCombate(c2) || !habsDoCombatente(c2).some((h) => h.efeito && h.gatilho === "ao_morrer")) continue;
-        c2._morreu = true;
-        const M = await criaturaMod(); const cr = M.criar({ ...c2, habs: habsDoCombatente(c2) }, rolarTexto);
-        for (const r of cr.disparar(M.GATILHOS.AO_MORRER))
-          await enviar("sistema", `💀 ${c2.nome} — ${r.habilidade}: ${r.texto || "efeito ao morrer"}.${r.tipo === "invocar" ? " O Mestre adiciona ao rastreador." : ""}`);
-      }
+      try {
+        for (const c2 of camp.combate.ordem) {
+          if (c2._morreu || !foraDeCombate(c2) || !habsDoCombatente(c2).some((h) => h.efeito && h.gatilho === "ao_morrer")) continue;
+          c2._morreu = true;
+          const M = await criaturaMod(); const cr = M.criar({ ...c2, habs: habsDoCombatente(c2) }, rolarTexto);
+          for (const r of cr.disparar(M.GATILHOS.AO_MORRER))
+            await enviar("sistema", `💀 ${c2.nome} — ${r.habilidade}: ${r.texto || "efeito ao morrer"}.${r.tipo === "invocar" ? " O Mestre adiciona ao rastreador." : ""}`);
+        }
+      } catch (eAoMorrer) { console.error("ao_morrer:", eAoMorrer); }
       // Gravação única: escrever em campanhas no meio do handler dispara o realtime,
       // que sobrescreveria camp.combate com o estado antigo e travaria o turno.
       const campos = { combate: camp.combate }; if (salvarNaveJunto) campos.nave = camp.nave;
@@ -3285,8 +3545,14 @@ async function telaMesa(id) {
           casco: base.casco, casco_max: base.casco, escudos: base.escudos, escudos_max: base.escudos,
           manobra: base.manobra, dano: base.dano });
       } else { const b = v.startsWith("c:") ? camp.bestiario[+v.slice(2)] : todasCriaturas()[+v.slice(2)]; if (!b) return;
+        // Lacaios entram em bando: uma linha só, com quantidade. O dano transborda de um para o próximo.
+        const rq = await modalForm({ titulo: `🎲 ${b.n}`,
+          descricao: b.ameaca === "Lacaio" ? "Lacaios costumam vir em grupo. Uma linha só no rastreador, com a quantidade." : "",
+          campos: [{ k: "q", label: "Quantos", tipo: "numero", valor: b.ameaca === "Lacaio" ? 5 : 1, min: 1, max: 20 }], okLabel: "Adicionar" });
+        if (!rq) return;
+        const qtd = Math.max(1, +rq.q || 1);
         const iguais = camp.combate.ordem.filter((x) => x.nome.replace(/ #\d+$/, "") === b.n).length;
-        camp.combate.ordem.push({ id: cbId(), nome: iguais ? `${b.n} #${iguais + 1}` : b.n, ini: d(20), hp: b.hp, hp_max: b.hp, cd: b.cd, tipo: "inimigo", ameaca: b.ameaca, ataques: b.ataques, habs: b.habs || [] });
+        camp.combate.ordem.push({ id: cbId(), nome: iguais ? `${b.n} #${iguais + 1}` : b.n, ini: d(20), hp: b.hp, hp_max: b.hp, cd: b.cd, tipo: "inimigo", ameaca: b.ameaca, ataques: b.ataques, habs: b.habs || [], ...(qtd > 1 ? { qtd } : {}) });
       }
       const novoCb = camp.combate.ordem[camp.combate.ordem.length - 1];
       if (novoCb && !ehNave(novoCb) && !novoCb.pos) novoCb.pos = posInicial(camp.combate.ordem, novoCb.tipo);
@@ -3320,7 +3586,7 @@ async function telaMesa(id) {
       const alvo = r.alvo ? camp.combate.ordem.find((x) => x.id === r.alvo) : null;
       const condsAlvo = (alvo?.cond || []).map((x) => x.n.toLowerCase());
       const bonusMarcado = condsAlvo.includes("marcado") ? 2 : 0;
-      const alvoAberto = condsAlvo.some((n) => /atordoado|paralisado|caído|cego/.test(n));
+      const alvoAberto = condsAlvo.some((n) => /atordoado|paralisado|caído|cego|surpreso/.test(n));
       const vSoma = (vantagem || 0) + (alvoAberto ? 1 : 0);
       const vv = vSoma > 0 ? 1 : vSoma < 0 ? -1 : 0;
       let nat, detVant = "";
@@ -3335,13 +3601,28 @@ async function telaMesa(id) {
         total: acerto, crit: nat === 20, fumble: nat === 1,
         extra: atk.extra || "", ...(danoTotal ? { dano_total: danoTotal } : {}), ...(alvo ? { alvo_resolvido: true } : {}) });
       if (alvo && danoTotal) {
-        const def = alvo.cd ?? 10;
+        const cobA = (alc == null || alc > 3) ? [0, 2, 5][alvo.cobertura || 0] : 0;   // cobertura só vale contra tiro
+        const def = (alvo.cd ?? 10) + cobA;
         if (nat === 20 || (nat !== 1 && acerto >= def)) {
           snapshot("ataque no rastreador");
-          const rd = await aplicarDanoAlvo(alvo, danoTotal);
+          const rd = await aplicarDanoAlvo(alvo, danoTotal, tipoDanoAtaque(atk));
+          // AO ACERTAR: efeitos declarados do atacante (veneno na mordida, agarrar…).
+          // Em try/catch: o dano de aplicarDanoAlvo acima já foi aplicado em memória —
+          // se isto quebrar, ainda precisamos chegar no salvarCombate() abaixo.
+          try {
+            const habsAc = habsDoCombatente(c).filter((h) => h.efeito && h.gatilho === "ao_acertar");
+            if (habsAc.length) {
+              const M = await criaturaMod(); const cr = M.criar({ ...c, habs: habsAc }, rolarTexto);
+              for (const rr of cr.disparar(M.GATILHOS.AO_ACERTAR)) {
+                if (rr.tipo === "condicao") { aplicarCond(alvo, rr.cond, rr.turnos); await enviar("sistema", `🏷 ${c.nome} — ${rr.habilidade}: ${alvo.nome} fica ${rr.cond} por ${rr.turnos} turno(s).`); }
+                else if (rr.tipo === "dano") { const r3 = await aplicarDanoAlvo(alvo, rr.valor); await enviar("sistema", `☠ ${c.nome} — ${rr.habilidade}: ${rr.texto} em ${alvo.nome} · ${r3.msg}.`); }
+                else await enviar("sistema", `⚡ ${c.nome} — ${rr.habilidade}: ${rr.texto || "efeito ao acertar"}.`);
+              }
+            }
+          } catch (eAoAcertar) { console.error("ao_acertar:", eAoAcertar); }
           await salvarCombate();
-          await enviar("sistema", `💥 ${c.nome} acerta ${alvo.nome} (Def ${def}): ${rd.msg}.${!ehNave(alvo) && foraDeCombate(alvo) ? " 💀 CAIU!" : ""}`);
-        } else await enviar("sistema", `❌ ${c.nome} erra ${alvo.nome} (Def ${def}).`);
+          await enviar("sistema", `💥 ${c.nome} acerta ${alvo.nome} (Def ${def}${cobA ? ` · 🧱+${cobA} cobertura` : ""}): ${rd.msg}.${!ehNave(alvo) && foraDeCombate(alvo) ? " 💀 CAIU!" : ""}`);
+        } else await enviar("sistema", `❌ ${c.nome} erra ${alvo.nome} (Def ${def}${cobA ? ` · 🧱+${cobA} cobertura` : ""}).`);
         render();
       }
     });
@@ -3393,6 +3674,39 @@ async function telaMesa(id) {
     if (f) {
       $("#rolar-per").onclick = () => { const pn = $("#sel-per").value; const at = PERICIAS.find(([x]) => x === pn)[1];
         rolarEEnviar(`Teste de ${pn}`, k.attr[at] + k.per[pn]); };
+      // Teste oposto genérico: Furtividade vs Percepção, Enganação vs Intuição, etc.
+      $("#teste-oposto").onclick = async () => {
+        const cands = (camp.combate?.ativo ? camp.combate.ordem.filter((x) => !ehNave(x) && !foraDeCombate(x) && x.personagem_id !== meuPers.id) : [])
+          .concat((pers || []).filter((p2) => p2.id !== meuPers.id && !(camp.combate?.ordem || []).some((x) => x.personagem_id === p2.id))
+            .map((p2) => ({ id: `p:${p2.id}`, nome: p2.nome, personagem_id: p2.id })));
+        if (!cands.length) return alert("Não há ninguém para se opor — adicione alguém ao rastreador ou vincule outro personagem à mesa.");
+        const r = await modalForm({ titulo: "⚖ Teste oposto",
+          descricao: "Os dois rolam d20 + perícia. Empate favorece quem se defende.",
+          campos: [
+            { k: "minha", label: "Sua perícia", tipo: "select", valor: "Furtividade", opcoes: PERICIAS.map(([pn]) => pn) },
+            { k: "alvo", label: "Contra quem", tipo: "select", opcoes: cands.map((c2) => ({ v: c2.id, l: c2.nome })) },
+            { k: "dele", label: "Perícia do alvo", tipo: "select", valor: "Percepção", opcoes: PERICIAS.map(([pn]) => pn) },
+          ], okLabel: "Rolar" });
+        if (!r?.alvo) return;
+        const alvo = cands.find((c2) => c2.id === r.alvo);
+        const atMeu = PERICIAS.find(([x]) => x === r.minha)[1];
+        const meuMod = k.attr[atMeu] + k.per[r.minha];
+        // Bônus do alvo: personagem usa a ficha real; criatura usa a ordem da ameaça.
+        let deleMod = 0;
+        if (alvo.personagem_id) {
+          const pj = (pers || []).find((p2) => p2.id === alvo.personagem_id);
+          if (pj) { const kk = calc({ ...novaFichaDados(), ...pj.dados });
+            const atDele = PERICIAS.find(([x]) => x === r.dele)[1];
+            deleMod = (kk.attr[atDele] || 0) + (kk.per[r.dele] || 0); }
+        } else deleMod = NIVEIS_AMEACA[alvo.ameaca]?.ordem ?? Math.max(0, (alvo.cd ?? 10) - 10);
+        const n1 = d(20), t1 = n1 + meuMod;
+        const n2 = d(20), t2 = n2 + deleMod;
+        const venci = t1 > t2;
+        await enviar("rolagem", null, { titulo: `⚖ ${r.minha} × ${r.dele}`,
+          detalhe: `${meuPers.nome} d20 [${n1}] ${sign(meuMod)} = ${t1}  ·  ${alvo.nome} d20 [${n2}] ${sign(deleMod)} = ${t2}`,
+          total: t1, crit: n1 === 20, fumble: n1 === 1,
+          extra: venci ? `${meuPers.nome} vence a disputa.` : `${alvo.nome} resiste (empate favorece a defesa).` });
+      };
       app.querySelectorAll("[data-atq]").forEach((b) => b.onclick = async () => {
         const a = armasEq[+b.dataset.atq];
         // Em combate, o jogador só ataca no próprio turno. O Mestre rola por ele
@@ -3405,6 +3719,7 @@ async function telaMesa(id) {
         }
         const trava = minhaTrava();
         if (trava) return alert(`${meuPers.nome} está ${trava.n} e não pode agir neste turno.`);
+        if (!(await gastarAcao("Ação Principal", `atacar com ${a.nome}`))) return;
         const itemInv = (meuPers.dados.inventario || []).find((x) => x.nome === a.nome && x.equip);
         const catBase = todasArmas().find((x) => x.n === a.nome);
         const cat = armaMontada(catBase, itemInv);
@@ -3474,10 +3789,10 @@ async function telaMesa(id) {
         // Condições em jogo: as minhas atrapalham; as do alvo abrem brecha.
         const condsMinhas = (minhaLinhaCb()?.cond || []).map((c) => c.n.toLowerCase());
         const condsAlvo = (alvoCombatente?.cond || []).map((c) => c.n.toLowerCase());
-        const desvPorCond = condsMinhas.some((n) => /cego|amedrontado|envenenado/.test(n));   // Desvantagem no ataque
+        const desvPorCond = condsMinhas.some((n) => /cego|amedrontado|acovardado|envenenado/.test(n));   // Desvantagem no ataque
         const enfraquecido = condsMinhas.includes("enfraquecido");                              // metade do dano físico
         const alvoMarcado = condsAlvo.includes("marcado");                                      // +2 no acerto de quem o ataca
-        const alvoAberto = condsAlvo.some((n) => /atordoado|paralisado|caído|cego/.test(n));    // Vantagem contra ele
+        const alvoAberto = condsAlvo.some((n) => /atordoado|paralisado|caído|cego|surpreso/.test(n));   // Vantagem contra ele
         const furtivo = $("#atq-furtivo")?.checked;
         const assassino = f.classe === "Assassino";
         // Ágil: usa o melhor de For/Des no acerto e no dano
@@ -3527,10 +3842,11 @@ async function telaMesa(id) {
           if (pr.ignoraArmadura) partes.push(`🗡 ignora ${pr.ignoraArmadura} de armadura`);
           efeitoKw = partes.join(" · ");
         }
-        // Munição especial: condição que a munição carrega, para aplicar no acerto.
-        let efeitoMun = "", munCond = null;
+        // Munição especial: condição e tipo de dano que a munição carrega.
+        let efeitoMun = "", munCond = null, munTipo = null;
         if (custo > 0 && nat !== 1) { const itA = (meuPers.dados.inventario || []).find((x) => x.nome === a.nome && x.equip);
           const tpm = TIPOS_PENTE[(itA && itA.tipoPente) || f.tipoPente || PENTE_PADRAO];
+          if (tpm?.tipoDano) munTipo = tpm.tipoDano;
           if (tpm && tpm.cond) { efeitoMun = `${tpm.ic} ${tpm.n}: alvo fica ${tpm.cond} por ${tpm.turnos} turno(s)${tpm.cd ? ` (Constituição CD ${tpm.cd} evita)` : ""}`;
             munCond = { cond: tpm.cond, turnos: tpm.turnos, cd: tpm.cd, origem: tpm.n }; }
           else if (tpm && tpm.bonusSint) efeitoMun = `${tpm.ic} ${tpm.n}: +${tpm.bonusSint} contra sintéticos e implantes do alvo inertes por 1 turno`;
@@ -3573,7 +3889,9 @@ async function telaMesa(id) {
           render();
         }
         if (alvoCombatente) {             // resolve o tiro contra um combatente do rastreador
-          const def = Math.max(0, (alvoCombatente.cd ?? 10) - (pr.ignoraArmadura || 0));
+          // Cobertura só atrapalha tiro; quem está no corpo-a-corpo contorna o muro.
+          const cob = cat.tipo === "branca" ? 0 : [0, 2, 5][alvoCombatente.cobertura || 0];
+          const def = Math.max(0, (alvoCombatente.cd ?? 10) + cob - (pr.ignoraArmadura || 0));
           const fora = distAlvo != null && distAlvo > alcance + 0.01;
           const txtDist = distAlvo != null ? ` · ${distAlvo.toFixed(1).replace(".", ",")} m${fora ? ` ⚠ fora do alcance de ${String(alcance).replace(".", ",")} m` : ""}` : "";
           const acertou = !fora && (nat === 20 || (nat !== 1 && total >= def));
@@ -3581,10 +3899,10 @@ async function telaMesa(id) {
             await enviar("sistema", `⚠ ${meuPers.nome} não alcança ${alvoCombatente.nome} com ${a.nome}${txtDist}. O golpe passa longe.`);
           } else if (acertou) {
             snapshot("tiro em combate");
-            const rd = await aplicarDanoAlvo(alvoCombatente, danoFinal);
-            const conds = rd.absorvido ? [] : aplicarCondsNoAlvo(alvoCombatente);
+            const rd = await aplicarDanoAlvo(alvoCombatente, danoFinal, munTipo || tipoDanoArma(cat));
+            const conds = (rd.absorvido || rd.imune) ? [] : aplicarCondsNoAlvo(alvoCombatente);
             await salvarCombate();
-            await enviar("sistema", `🎯 ${meuPers.nome} acerta ${alvoCombatente.nome} com ${a.nome} (Def ${def}${pr.ignoraArmadura ? ` · 🗡−${pr.ignoraArmadura}` : ""}${txtDist}): ${rd.msg}.${foraDeCombate(alvoCombatente) ? " 💀 CAIU!" : ""}${conds.length ? `  —  ${conds.join(" · ")}` : ""}`);
+            await enviar("sistema", `🎯 ${meuPers.nome} acerta ${alvoCombatente.nome} com ${a.nome} (Def ${def}${cob ? ` · 🧱+${cob} cobertura` : ""}${pr.ignoraArmadura ? ` · 🗡−${pr.ignoraArmadura}` : ""}${txtDist}): ${rd.msg}.${foraDeCombate(alvoCombatente) ? " 💀 CAIU!" : ""}${conds.length ? `  —  ${conds.join(" · ")}` : ""}`);
           } else {
             await enviar("sistema", `❌ ${meuPers.nome} erra ${alvoCombatente.nome} com ${a.nome} (Def ${def}${txtDist}).`);
           }
@@ -3616,6 +3934,7 @@ async function telaMesa(id) {
         const inv = dd1.inventario || [];
         const ix = inv.findIndex((x) => x.nome === nomeArma && x.equip);
         if (ix < 0) return;
+        if (!(await gastarAcao("Ação de Movimento", `recarregar ${nomeArma}`))) return;
         const res = normalizaPentes(dd1);
         const disp = Object.entries(res).filter(([, q]) => q > 0);
         if (!disp.length) { await enviar("sistema", `🔫 ${meuPers.nome} procura um pente e não acha nenhum.`); return render(); }
@@ -3686,6 +4005,7 @@ async function telaMesa(id) {
         })();
         const turnos = duracaoDe(hRaw, f.nivel);
         const R = hRaw?.resolve;
+        if (!(await gastarAcao(hRaw?.acao, `usar ${h.nome}`))) return;
 
         // ---- habilidades que resolvem sozinhas ----
         if (R?.tipo === "tabela") {           // Êxtase da Batalha: 1d6 decide o efeito
@@ -3763,7 +4083,7 @@ async function telaMesa(id) {
           let extra;
           if (venceu) {
             extra = `Venceu a disputa (${meu} × ${contra}) — ${R.vitoria}.`;
-            aplicarCond(alvo, "dominado", 1);
+            aplicarCond(alvo, "Dominado", 1);
             await salvarCombate();
           } else {
             extra = `Perdeu a disputa (${meu} × ${contra}) — ${meuPers.nome} sofre ${R.derrota.danoProprio} de dano.`;
@@ -3779,10 +4099,35 @@ async function telaMesa(id) {
             await sb.from("personagens").update({ dados: meuPers.dados }).eq("id", meuPers.id); }
           return render();
         }
+        if (R?.tipo === "pvtemp") {           // Reparo Tático: PV Temporário num aliado
+          const val = (() => { const pd = parseDice(R.dado); const ds = rollNd(pd.n, pd.f);
+            const bo = R.pericia ? (k.per[R.pericia] || 0) : (R.attr ? (k.attr[R.attr] || 0) : 0);
+            return { total: ds.reduce((x, y) => x + y, 0) + pd.mod + bo, ds, bo }; })();
+          let alvoP = meuPers;
+          if (!R.proprio) {
+            const r2 = await modalForm({ titulo: `★ ${h.nome}`, descricao: h.d,
+              campos: [{ k: "alvo", label: "Em quem?", tipo: "select",
+                opcoes: (pers || []).map((p2) => ({ v: p2.id, l: p2.id === meuPers.id ? `${p2.nome} (você)` : p2.nome })) }], okLabel: "Reforçar" });
+            if (!r2?.alvo) return;
+            alvoP = (pers || []).find((p2) => p2.id === r2.alvo) || meuPers;
+          }
+          const dd3 = { ...novaFichaDados(), ...alvoP.dados };
+          dd3.pvTemp = Math.max(dd3.pvTemp || 0, val.total);   // PV Temporário não soma: fica o maior
+          await sb.from("personagens").update({ dados: dd3 }).eq("id", alvoP.id);
+          alvoP.dados = dd3; if (meuPers.id === alvoP.id) meuPers.dados = dd3;
+          await enviar("rolagem", null, { titulo: `★ ${h.nome}`,
+            detalhe: `${R.dado} [${val.ds.join(", ")}]${val.bo ? ` +${val.bo} ${R.pericia || R.attr}` : ""}`,
+            extra: `✚ ${alvoP.nome} fica com ${dd3.pvTemp} PV Temporário (absorve antes do PV, some no descanso).` });
+          if (h.descanso) { const usos = { ...(meuPers.dados.usos || {}), [h.id]: true };
+            meuPers.dados = { ...meuPers.dados, usos }; f.usos = usos;
+            await sb.from("personagens").update({ dados: meuPers.dados }).eq("id", meuPers.id); }
+          return render();
+        }
         if (R?.tipo === "salvaguarda") {      // Fogo de Supressão, Grito de Saqueador, Sinfonia do Inverno
           const ok = await aplicarEmAlvos({ titulo: `★ ${h.nome}`, origem: `${meuPers.nome} — ${h.nome}`,
             dado: R.dado || null, atributo: R.atributo || null, cd: R.atributo ? dcSalvaguarda(k, R.atributo) : null,
-            cond: R.cond || null, turnos: R.turnos || 2, area: !!R.area });
+            cond: R.cond || null, turnos: R.turnos || 2, area: !!R.area, raio: R.raio || null,
+            tipoDano: R.tipoDano || "físico" });
           if (ok === false) return;   // cancelou sem mirar: não gasta a habilidade
           if (h.descanso) { const usos = { ...(meuPers.dados.usos || {}), [h.id]: true };
             meuPers.dados = { ...meuPers.dados, usos }; f.usos = usos;
@@ -3848,6 +4193,7 @@ async function telaMesa(id) {
       app.querySelectorAll(".item-usa").forEach((bt) => bt.onclick = async () => {
         const nomeItem = bt.dataset.item;
         const cfg = ehConsumivel(nomeItem); if (!cfg) return;
+        if (!(await gastarAcao(cfg.acao, `usar ${cfg.n}`))) return;
         let alvo = meuPers;
         if (!cfg.area && cfg.efeito !== "nenhum" && cfg.efeito !== "condicao") {   // itens de alvo único perguntam em quem
           const r = await modalForm({ titulo: `${cfg.ic} ${nomeItem}`, descricao: `${cfg.d}  ·  ${cfg.acao}. O item é consumido ao ser usado.`,
@@ -3879,7 +4225,8 @@ async function telaMesa(id) {
           await enviar("sistema", `${cfg.ic} ${meuPers.nome} usa ${cfg.n} em ${alvo.nome}: sangramento estancado.`);
         } else if (cfg.efeito === "condicao") {
           const ok = await aplicarEmAlvos({ titulo: `${cfg.ic} ${cfg.n}`, origem: `${meuPers.nome} — ${cfg.n}`,
-            dado: cfg.dano || null, cond: cfg.cond || null, turnos: cfg.turnos || 2, area: true,
+            dado: cfg.dano || null, cond: cfg.cond || null, turnos: cfg.turnos || 2, area: true, raio: cfg.raio || null,
+            tipoDano: cfg.tipoDano || "físico",
             pericia: cfg.pericia || null, atributo: cfg.pericia ? null : (cfg.cd ? (cfg.atributo || "Con") : null), cd: cfg.cd || null });
           if (ok === false) {   // cancelou sem marcar ninguém: devolve o item
             const volta = (meuPers.dados.inventario || []).slice();
@@ -3897,10 +4244,36 @@ async function telaMesa(id) {
         const s = SCRIPTS.find((x) => x.n === $("#sel-scr").value);
         const trvC = minhaTrava(["silenciado"]);
         if (trvC) return enviar("sistema", `${meuPers.nome} está ${trvC.n} e não consegue conjurar ${s.n}.`);
-        if (auraNega("tecnomancia")) return enviar("sistema", `🌀 ${meuPers.nome} tenta conjurar ${s.n} — a matriz não responde. Uma zona de nulidade está ativa no campo (${aurasAtivas().filter((a) => a.nega?.includes("tecnomancia")).map((a) => a.criatura).join(", ")}).`);
-        if (s.c > k.ramLivre) return enviar("sistema", `${p.nome || perfil.apelido} tentou conjurar ${s.n} sem RAM suficiente (Overclock manual: 1d6/ponto).`);
-        meuPers.dados = { ...f, ramGasta: (f.ramGasta || 0) + s.c };
-        await sb.from("personagens").update({ dados: meuPers.dados }).eq("id", meuPers.id);
+        if (!(await gastarAcao(s.a, `conjurar ${s.n}`))) return;
+        const zonaTec = aurasSobre(minhaLinhaCb(), "tecnomancia");
+        if (zonaTec.length) return enviar("sistema", `🌀 ${meuPers.nome} tenta conjurar ${s.n} — a matriz não responde. ${meuPers.nome} está dentro da zona de nulidade de ${zonaTec.map((a) => a.criatura).join(", ")}. Saia do raio para conjurar.`);
+        if (s.c > k.ramLivre) {
+          // Sem RAM: dá para pagar com o corpo — Overclock manual (1d6 por ponto
+          // que falta) ou a Bateria Interna (1d8 para scripts de custo 1–2).
+          const falta = s.c - k.ramLivre;
+          const temBateria = (f.implantes || []).includes("Bateria Interna") && s.c <= 2;
+          const opc = [];
+          if (temBateria) opc.push({ v: "bateria", l: "Bateria Interna — 1d8 de Vida, sem gastar RAM" });
+          opc.push({ v: "overclock", l: `Overclock manual — ${falta}d6 de Vida (1d6 por ponto que falta)` });
+          opc.push({ v: "", l: "— desistir —" });
+          const rOC = await modalForm({ titulo: `◈ ${s.n} — RAM insuficiente`,
+            descricao: `${s.n} custa ${s.c} e você tem ${k.ramLivre}. Faltam ${falta}. Dá para forçar pagando com Vida.`,
+            campos: [{ k: "como", label: "Como conjurar", tipo: "select", valor: temBateria ? "bateria" : "overclock", opcoes: opc }],
+            okLabel: "Forçar" });
+          if (!rOC?.como) return render();
+          const pdOC = rOC.como === "bateria" ? parseDice("1d8") : parseDice(`${falta}d6`);
+          const dsOC = rollNd(pdOC.n, pdOC.f);
+          const custoPv = dsOC.reduce((x, y) => x + y, 0);
+          const ddOC = { ...novaFichaDados(), ...meuPers.dados };
+          ddOC.pvAtual = Math.max(0, (ddOC.pvAtual || 0) - custoPv);
+          if (rOC.como === "overclock") ddOC.ramGasta = (ddOC.ramGasta || 0) + k.ramLivre;   // consome o que sobrava
+          meuPers.dados = ddOC; f.pvAtual = ddOC.pvAtual; f.ramGasta = ddOC.ramGasta;
+          await sb.from("personagens").update({ dados: ddOC }).eq("id", meuPers.id);
+          await enviar("sistema", `⚡ ${meuPers.nome} força ${s.n} ${rOC.como === "bateria" ? "pela Bateria Interna" : "em Overclock"}: ${pdOC.n}d${pdOC.f} [${dsOC.join(", ")}] = ${custoPv} de dano. PV ${ddOC.pvAtual}/${ddOC.pvMax}.${ddOC.pvAtual <= 0 ? " ☠ CAIU!" : ""}`);
+        } else {
+          meuPers.dados = { ...f, ramGasta: (f.ramGasta || 0) + s.c };
+          await sb.from("personagens").update({ dados: meuPers.dados }).eq("id", meuPers.id);
+        }
         const nat = d(20);
         // Scripts que reparam a nave resolvem direto no casco.
         // O campo `resolve` manda; o regex no texto fica só como rede para
@@ -3948,10 +4321,50 @@ async function telaMesa(id) {
             return render();
           }
         }
+        if (s.resolve?.tipo === "pvtemp") {   // Firewall Ativo: barreira que absorve
+          const pdt = parseDice(s.resolve.dado); const dst = rollNd(pdt.n, pdt.f);
+          const bo = s.resolve.attr ? (k.attr[s.resolve.attr] || 0) : 0;
+          const val = dst.reduce((x, y) => x + y, 0) + pdt.mod + bo;
+          const dd = { ...novaFichaDados(), ...meuPers.dados };
+          dd.pvTemp = Math.max(dd.pvTemp || 0, val);
+          meuPers.dados = dd;
+          await sb.from("personagens").update({ dados: dd }).eq("id", meuPers.id);
+          await enviar("rolagem", null, { titulo: `◈ ${s.n}`,
+            detalhe: `${s.resolve.dado} [${dst.join(", ")}]${bo ? ` +${bo} ${s.resolve.attr}` : ""} · ${s.c} RAM`,
+            extra: `🛡 Barreira de ${dd.pvTemp}: absorve o próximo impacto antes do PV.` });
+          return render();
+        }
+        if (s.resolve?.tipo === "drenar_escudos") {   // metade do que drenou vira PV Temporário
+          const naves = (camp.combate?.ordem || []).filter((x) => ehNave(x) && x.lado === "inimiga" && !foraDeCombate(x) && x.escudos > 0);
+          const r2 = await modalForm({ titulo: `◈ ${s.n}`, descricao: s.d,
+            campos: naves.length
+              ? [{ k: "alvo", label: "De qual nave?", tipo: "select", opcoes: naves.map((x) => ({ v: x.id, l: `${x.nome} — escudos ${x.escudos}/${x.escudos_max}` })) },
+                 { k: "qtd", label: "Quanto drenar", tipo: "numero", valor: Math.min(10, naves[0].escudos), min: 1, max: naves[0].escudos }]
+              : [{ k: "qtd", label: "Quanto de escudo foi drenado", tipo: "numero", valor: 10, min: 1, max: 99 }],
+            okLabel: "Drenar" });
+          if (!r2 || !(+r2.qtd > 0)) {   // cancelou: devolve a RAM
+            meuPers.dados = { ...meuPers.dados, ramGasta: Math.max(0, (meuPers.dados.ramGasta || 0) - s.c) };
+            await sb.from("personagens").update({ dados: meuPers.dados }).eq("id", meuPers.id);
+            return render();
+          }
+          const alvoN = naves.find((x) => x.id === r2.alvo);
+          const drenado = Math.min(+r2.qtd, alvoN ? alvoN.escudos : +r2.qtd);
+          if (alvoN) { alvoN.escudos = Math.max(0, alvoN.escudos - drenado); await salvarCombate(); }
+          const ganho = Math.floor(drenado / 2);
+          const dd = { ...novaFichaDados(), ...meuPers.dados };
+          dd.pvTemp = Math.max(dd.pvTemp || 0, ganho);
+          meuPers.dados = dd;
+          await sb.from("personagens").update({ dados: dd }).eq("id", meuPers.id);
+          await enviar("rolagem", null, { titulo: `◈ ${s.n}`,
+            detalhe: `drenou ${drenado} de escudo${alvoN ? ` de ${alvoN.nome}` : ""} · ${s.c} RAM`,
+            extra: `✚ ${meuPers.nome} converte metade: ${ganho} de PV Temporário.` });
+          return render();
+        }
         if (s.resolve?.tipo === "ataque") {   // Script ofensivo: mira um alvo (ou área) e resolve
           const ok = await aplicarEmAlvos({ titulo: `◈ ${s.n}`, origem: `${meuPers.nome} — ${s.n}`,
             dado: s.resolve.dado || s.dmg || null,
-            acerto: s.resolve.area ? null : k.conj, area: !!s.resolve.area });
+            acerto: s.resolve.area ? null : k.conj, area: !!s.resolve.area, raio: s.resolve.raio || null,
+            tipoDano: s.resolve.tipoDano || "físico" });
           if (ok === false) {   // cancelou sem mirar: devolve a RAM
             meuPers.dados = { ...meuPers.dados, ramGasta: Math.max(0, (meuPers.dados.ramGasta || 0) - s.c) };
             await sb.from("personagens").update({ dados: meuPers.dados }).eq("id", meuPers.id);
@@ -3966,7 +4379,9 @@ async function telaMesa(id) {
         const alvo = pers.find((x) => x.id === $("#sel-alvo").value);
         enviar("dano", null, { alvo_id: alvo.id, alvo_nome: alvo.nome, valor: v, origem: `de ${meuPers.nome}`, aplicado: false }); };
       $("#enviar-cura").onclick = () => { const v = +$("#dano-val").value; if (!v) return;
-        if (auraNega("cura")) return enviar("sistema", `🌀 A cura não funciona no campo — uma zona de nulidade está ativa (${aurasAtivas().filter((a) => a.nega?.includes("cura")).map((a) => a.criatura).join(", ")}).`);
+        const alvoCura = camp.combate?.ordem?.find((x) => x.personagem_id === $("#sel-alvo").value);
+        const zonaCura = aurasSobre(alvoCura || minhaLinhaCb(), "cura");
+        if (zonaCura.length) return enviar("sistema", `🌀 A cura não pega: o alvo está dentro da zona de nulidade de ${zonaCura.map((a) => a.criatura).join(", ")}. Tire-o do raio primeiro.`);
         const alvo = pers.find((x) => x.id === $("#sel-alvo").value);
         enviar("cura", null, { alvo_id: alvo.id, alvo_nome: alvo.nome, valor: v, origem: `de ${meuPers.nome}`, aplicado: false }); };
     }
