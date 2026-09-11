@@ -3336,8 +3336,10 @@ async function telaMesa(id) {
       const ntx = camp.combate.nave || naveTaticaVazia();
       const nat = d(20), total = nat + 4, def = ntx.evasiva != null ? ntx.evasiva : 10 + (alvo.manobra || 0);
       if (nat === 1 || total < def) return enviar("rolagem", null, { titulo: `🚀 ${atc.nome} dispara`, detalhe: `d20 [${nat}] +4 vs Defesa ${def}`, total, fumble: nat === 1, extra: "Errou." });
-      const pd = parseDice(atc.dano); const dd = rollNd(pd.n * (nat === 20 ? 2 : 1), pd.f);
-      const bruto = dd.reduce((x, y) => x + y, 0) + pd.mod;
+      // Crítico: soma dados + bônus primeiro, só depois multiplica por 2 — não dobra a
+      // quantidade de dados rolados (isso deixaria o bônus fixo de fora da conta).
+      const pd = parseDice(atc.dano); const dd = rollNd(pd.n, pd.f);
+      const bruto = (dd.reduce((x, y) => x + y, 0) + pd.mod) * (nat === 20 ? 2 : 1);
       const r = danoNave(alvo, bruto);
       let extra = `Escudos −${r.escudos}, Casco −${r.casco}. ${alvo.nome}: ${alvo.casco}/${alvo.casco_max}`;
       if ((nat === 20 || r.critico) && r.casco > 0) { const av = rolarAvaria(); (camp.combate.avarias = camp.combate.avarias || []).push(av); extra += `  ⚠ ${av.n}: ${av.e}`; }
@@ -3647,9 +3649,12 @@ async function telaMesa(id) {
       const paralisadoPerto2 = condsAlvo.includes("paralisado") && distAlvo2 != null && distAlvo2 <= 2.01;
       const critAuto2 = nat === 20 || (paralisadoPerto2 && nat !== 1);
       const mult = critAuto2 ? 2 : 1;
-      const ds = pd ? rollNd(pd.n * mult, pd.f) : [];
-      const danoTotal = pd ? ds.reduce((x, y) => x + y, 0) + pd.mod : 0;
-      const danoTxt = pd ? ` · dano ${atk.dano}${mult > 1 ? "×2" : ""}${paralisadoPerto2 && nat !== 20 ? " (crítico automático — Paralisado ≤2m)" : ""} [${ds.join(", ")}] = ${danoTotal}` : "";
+      // Crítico: soma dados + bônus PRIMEIRO, só depois multiplica o total por 2 — nunca
+      // dobrar a quantidade de dados rolados (isso deixa o bônus fixo de fora da conta).
+      const ds = pd ? rollNd(pd.n, pd.f) : [];
+      const danoSoma = pd ? ds.reduce((x, y) => x + y, 0) + pd.mod : 0;
+      const danoTotal = danoSoma * mult;
+      const danoTxt = pd ? ` · dano ${atk.dano}${mult > 1 ? ` ×${mult}` : ""}${paralisadoPerto2 && nat !== 20 ? " (crítico automático — Paralisado ≤2m)" : ""} [${ds.join(", ")}]${pd.mod ? ` ${sign(pd.mod)}` : ""}${mult > 1 ? ` = ${danoSoma} ×${mult}` : ""} = ${danoTotal}` : "";
       await enviar("rolagem", null, { titulo: `${c.personagem_id ? "🎯" : "👹"} ${c.nome} — ${atk.n}`,
         detalhe: `d20 [${nat}]${detVant} ${sign(atk.bonus)}${bonusMarcado ? ` +${bonusMarcado} Marcado` : ""} = acerto ${acerto}${danoTxt}`,
         total: acerto, crit: critAuto2, fumble: nat === 1,
@@ -4556,8 +4561,10 @@ async function telaMesa(id) {
       if (nat === 1 || total < def) {
         return enviar("rolagem", null, { titulo: `🚀 ${x.nome} dispara`, detalhe: `d20 [${nat}] +4 vs Defesa ${def}`, total, fumble: nat === 1, extra: "Errou — o disparo passa de raspão." });
       }
-      const pd = parseDice(x.dano); const dados = rollNd(pd.n * (nat === 20 ? 2 : 1), pd.f);
-      const bruto = dados.reduce((a2, b2) => a2 + b2, 0) + pd.mod;
+      // Crítico: soma dados + bônus primeiro, só depois multiplica por 2 — não dobra a
+      // quantidade de dados rolados (isso deixaria o bônus fixo de fora da conta).
+      const pd = parseDice(x.dano); const dados = rollNd(pd.n, pd.f);
+      const bruto = (dados.reduce((a2, b2) => a2 + b2, 0) + pd.mod) * (nat === 20 ? 2 : 1);
       const r = danoNave(camp.nave, bruto);
       let extra = `Escudos absorveram ${r.escudos}; Casco sofreu ${r.casco}. Nave: ${camp.nave.casco}/${camp.nave.casco_max} casco · ${camp.nave.escudos}/${camp.nave.escudos_max} escudos.`;
       if ((nat === 20 || r.critico) && r.casco > 0) {
