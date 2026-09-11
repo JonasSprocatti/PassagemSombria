@@ -387,6 +387,8 @@ input:focus,select:focus,button:focus-visible{outline:2px solid var(--tech);outl
   white-space:nowrap;user-select:none;touch-action:none;background:var(--panel);
   transition:left .12s ease,top .16s ease,font-size .16s ease}
 .cb-campo:hover .cb-token{top:calc(4px + var(--stack,0) * 15px);font-size:10px;padding:4px 6px}
+.cb-hp.off{opacity:.55;filter:saturate(.3)}
+.cb-hp.off b{color:var(--chrome)}
 .cb-token{cursor:pointer;z-index:2}
 .cb-token.aliado{color:var(--tech);border-color:var(--tech)}
 .cb-token.inim{color:var(--perigo);border-color:var(--perigo)}
