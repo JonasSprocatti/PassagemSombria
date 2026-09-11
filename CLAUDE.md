@@ -158,6 +158,8 @@ Root Directory vazio · Output Directory `public` · sem Build/Install Command. 
 node --test tests/
 ```
 
+**Sem Node instalado na máquina de quem desenvolve** (não pode/não quer instalar): `.github/workflows/testes.yml` roda os mesmos testes automaticamente a cada `git push`/Pull Request, na nuvem do GitHub — zero instalação local. Resultado aparece na aba **Actions** do repositório no GitHub, e como ✓/✗ ao lado do commit. Esse é o jeito recomendado de rodar os testes quando não há Node local.
+
 Dois arquivos hoje:
 - `tests/dados-jogo.test.js` — `propsArma`/`chavesDaArma` e um teste de sanidade de conteúdo que percorre `ARMAS` inteiro conferindo que toda palavra-chave cadastrada é reconhecida. Pegou a própria regressão do fix de "texto duplicado nas palavras-chave" (`propsArma().efeito`) direto ao escrever o teste: preferir a frase COMPOSTA inteira em `KEYWORDS` antes de cair no fallback por palavra individual, senão armas com kw composto só (ex. "Pesada / Queimadura") perdiam metade da descrição.
 - `tests/regras.test.js` — `calc` (ficha derivada), `dcSalvaguarda`, `aplicarCond` (empilhar dano vs. renovar estado, `origemId`), `distCombate`/`posInicial`, tipos de dano/alcance, `parseDice`, e `danoCritico` (a fórmula "soma dados+bônus primeiro, multiplica depois" — regressão direta do bug de crítico corrigido nesta sessão).

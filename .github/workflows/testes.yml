@@ -1,0 +1,23 @@
+# Roda os testes automatizados (tests/*.test.js) a cada push ou Pull Request.
+# Não precisa de Node instalado na sua máquina — o GitHub roda isso na nuvem dele.
+# Resultado aparece na aba "Actions" do repositório, e como ✓/✗ ao lado do commit.
+name: Testes
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  testes-automatizados:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Baixar o código
+        uses: actions/checkout@v4
+
+      - name: Instalar o Node (só nesta máquina da nuvem, não na sua)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Rodar node --test tests/
+        run: node --test tests/
