@@ -2644,11 +2644,13 @@ async function telaMesa(id) {
       render();
     });
     const fazerBackup = async () => {
-      const [{ data: msgs2 }, { data: membros2 }, { data: pers2 }] = await Promise.all([
-        sb.from("mensagens").select("*").eq("campanha_id", id).order("criado_em", { ascending: true }).limit(5000),
+      const [{ data: msgs2desc }, { data: membros2 }, { data: pers2 }] = await Promise.all([
+        // desc + reverse: sem isso, campanhas com mais de 5000 mensagens perdem as mais recentes no backup.
+        sb.from("mensagens").select("*").eq("campanha_id", id).order("criado_em", { ascending: false }).limit(5000),
         sb.from("campanha_membros").select("*").eq("campanha_id", id),
         sb.from("personagens").select("*").eq("campanha_id", id),
       ]);
+      const msgs2 = msgs2desc ? [...msgs2desc].reverse() : msgs2desc;
       const backup = { formato: "passagem-sombria/campanha", versao: 1, exportado_em: new Date().toISOString(),
         campanha: { nome: camp.nome, codigo: camp.codigo, nave: camp.nave, mapa: camp.mapa, combate: camp.combate, bestiario: camp.bestiario },
         membros: membros2 || [], personagens: pers2 || [], mensagens: msgs2 || [] };
@@ -2817,8 +2819,10 @@ async function telaMesa(id) {
       let linCache = null;
       const painelLin = () => {
         if (!linCache) { setTimeout(async () => {
-          const { data: tudo } = await sb.from("mensagens").select("tipo,conteudo,payload,criado_em,perfis:autor_id(apelido)")
-            .eq("campanha_id", id).order("criado_em", { ascending: true }).limit(3000);
+          // desc + reverse: sem isso, campanhas com mais de 3000 mensagens perdem os marcos mais recentes da linha do tempo.
+          const { data: tudoDesc } = await sb.from("mensagens").select("tipo,conteudo,payload,criado_em,perfis:autor_id(apelido)")
+            .eq("campanha_id", id).order("criado_em", { ascending: false }).limit(3000);
+          const tudo = tudoDesc ? [...tudoDesc].reverse() : tudoDesc;
           const eventos = [];
           (tudo || []).forEach((m) => {
             const q = new Date(m.criado_em);
@@ -3108,7 +3112,9 @@ async function telaMesa(id) {
 
     $("#atalhos")?.addEventListener("click", mostrarAtalhos);
     $("#abrir-diario")?.addEventListener("click", async () => {
-      const { data: todas } = await sb.from("mensagens").select("*,perfis:autor_id(apelido,avatar_url)").eq("campanha_id", id).order("criado_em", { ascending: true }).limit(2000);
+      // desc + reverse: sem isso, campanhas com mais de 2000 mensagens perdem tudo que é recente no Diário.
+      const { data: todasDesc } = await sb.from("mensagens").select("*,perfis:autor_id(apelido,avatar_url)").eq("campanha_id", id).order("criado_em", { ascending: false }).limit(2000);
+      const todas = todasDesc ? [...todasDesc].reverse() : todasDesc;
       const ov = document.createElement("div"); ov.className = "ss-overlay ov-modal"; ov.style.zIndex = "10000";
       const linha = (m) => { const p = m.persm = m.personagem_id ? (pers || []).find((x) => x.id === m.personagem_id) : null;
         const quem = esc(p?.nome || m.perfis?.apelido || "?");
