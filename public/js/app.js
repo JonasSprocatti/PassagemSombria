@@ -1,4 +1,4 @@
-// ============================================================
+﻿// ============================================================
 // PASSAGEM SOMBRIA — DECK DE CAMPO ONLINE (SPA vanilla JS)
 // Rotas: #/login #/hangar #/ficha/:id #/campanhas #/mesa/:id #/biblioteca
 // ============================================================
@@ -747,6 +747,16 @@ const todosConsumiveis = () => [...ajustar(CONSUMIVEIS, "consumivel"), ...extras
 const todasNaves = () => [...ajustar(NAVES, "nave"), ...extras("naves")];
 const todosNPCs = () => [...ajustar(NPCS, "npc"), ...extras("npcs")];
 const todasCriaturas = () => [...ajustar(BESTIARIO, "criatura"), ...extras("criaturas")];
+
+// Salva `dados` de UMA ficha (`personagens.dados`) já checando erro — módulo-level
+// porque telaFicha e telaMesa (dano, cura, RAM, level up, inventário…) precisam dela
+// igual. Sem isto, uma falha silenciosa deixava a mudança só na tela: o app já tinha
+// renderizado como se tivesse dado certo, e o PV/RAM/item "voltava" sozinho ao recarregar.
+async function salvarFicha(personagemId, dados, rotulo = "salvar a ficha") {
+  const { error } = await sb.from("personagens").update({ dados }).eq("id", personagemId);
+  if (error) alert(`Não consegui ${rotulo}: ${error.message}`);
+  return !error;
+}
 
 // ---------------------------------------------------------------------------
 //  AVISO COM DESFAZER — confirma depois da ação em vez de perguntar antes.
@@ -1620,12 +1630,22 @@ async function telaMesa(id) {
   const ecoProprio = () => Date.now() < gravandoAte;
   // Toda gravação em `campanhas` passa por aqui, para o eco do realtime ser ignorado.
   const salvarCampanha = (campos) => { marcarGravacao(); return sb.from("campanhas").update(campos); };
-  const salvarMapa = async (mapa) => { camp.mapa = mapa; const { error } = await salvarCampanha({ mapa }).eq("id", id); if (error) alert("Não consegui salvar o mapa: " + error.message); };
+  // Wrapper com checagem de erro OBRIGATÓRIA — sem isto, uma falha de rede ou de RLS
+  // deixava a mudança só na tela: o app já tinha renderizado como se tivesse dado
+  // certo, e ninguém via aviso nenhum até a sincronização seguinte apagar a ação
+  // silenciosamente. Devolve `true`/`false` pra quem chamar poder decidir o que fazer
+  // (ex.: devolver um recurso gasto se o salvamento falhou).
+  const salvarCamp = async (campos, rotulo = "salvar") => {
+    const { error } = await salvarCampanha(campos).eq("id", id);
+    if (error) alert(`Não consegui ${rotulo}: ${error.message}`);
+    return !error;
+  };
+  const salvarMapa = async (mapa) => { camp.mapa = mapa; await salvarCamp({ mapa }, "salvar o mapa"); };
   if (!camp.combate || typeof camp.combate !== "object" || !("ordem" in camp.combate)) camp.combate = combateVazio();
   // Migração: combates antigos não têm posição no campo. Persiste no próximo salvamento.
   for (const c of camp.combate.ordem || []) if (!ehNave(c) && !c.pos) c.pos = posInicial(camp.combate.ordem, c.tipo);
   const snapshot = (rotulo) => { pilhaUndo.push({ rotulo, combate: JSON.parse(JSON.stringify(camp.combate || {})), nave: JSON.parse(JSON.stringify(camp.nave || null)), combate_nave: JSON.parse(JSON.stringify(camp.combate_nave || {})) }); if (pilhaUndo.length > 10) pilhaUndo.shift(); };
-  const salvarCombate = async () => { const { error } = await salvarCampanha({ combate: camp.combate }).eq("id", id); if (error) alert("Não consegui salvar o combate: " + error.message); };
+  const salvarCombate = async () => { await salvarCamp({ combate: camp.combate }, "salvar o combate"); };
   // A Defesa (`c.cd`) de um jogador no rastreador é uma FOTO tirada ao entrar em
   // combate (#cb-iniciar) — não recalcula sozinha. Sem isto, ativar um modo que
   // mexe na CD (Criogénese: Escudo de gelo, Placas, Defensiva/Aparar) em pleno
@@ -1653,7 +1673,7 @@ async function telaMesa(id) {
     dd.pvAtual = Math.max(0, Math.min(dd.pvMax || 0, antes + delta));
     if (dd.pvAtual === antes) return;
     dd.log = [{ q: new Date().toISOString(), t: `${delta < 0 ? "💥" : "✚"} ${Math.abs(delta)} PV no combate (${antes} → ${dd.pvAtual})` }, ...(dd.log || [])].slice(0, 60);
-    await sb.from("personagens").update({ dados: dd }).eq("id", alvo.id);
+    await salvarFicha(alvo.id, dd);
     alvo.dados = dd;
     if (meuPers && meuPers.id === alvo.id) meuPers.dados = dd;
   };
@@ -1669,7 +1689,7 @@ async function telaMesa(id) {
     if (ehNave(alvo)) {
       const r = danoNave(alvo, valor);
       if (alvo.nave_party && camp.nave) { camp.nave.casco = alvo.casco; camp.nave.escudos = alvo.escudos;
-        await salvarCampanha({ nave: camp.nave }).eq("id", id); }
+        await salvarCamp({ nave: camp.nave }, "salvar a nave"); }
       return { aplicado: r.casco + r.escudos, nave: r,
         msg: `escudos −${r.escudos}, casco −${r.casco} (${alvo.casco}/${alvo.casco_max})` };
     }
@@ -1727,7 +1747,7 @@ async function telaMesa(id) {
       if (noTemp) partes.push(`✚ PV temp absorve ${noTemp}`);
       partes.push(`−${resta} (${dd.pvAtual}/${dd.pvMax || alvo.hp_max})`);
       dd.log = [{ q: new Date().toISOString(), t: `💥 ${valor} de dano — ${partes.join(" · ")}` }, ...(dd.log || [])].slice(0, 60);
-      await sb.from("personagens").update({ dados: dd }).eq("id", alvo.personagem_id);
+      await salvarFicha(alvo.personagem_id, dd);
       if (pjA) pjA.dados = dd;
       if (meuPers && meuPers.id === alvo.personagem_id) meuPers.dados = dd;
       alvo.hp = dd.pvAtual;   // o rastreador acompanha a ficha
@@ -1837,7 +1857,7 @@ async function telaMesa(id) {
   if (!camp.faccoes || typeof camp.faccoes !== "object") camp.faccoes = {};
   if (!Array.isArray(camp.contratos)) camp.contratos = [];
   if (!camp.handout || typeof camp.handout !== "object") camp.handout = {};
-  const salvarBestiario = async () => { const { error } = await salvarCampanha({ bestiario: camp.bestiario }).eq("id", id); if (error) alert("Não consegui salvar o bestiário: " + error.message); };
+  const salvarBestiario = async () => { await salvarCamp({ bestiario: camp.bestiario }, "salvar o bestiário"); };
 
   const enviar = async (tipo, conteudo, payload = null) => {
     if (asCegas && souMestre && tipo === "rolagem") {   // às cegas: fica só na tela do Mestre
@@ -2361,8 +2381,7 @@ async function telaMesa(id) {
         const antes = dados.pvAtual || 0;
         dados.pvAtual = Math.max(0, Math.min(dados.pvMax || 0, antes + (m.tipo === "dano" ? -p.valor : p.valor)));
         dados.log = [{ q: new Date().toISOString(), t: `${m.tipo === "dano" ? "💥" : "✚"} ${p.valor} PV — ${esc(p.origem || "mesa")}` }, ...(dados.log || [])].slice(0, 60);
-        const { error } = await sb.from("personagens").update({ dados }).eq("id", alvo.id);
-        if (error) { bt.disabled = false; return alert("Não consegui aplicar: " + error.message); }
+        if (!(await salvarFicha(alvo.id, dados, "aplicar o dano/cura"))) { bt.disabled = false; return; }
         alvo.dados = dados;                          // mantém o estado local coerente
         if (meuPers && meuPers.id === alvo.id) meuPers.dados = dados;
         await sb.from("mensagens").update({ payload: { ...p, aplicado: true } }).eq("id", m.id);
@@ -2382,14 +2401,12 @@ async function telaMesa(id) {
             cat.forEach((a) => { if (dados.usos[a.id]) { delete dados.usos[a.id]; n++; } });
             if (!n) return;
             dados.log = [{ q: new Date().toISOString(), t: `📅 Nova sessão — ${n} habilidade(s) de 1×/sessão liberada(s)` }, ...(dados.log || [])].slice(0, 60);
-            const { error: e2 } = await sb.from("personagens").update({ dados }).eq("id", meuPers.id);
-            if (!e2) { meuPers.dados = dados; await enviar("sistema", `📅 ${meuPers.nome}: ${cat.map((a) => a.nome).join(", ")} disponível de novo.`); render(); }
+            if (await salvarFicha(meuPers.id, dados, "liberar as habilidades de sessão")) { meuPers.dados = dados; await enviar("sistema", `📅 ${meuPers.nome}: ${cat.map((a) => a.nome).join(", ")} disponível de novo.`); render(); }
             return;
           }
           const r = aplicarDescanso(dados, m.payload?.tipo === "longo" ? "longo" : "curto");
           dados.log = [{ q: new Date().toISOString(), t: `${m.payload?.tipo === "longo" ? "🌙" : "☾"} ${r.notas.join(" · ")}` }, ...(dados.log || [])].slice(0, 60);
-          const { error } = await sb.from("personagens").update({ dados }).eq("id", meuPers.id);
-          if (!error) { meuPers.dados = dados; await enviar("sistema", `🛌 ${meuPers.nome}: ${r.notas.join(" · ")}.`); render(); }
+          if (await salvarFicha(meuPers.id, dados, "salvar o descanso")) { meuPers.dados = dados; await enviar("sistema", `🛌 ${meuPers.nome}: ${r.notas.join(" · ")}.`); render(); }
         })();
       }
       if (aoVivo && m.tipo === "recompensa" && meuPers) {
@@ -2443,8 +2460,7 @@ async function telaMesa(id) {
             notas.push(ganhou > 0 ? `+${ganhou} pente ${tp.ic} ${tp.n} (${antes + ganhou}/${teto} na reserva)` : "reserva de pentes já cheia");
           }
           dados.log = [{ q: new Date().toISOString(), t: `🎁 Recompensa do Mestre: ${notas.join(" · ")}` }, ...(dados.log || [])].slice(0, 60);
-          const { error } = await sb.from("personagens").update({ dados }).eq("id", meuPers.id);
-          if (!error) { meuPers.dados = dados; await enviar("sistema", `🎖 ${meuPers.nome}: ${notas.join(" · ")}${dados.metodoNivel === "xp" && dados.xp >= dados.xpMeta ? " — PRONTO PARA SUBIR!" : ""}`); render(); }
+          if (await salvarFicha(meuPers.id, dados, "salvar a recompensa")) { meuPers.dados = dados; await enviar("sistema", `🎖 ${meuPers.nome}: ${notas.join(" · ")}${dados.metodoNivel === "xp" && dados.xp >= dados.xpMeta ? " — PRONTO PARA SUBIR!" : ""}`); render(); }
         })();
       }
     };
@@ -2492,14 +2508,13 @@ async function telaMesa(id) {
       ], okLabel: "Mostrar" });
       if (!r || !r.url) return;
       camp.handout = { url: r.url.trim(), titulo: (r.titulo || "").trim(), visivel: true };
-      const { error } = await salvarCampanha({ handout: camp.handout }).eq("id", id);
-      if (error) return alert("Não consegui compartilhar: " + error.message);
+      if (!(await salvarCamp({ handout: camp.handout }, "compartilhar a imagem"))) return;
       await enviar("sistema", `🖼 O Mestre mostrou uma imagem${r.titulo ? `: ${r.titulo}` : ""}.`);
       render();
     });
     $("#handout-off")?.addEventListener("click", async () => {
       camp.handout = { ...(camp.handout || {}), visivel: false };
-      await salvarCampanha({ handout: camp.handout }).eq("id", id);
+      await salvarCamp({ handout: camp.handout }, "ocultar a imagem");
       render();
     });
     const fazerBackup = async () => {
@@ -2528,9 +2543,9 @@ async function telaMesa(id) {
         const ok = await confirmModal(`Restaurar o estado desta campanha a partir do backup de ${new Date(b.exportado_em).toLocaleDateString("pt-BR")}?\n\nIsso substitui a NAVE, o MAPA, o COMBATE e o BESTIÁRIO do Mestre pelos do arquivo. As mensagens e as fichas dos jogadores NÃO são tocadas.`, { okLabel: "Restaurar", perigo: true });
         if (!ok) return;
         const c = b.campanha || {};
-        const { error } = await salvarCampanha({ nave: c.nave ?? camp.nave, mapa: c.mapa ?? {}, combate: c.combate ?? combateVazio(), bestiario: c.bestiario ?? [] }).eq("id", id);
-        if (error) return alert("Não consegui restaurar: " + error.message);
-        Object.assign(camp, { nave: c.nave ?? camp.nave, mapa: c.mapa ?? {}, combate: c.combate ?? combateVazio(), bestiario: c.bestiario ?? [] });
+        const campos = { nave: c.nave ?? camp.nave, mapa: c.mapa ?? {}, combate: c.combate ?? combateVazio(), bestiario: c.bestiario ?? [] };
+        if (!(await salvarCamp(campos, "restaurar o backup"))) return;
+        Object.assign(camp, campos);
         await enviar("sistema", "♻ O Mestre restaurou o estado da campanha a partir de um backup.");
         render();
       };
@@ -2617,7 +2632,7 @@ async function telaMesa(id) {
       const ov = document.createElement("div"); ov.className = "ss-overlay ov-modal"; ov.style.zIndex = "10000";
       const abas = [["mesa", "🎬 Mesa"], ["ref", "📖 Referência"], ["tab", "🎲 Tabelas"], ["enc", "⚖ Encontros"], ["fac", "🏛 Facções"], ["con", "📋 Contratos"], ["lin", "🕰 Linha do tempo"], ["not", "📝 Anotações"]];
       let abaAtiva = "mesa";
-      const salvarCamp = async (campos) => { const { error } = await salvarCampanha(campos).eq("id", id); if (error) alert("Não consegui salvar: " + error.message); };
+      // (usa o salvarCamp já definido lá em cima, no escopo de telaMesa.)
 
       const painelMesa = () => `
         <div class="det grande"><b>☾ Descansos</b>
@@ -2735,7 +2750,7 @@ async function telaMesa(id) {
             camp.nave.escudos = camp.nave.escudos_max;
             const cbn3 = camp.combate?.ordem?.find((x) => x.nave_party);
             if (cbn3) { cbn3.casco = camp.nave.casco; cbn3.escudos = camp.nave.escudos; }
-            await salvarCampanha({ nave: camp.nave, ...(camp.combate ? { combate: camp.combate } : {}) }).eq("id", id);
+            await salvarCamp({ nave: camp.nave, ...(camp.combate ? { combate: camp.combate } : {}) }, "salvar a manutenção da nave");
             await enviar("sistema", `🔧 Manutenção de bordo no descanso: +${rep} de casco (${camp.nave.casco}/${camp.nave.casco_max}) e escudos recalibrados.`);
           }
           fechar();
@@ -3130,7 +3145,7 @@ async function telaMesa(id) {
       const snap = pilhaUndo.pop();
       if (!snap) return alert("Nada para desfazer nesta sessão.");
       camp.combate = snap.combate; camp.combate_nave = snap.combate_nave; if (snap.nave) camp.nave = snap.nave;
-      await salvarCampanha({ combate: camp.combate, combate_nave: camp.combate_nave, ...(snap.nave ? { nave: camp.nave } : {}) }).eq("id", id);
+      await salvarCamp({ combate: camp.combate, combate_nave: camp.combate_nave, ...(snap.nave ? { nave: camp.nave } : {}) }, "desfazer");
       await enviar("sistema", `↶ O Mestre desfez: ${snap.rotulo}.`); render();
     });
     $("#cb-fim")?.addEventListener("click", async () => { if (confirm("Encerrar o combate e limpar a ordem?")) { camp.combate = combateVazio(); await salvarCombate(); render(); } });
@@ -3167,7 +3182,7 @@ async function telaMesa(id) {
       if ((nat === 20 || r.critico) && r.casco > 0) { const av = rolarAvaria(); (camp.combate.avarias = camp.combate.avarias || []).push(av); extra += `  ⚠ ${av.n}: ${av.e}`; }
       if (alvo.casco <= 0) extra += "  💀 Casco a zero!";
       if (alvo.nave_party && camp.nave) { camp.nave.casco = alvo.casco; camp.nave.escudos = alvo.escudos; }
-      await salvarCampanha({ combate: camp.combate, ...(alvo.nave_party && camp.nave ? { nave: camp.nave } : {}) }).eq("id", id);
+      await salvarCamp({ combate: camp.combate, ...(alvo.nave_party && camp.nave ? { nave: camp.nave } : {}) }, "salvar o disparo");
       await enviar("rolagem", null, { titulo: `🚀 ${atc.nome} dispara`, detalhe: `d20 [${nat}] +4 vs Def ${def} · dano ${atc.dano} [${dd.join(", ")}]${nat === 20 ? " ×2" : ""}`, total, crit: nat === 20, extra });
       render();
     });
@@ -3288,7 +3303,7 @@ async function telaMesa(id) {
           }
           if (expiraram.length || JSON.stringify(ate) !== JSON.stringify(dd2.modosAte)) {
             p2.dados = { ...dd2, modos, modosAte: ate };
-            await sb.from("personagens").update({ dados: p2.dados }).eq("id", p2.id);
+            await salvarFicha(p2.id, p2.dados);
             if (meuPers && meuPers.id === p2.id) meuPers.dados = p2.dados;
             if (expiraram.length) sincronizarCdCombate(p2.id, p2.dados);
             for (const nome of expiraram) await enviar("sistema", `⌛ ${p2.nome}: ${nome} acabou.`);
@@ -3376,7 +3391,7 @@ async function telaMesa(id) {
             if (alvoP) { const dd = { ...novaFichaDados(), ...alvoP.dados };
               dd.pvAtual = Math.max(0, (dd.pvAtual || 0) - totalDano);
               dd.log = [{ q: new Date().toISOString(), t: `☠ ${detalhes.join(" · ")} → −${totalDano} PV` }, ...(dd.log || [])].slice(0, 60);
-              await sb.from("personagens").update({ dados: dd }).eq("id", alvoP.id); alvoP.dados = dd;
+              await salvarFicha(alvoP.id, dd); alvoP.dados = dd;
             }
           }
           await enviar("sistema", `☠ ${atual.nome} sofre ${totalDano} de dano por condição — ${detalhes.join(" · ")}. Agora ${vidaAtual(atual)}/${vidaMax(atual)}.`);
@@ -3403,8 +3418,7 @@ async function telaMesa(id) {
       // Gravação única: escrever em campanhas no meio do handler dispara o realtime,
       // que sobrescreveria camp.combate com o estado antigo e travaria o turno.
       const campos = { combate: camp.combate }; if (salvarNaveJunto) campos.nave = camp.nave;
-      const { error: errProx } = await salvarCampanha(campos).eq("id", id);
-      if (errProx) alert("Não consegui salvar o turno: " + errProx.message);
+      await salvarCamp(campos, "salvar o turno");
       render(); });
     $("#cb-add-btn")?.addEventListener("click", async () => {
       const v = $("#cb-quem").value; if (!v) return;
@@ -3509,7 +3523,7 @@ async function telaMesa(id) {
       if (ehNave(c)) {
         if (delta < 0) { const r = danoNave(c, -delta); if (r.critico) { const av = rolarAvaria(); (camp.combate.avarias = camp.combate.avarias || []).push(av); await enviar("sistema", `⚠ ${c.nome}: ${av.n} — ${av.e}`); } }
         else c.escudos = Math.min(c.escudos_max, c.escudos + delta);
-        if (c.nave_party && camp.nave) { camp.nave.casco = c.casco; camp.nave.escudos = c.escudos; await salvarCampanha({ nave: camp.nave }).eq("id", id); }
+        if (c.nave_party && camp.nave) { camp.nave.casco = c.casco; camp.nave.escudos = c.escudos; await salvarCamp({ nave: camp.nave }, "salvar a nave"); }
       } else {
         c.hp = Math.max(0, Math.min(c.hp_max, c.hp + delta));
         await sincronizarFicha(c, delta);
@@ -3523,9 +3537,9 @@ async function telaMesa(id) {
       avisar(`${c.nome}: ${delta < 0 ? `−${-delta}` : `+${delta}`} ${ehNave(c) ? "no casco/escudos" : "de PV"}`, async () => {
         const snap = pilhaUndo.pop(); if (!snap) return;
         camp.combate = snap.combate; camp.combate_nave = snap.combate_nave; if (snap.nave) camp.nave = snap.nave;
-        await salvarCampanha({ combate: camp.combate, ...(snap.nave ? { nave: camp.nave } : {}) }).eq("id", id); render();
+        await salvarCamp({ combate: camp.combate, ...(snap.nave ? { nave: camp.nave } : {}) }, "desfazer"); render();
       }); });
-    app.querySelectorAll(".cb-hpset").forEach((i) => i.onchange = async () => { const c = cbFind(i.dataset.cb); if (!c) return; if (ehNave(c)) { c.casco = Math.max(0, Math.min(c.casco_max, +i.value || 0)); if (c.nave_party && camp.nave) { camp.nave.casco = c.casco; await salvarCampanha({ nave: camp.nave }).eq("id", id); } }
+    app.querySelectorAll(".cb-hpset").forEach((i) => i.onchange = async () => { const c = cbFind(i.dataset.cb); if (!c) return; if (ehNave(c)) { c.casco = Math.max(0, Math.min(c.casco_max, +i.value || 0)); if (c.nave_party && camp.nave) { camp.nave.casco = c.casco; await salvarCamp({ nave: camp.nave }, "salvar a nave"); } }
       else { const pvA = c.hp; c.hp = Math.max(0, Math.min(c.hp_max, +i.value || 0)); await sincronizarFicha(c, c.hp - pvA); }
       await salvarCombate(); render(); });
     app.querySelectorAll(".cb-rm").forEach((b) => b.onclick = async () => { const idx = camp.combate.ordem.findIndex((x) => x.id === b.dataset.cb); if (idx < 0) return; snapshot("remover combatente");
@@ -3546,7 +3560,8 @@ async function telaMesa(id) {
         await enviar("sistema", `◈ ${(perfil?.apelido) || "Alguém"} agora joga como ${escolhido.nome || "sem nome"}.`);
         return render();
       }
-      await sb.from("personagens").update({ campanha_id: id }).eq("id", pid);
+      const { error: errVinc } = await sb.from("personagens").update({ campanha_id: id }).eq("id", pid);
+      if (errVinc) return alert("Não consegui vincular o personagem: " + errVinc.message);
       localStorage.setItem(chavePers, pid);
       location.reload();
     };
@@ -3684,7 +3699,7 @@ async function telaMesa(id) {
             f.tirosPente = noCano - custo;
             meuPers.dados = { ...dd0, tirosPente: f.tirosPente };
           }
-          await sb.from("personagens").update({ dados: meuPers.dados }).eq("id", meuPers.id);
+          await salvarFicha(meuPers.id, meuPers.dados);
           precisaRender = true;
         }
         // Mira: o jogador só enxerga quem está dentro do alcance da arma; o Mestre
@@ -3859,7 +3874,7 @@ async function telaMesa(id) {
         res[tipoNovo] -= 1;
         f.pentes = res; f.tirosPente = TIROS_POR_PENTE; f.tipoPente = tipoNovo;
         meuPers.dados = { ...dd1, pentes: res, tirosPente: TIROS_POR_PENTE, tipoPente: tipoNovo };
-        await sb.from("personagens").update({ dados: meuPers.dados }).eq("id", meuPers.id);
+        await salvarFicha(meuPers.id, meuPers.dados);
         const t3 = TIPOS_PENTE[tipoNovo];
         await enviar("sistema", `🔫 ${meuPers.nome} carrega ${t3.ic} ${t3.n} (Ação de Movimento).`);
         render();
@@ -3892,7 +3907,7 @@ async function telaMesa(id) {
         const novoInv = inv.map((x, i2) => i2 === ix ? { ...x, tiros: TIROS_POR_PENTE, tipoPente: escolha } : x);
         meuPers.dados = { ...dd1, inventario: novoInv, pentes: res, __migrouArma: true };
         f.inventario = novoInv; f.pentes = res;
-        await sb.from("personagens").update({ dados: meuPers.dados }).eq("id", meuPers.id);
+        await salvarFicha(meuPers.id, meuPers.dados);
         const t3 = TIPOS_PENTE[escolha];
         await enviar("sistema", `🔫 ${meuPers.nome} carrega ${t3.ic} ${t3.n} em ${nomeArma} (Ação de Movimento).`);
         render();
@@ -3925,7 +3940,7 @@ async function telaMesa(id) {
         res[escolha] -= 1;
         f.pentes = res; f.tirosPente = TIROS_POR_PENTE; f.tipoPente = escolha;
         meuPers.dados = { ...dd1, pentes: res, tirosPente: f.tirosPente, tipoPente: escolha };
-        await sb.from("personagens").update({ dados: meuPers.dados }).eq("id", meuPers.id);
+        await salvarFicha(meuPers.id, meuPers.dados);
         const t3 = TIPOS_PENTE[escolha];
         await enviar("sistema", `🔫 ${meuPers.nome} carrega um pente ${t3.ic} ${t3.n} (Ação de Movimento).`); render();
       });
@@ -3951,7 +3966,7 @@ async function telaMesa(id) {
           const modos = { ...(meuPers.dados.modos || {}), [h.nome]: op.n };
           const exp = { ...(meuPers.dados.modosAte || {}), [h.nome]: turnos };
           meuPers.dados = { ...meuPers.dados, modos, modosAte: exp }; f.modos = modos;
-          await sb.from("personagens").update({ dados: meuPers.dados }).eq("id", meuPers.id);
+          await salvarFicha(meuPers.id, meuPers.dados);
           if (sincronizarCdCombate(meuPers.id, meuPers.dados)) await salvarCombate();
           await enviar("rolagem", null, { titulo: `★ ${h.nome}`, detalhe: `${R.dado} [${v}]`,
             extra: `${op.n} — dura ${turnos} turno(s).` });
@@ -3970,13 +3985,13 @@ async function telaMesa(id) {
             const dd3 = { ...novaFichaDados(), ...meuPers.dados };
             dd3.pvAtual = Math.max(0, (dd3.pvAtual || 0) - R.falha.danoProprio);
             meuPers.dados = dd3;
-            await sb.from("personagens").update({ dados: dd3 }).eq("id", meuPers.id);
+            await salvarFicha(meuPers.id, dd3);
             nota = ` — rejeição! ${meuPers.nome} sofre ${R.falha.danoProprio} de dano`;
           }
           await enviar("cura", null, { alvo_id: alvo.id, alvo_nome: alvo.nome, valor: Math.max(0, val),
             origem: `★ ${h.nome} de ${meuPers.nome}`, detalhe: `${R.dado} [${bruto}]${R.attr ? ` + ${R.attr}` : ""}${nota}`, aplicado: false });
           if (h.descanso) { const usos = { ...(meuPers.dados.usos || {}), [h.id]: true };
-            meuPers.dados = { ...meuPers.dados, usos }; await sb.from("personagens").update({ dados: meuPers.dados }).eq("id", meuPers.id); }
+            meuPers.dados = { ...meuPers.dados, usos }; await salvarFicha(meuPers.id, meuPers.dados); }
           return render();
         }
         if (R?.tipo === "transferir_pv") {    // Emprestar Vitalidade
@@ -3993,7 +4008,7 @@ async function telaMesa(id) {
           const dd3 = { ...novaFichaDados(), ...meuPers.dados };
           dd3.pvAtual = Math.max(0, (dd3.pvAtual || 0) - qtd);
           meuPers.dados = dd3; f.pvAtual = dd3.pvAtual;
-          await sb.from("personagens").update({ dados: dd3 }).eq("id", meuPers.id);
+          await salvarFicha(meuPers.id, dd3);
           await enviar("cura", null, { alvo_id: alvo.id, alvo_nome: alvo.nome, valor: qtd,
             origem: `★ ${h.nome} de ${meuPers.nome}`, detalhe: `transferiu ${qtd} PV do próprio corpo`, aplicado: false });
           return render();
@@ -4027,14 +4042,14 @@ async function telaMesa(id) {
             extra = `Perdeu a disputa (${meu} × ${contra}) — ${meuPers.nome} sofre ${R.derrota.danoProprio} de dano.`;
             const dd3 = { ...novaFichaDados(), ...meuPers.dados };
             dd3.pvAtual = Math.max(0, (dd3.pvAtual || 0) - R.derrota.danoProprio);
-            meuPers.dados = dd3; await sb.from("personagens").update({ dados: dd3 }).eq("id", meuPers.id);
+            meuPers.dados = dd3; await salvarFicha(meuPers.id, dd3);
           }
           await enviar("rolagem", null, { titulo: `★ ${h.nome}`,
             detalhe: `${meuPers.nome} d20 [${nat}] ${sign(meuBonus)} = ${meu}  ·  ${alvoNome} d20 [${natA}] ${sign(alvoBonus)} = ${contra}`,
             total: meu, crit: nat === 20, fumble: nat === 1, extra });
           if (h.descanso) { const usos = { ...(meuPers.dados.usos || {}), [h.id]: true };
             meuPers.dados = { ...meuPers.dados, usos }; f.usos = usos;
-            await sb.from("personagens").update({ dados: meuPers.dados }).eq("id", meuPers.id); }
+            await salvarFicha(meuPers.id, meuPers.dados); }
           return render();
         }
         if (R?.tipo === "pvtemp") {           // Reparo Tático: PV Temporário num aliado
@@ -4051,14 +4066,14 @@ async function telaMesa(id) {
           }
           const dd3 = { ...novaFichaDados(), ...alvoP.dados };
           dd3.pvTemp = Math.max(dd3.pvTemp || 0, val.total);   // PV Temporário não soma: fica o maior
-          await sb.from("personagens").update({ dados: dd3 }).eq("id", alvoP.id);
+          await salvarFicha(alvoP.id, dd3);
           alvoP.dados = dd3; if (meuPers.id === alvoP.id) meuPers.dados = dd3;
           await enviar("rolagem", null, { titulo: `★ ${h.nome}`,
             detalhe: `${R.dado} [${val.ds.join(", ")}]${val.bo ? ` +${val.bo} ${R.pericia || R.attr}` : ""}`,
             extra: `✚ ${alvoP.nome} fica com ${dd3.pvTemp} PV Temporário (absorve antes do PV, some no descanso).` });
           if (h.descanso) { const usos = { ...(meuPers.dados.usos || {}), [h.id]: true };
             meuPers.dados = { ...meuPers.dados, usos }; f.usos = usos;
-            await sb.from("personagens").update({ dados: meuPers.dados }).eq("id", meuPers.id); }
+            await salvarFicha(meuPers.id, meuPers.dados); }
           return render();
         }
         if (R?.tipo === "salvaguarda") {      // Fogo de Supressão, Grito de Saqueador, Sinfonia do Inverno
@@ -4069,7 +4084,7 @@ async function telaMesa(id) {
           if (ok === false) return;   // cancelou sem mirar: não gasta a habilidade
           if (h.descanso) { const usos = { ...(meuPers.dados.usos || {}), [h.id]: true };
             meuPers.dados = { ...meuPers.dados, usos }; f.usos = usos;
-            await sb.from("personagens").update({ dados: meuPers.dados }).eq("id", meuPers.id); }
+            await salvarFicha(meuPers.id, meuPers.dados); }
           return render();
         }
         if (R?.tipo === "condicao") {         // Repulsão Cinética: derruba sem causar dano
@@ -4095,7 +4110,7 @@ async function telaMesa(id) {
           const modos = { ...(meuPers.dados.modos || {}), [h.nome]: escolha || "ativo" };
           const exp = { ...(meuPers.dados.modosAte || {}), [h.nome]: turnos || 99 };
           meuPers.dados = { ...meuPers.dados, modos, modosAte: exp }; f.modos = modos;
-          await sb.from("personagens").update({ dados: meuPers.dados }).eq("id", meuPers.id);
+          await salvarFicha(meuPers.id, meuPers.dados);
           if (sincronizarCdCombate(meuPers.id, meuPers.dados)) await salvarCombate();
           await enviar("sistema", `★ ${meuPers.nome} ativa **${h.nome}**${escolha ? `: ${escolha}` : ""} — ${h.d}${turnos ? ` (${turnos} turnos)` : ""}${R.aviso ? ` ⚠ ${R.aviso}` : ""}`);
           return render();
@@ -4113,7 +4128,7 @@ async function telaMesa(id) {
           const modos = { ...(meuPers.dados.modos || {}) };
           if (r.op) modos[h.nome] = r.op; else delete modos[h.nome];
           meuPers.dados = { ...meuPers.dados, modos }; f.modos = modos;
-          await sb.from("personagens").update({ dados: meuPers.dados }).eq("id", meuPers.id);
+          await salvarFicha(meuPers.id, meuPers.dados);
           if (sincronizarCdCombate(meuPers.id, meuPers.dados)) await salvarCombate();
           const op2 = h.opcoes.find((o) => o.n === r.op);
           await enviar("sistema", r.op
@@ -4125,7 +4140,7 @@ async function telaMesa(id) {
         if (h.descanso) {                       // marca como gasta até o descanso
           const usos = { ...(meuPers.dados.usos || {}), [h.id]: true };
           meuPers.dados = { ...meuPers.dados, usos }; f.usos = usos;
-          await sb.from("personagens").update({ dados: meuPers.dados }).eq("id", meuPers.id);
+          await salvarFicha(meuPers.id, meuPers.dados);
         }
         await enviar("sistema", `★ ${meuPers.nome} usa **${h.nome}** (${h.origem}) — ${h.d}`);
         render();
@@ -4147,7 +4162,7 @@ async function telaMesa(id) {
         // consome o item da ficha de quem usou
         const inv = (f.inventario || []).map((it) => it.nome === r.item ? { ...it, qtd: (it.qtd || 1) - 1 } : it).filter((it) => (it.qtd || 0) > 0 || !ehConsumivel(it.nome));
         f.inventario = inv; meuPers.dados = { ...meuPers.dados, inventario: inv };
-        await sb.from("personagens").update({ dados: meuPers.dados }).eq("id", meuPers.id);
+        await salvarFicha(meuPers.id, meuPers.dados);
 
         if (cfg.efeito === "cura") {
           const pd = parseDice(cfg.dado); const ds = rollNd(pd.n, pd.f);
@@ -4157,11 +4172,11 @@ async function telaMesa(id) {
         } else if (cfg.efeito === "ram") {
           const dd = { ...novaFichaDados(), ...alvo.dados };
           dd.ramGasta = Math.max(0, (dd.ramGasta || 0) - (cfg.valor || 1));
-          await sb.from("personagens").update({ dados: dd }).eq("id", alvo.id); alvo.dados = dd;
+          await salvarFicha(alvo.id, dd); alvo.dados = dd;
           await enviar("sistema", `${cfg.ic} ${meuPers.nome} usa ${cfg.n} em ${alvo.nome}: +${cfg.valor} Slot de RAM.`);
         } else if (cfg.efeito === "sangramento") {
           const cb = camp.combate?.ordem?.find((x) => x.personagem_id === alvo.id);
-          if (cb && cb.cond) { cb.cond = cb.cond.filter((c2) => !/sangrando/i.test(c2.n)); await salvarCampanha({ combate: camp.combate }).eq("id", id); }
+          if (cb && cb.cond) { cb.cond = cb.cond.filter((c2) => !/sangrando/i.test(c2.n)); await salvarCamp({ combate: camp.combate }, "estancar o sangramento"); }
           await enviar("sistema", `${cfg.ic} ${meuPers.nome} usa ${cfg.n} em ${alvo.nome}: sangramento estancado.`);
         } else if (cfg.efeito === "condicao") {
           const ok = await aplicarEmAlvos({ titulo: `${cfg.ic} ${cfg.n}`, origem: `${meuPers.nome} — ${cfg.n}`,
@@ -4173,7 +4188,7 @@ async function telaMesa(id) {
             const ja = volta.find((it) => it.nome === r.item);
             if (ja) ja.qtd = (ja.qtd || 0) + 1; else volta.push({ tipo: "consumivel", nome: r.item, equip: false, qtd: 1 });
             f.inventario = volta; meuPers.dados = { ...meuPers.dados, inventario: volta };
-            await sb.from("personagens").update({ dados: meuPers.dados }).eq("id", meuPers.id);
+            await salvarFicha(meuPers.id, meuPers.dados);
           }
         } else {
           await enviar("sistema", `${cfg.ic} ${meuPers.nome} usa ${cfg.n}${alvo.id !== meuPers.id ? ` em ${alvo.nome}` : ""}. ${cfg.d}`);
@@ -4208,11 +4223,11 @@ async function telaMesa(id) {
           ddOC.pvAtual = Math.max(0, (ddOC.pvAtual || 0) - custoPv);
           if (rOC.como === "overclock") ddOC.ramGasta = (ddOC.ramGasta || 0) + k.ramLivre;   // consome o que sobrava
           meuPers.dados = ddOC; f.pvAtual = ddOC.pvAtual; f.ramGasta = ddOC.ramGasta;
-          await sb.from("personagens").update({ dados: ddOC }).eq("id", meuPers.id);
+          await salvarFicha(meuPers.id, ddOC);
           await enviar("sistema", `⚡ ${meuPers.nome} força ${s.n} ${rOC.como === "bateria" ? "pela Bateria Interna" : "em Overclock"}: ${pdOC.n}d${pdOC.f} [${dsOC.join(", ")}] = ${custoPv} de dano. PV ${ddOC.pvAtual}/${ddOC.pvMax}.${ddOC.pvAtual <= 0 ? " ☠ CAIU!" : ""}`);
         } else {
           meuPers.dados = { ...f, ramGasta: (f.ramGasta || 0) + s.c };
-          await sb.from("personagens").update({ dados: meuPers.dados }).eq("id", meuPers.id);
+          await salvarFicha(meuPers.id, meuPers.dados);
         }
         const nat = d(20);
         // Scripts que reparam a nave resolvem direto no casco.
@@ -4226,7 +4241,7 @@ async function telaMesa(id) {
           camp.nave.casco = Math.min(camp.nave.casco_max, camp.nave.casco + val);
           const cbn2 = camp.combate?.ordem?.find((x) => x.nave_party);
           if (cbn2) cbn2.casco = camp.nave.casco;
-          await salvarCampanha({ nave: camp.nave, ...(cbn2 ? { combate: camp.combate } : {}) }).eq("id", id);
+          await salvarCamp({ nave: camp.nave, ...(cbn2 ? { combate: camp.combate } : {}) }, "salvar o reparo");
           await enviar("rolagem", null, { titulo: `Script — ${s.n}`,
             detalhe: `${repDado} [${dn.join(", ")}] · ${s.c} RAM`,
             extra: `🔧 Casco reparado em ${camp.nave.casco - antes} (${camp.nave.casco}/${camp.nave.casco_max}).` });
@@ -4254,7 +4269,7 @@ async function telaMesa(id) {
               dd.pvAtual = Math.min(dd.pvMax || 0, antes + rc.curaPropria);
               if (dd.pvAtual !== antes) {
                 meuPers.dados = dd;
-                await sb.from("personagens").update({ dados: dd }).eq("id", meuPers.id);
+                await salvarFicha(meuPers.id, dd);
                 await enviar("sistema", `♻ ${meuPers.nome} — ${rc.fontes[0]}: recupera ${dd.pvAtual - antes} PV ao curar um aliado.`);
               }
             }
@@ -4268,7 +4283,7 @@ async function telaMesa(id) {
           const dd = { ...novaFichaDados(), ...meuPers.dados };
           dd.pvTemp = Math.max(dd.pvTemp || 0, val);
           meuPers.dados = dd;
-          await sb.from("personagens").update({ dados: dd }).eq("id", meuPers.id);
+          await salvarFicha(meuPers.id, dd);
           await enviar("rolagem", null, { titulo: `◈ ${s.n}`,
             detalhe: `${s.resolve.dado} [${dst.join(", ")}]${bo ? ` +${bo} ${s.resolve.attr}` : ""} · ${s.c} RAM`,
             extra: `🛡 Barreira de ${dd.pvTemp}: absorve o próximo impacto antes do PV.` });
@@ -4284,7 +4299,7 @@ async function telaMesa(id) {
             okLabel: "Drenar" });
           if (!r2 || !(+r2.qtd > 0)) {   // cancelou: devolve a RAM
             meuPers.dados = { ...meuPers.dados, ramGasta: Math.max(0, (meuPers.dados.ramGasta || 0) - s.c) };
-            await sb.from("personagens").update({ dados: meuPers.dados }).eq("id", meuPers.id);
+            await salvarFicha(meuPers.id, meuPers.dados);
             return render();
           }
           const alvoN = naves.find((x) => x.id === r2.alvo);
@@ -4294,7 +4309,7 @@ async function telaMesa(id) {
           const dd = { ...novaFichaDados(), ...meuPers.dados };
           dd.pvTemp = Math.max(dd.pvTemp || 0, ganho);
           meuPers.dados = dd;
-          await sb.from("personagens").update({ dados: dd }).eq("id", meuPers.id);
+          await salvarFicha(meuPers.id, dd);
           await enviar("rolagem", null, { titulo: `◈ ${s.n}`,
             detalhe: `drenou ${drenado} de escudo${alvoN ? ` de ${alvoN.nome}` : ""} · ${s.c} RAM`,
             extra: `✚ ${meuPers.nome} converte metade: ${ganho} de PV Temporário.` });
@@ -4308,7 +4323,7 @@ async function telaMesa(id) {
             cond: s.resolve.cond || null, turnos: s.resolve.turnos || 2 });
           if (ok === false) {   // cancelou sem mirar: devolve a RAM
             meuPers.dados = { ...meuPers.dados, ramGasta: Math.max(0, (meuPers.dados.ramGasta || 0) - s.c) };
-            await sb.from("personagens").update({ dados: meuPers.dados }).eq("id", meuPers.id);
+            await salvarFicha(meuPers.id, meuPers.dados);
           }
           return render();
         }
@@ -4330,14 +4345,14 @@ async function telaMesa(id) {
     $("#def-nave")?.addEventListener("click", async () => {
       const n = NAVES.find((x) => x.n === $("#sel-nave").value);
       const nave = { modelo: n.n, nome_batismo: $("#nave-nome").value.trim() || n.n, casco: n.casco, casco_max: n.casco, escudos: n.escudos, escudos_max: n.escudos, manobra: n.manobra, dano: n.dano };
-      await salvarCampanha({ nave }).eq("id", id);
+      await salvarCamp({ nave }, "registrar a nave");
       enviar("nave", `A nave ${nave.nome_batismo} (${n.n}) entrou em serviço. Casco ${n.casco}, Escudos ${n.escudos}, Defesa ${10 + n.manobra}.`);
     });
     $("#sel-posto")?.addEventListener("change", async (e) => {
       await sb.from("campanha_membros").update({ posto: e.target.value || null }).eq("campanha_id", id).eq("perfil_id", usuario.id);
       location.reload();
     });
-    const salvarCbn = async () => { const { error } = await salvarCampanha({ combate_nave: camp.combate_nave }).eq("id", id); if (error) alert("Não consegui salvar o combate espacial: " + error.message); };
+    const salvarCbn = async () => { await salvarCamp({ combate_nave: camp.combate_nave }, "salvar o combate espacial"); };
     $("#cbn-iniciar")?.addEventListener("click", async () => {
       camp.combate_nave = { ...combateNaveVazio(), ativo: true };
       await salvarCbn(); await enviar("sistema", "🚀 Alerta vermelho: combate espacial iniciado. Todos aos postos!"); render();
@@ -4351,7 +4366,7 @@ async function telaMesa(id) {
       // Núcleo de Reparo Automático
       if ((camp.nave?.upgrades || []).some((u) => u === "Núcleo de Reparo Automático") && camp.nave.casco < camp.nave.casco_max) {
         const rep = d(6); camp.nave.casco = Math.min(camp.nave.casco_max, camp.nave.casco + rep);
-        await salvarCampanha({ nave: camp.nave }).eq("id", id);
+        await salvarCamp({ nave: camp.nave }, "salvar o reparo automático");
         await enviar("sistema", `🔧 Núcleo de Reparo: +${rep} de Casco (${camp.nave.casco}/${camp.nave.casco_max}).`);
       }
       await salvarCbn(); await enviar("sistema", `🚀 Rodada ${cb.rodada}. Postos liberados para agir.`); render();
@@ -4390,7 +4405,7 @@ async function telaMesa(id) {
         extra += `  ⚠ FALHA CRÍTICA — ${av.n}: ${av.e}`;
       }
       if (camp.nave.casco <= 0) extra += "  💀 CASCO A ZERO: a nave está destruída ou à deriva.";
-      await salvarCampanha({ nave: camp.nave }).eq("id", id);
+      await salvarCamp({ nave: camp.nave }, "salvar o disparo inimigo");
       await salvarCbn();
       await enviar("rolagem", null, { titulo: `🚀 ${x.nome} dispara`, detalhe: `d20 [${nat}] +4 vs Defesa ${def} · dano ${x.dano} [${dados.join(", ")}]${nat === 20 ? " ×2" : ""}`, total, crit: nat === 20, extra });
       render();
@@ -4423,13 +4438,13 @@ async function telaMesa(id) {
         if (saldo < total) return alert(`${pagador.nome} tem ${saldo} CG — faltam ${total - saldo} CG para o reparo.`);
         const dd = { ...novaFichaDados(), ...pagador.dados, creditos: saldo - total };
         dd.log = [{ q: new Date().toISOString(), t: `🛠 Pagou ${total} CG pelo reparo da nave.` }, ...(dd.log || [])].slice(0, 60);
-        await sb.from("personagens").update({ dados: dd }).eq("id", pagador.id); pagador.dados = dd;
+        await salvarFicha(pagador.id, dd); pagador.dados = dd;
       }
       camp.nave.casco = camp.nave.casco_max; camp.nave.escudos = camp.nave.escudos_max;
       const cbn2 = camp.combate?.ordem?.find((x) => x.nave_party);
       if (cbn2) { cbn2.casco = camp.nave.casco; cbn2.escudos = camp.nave.escudos; }
       if (camp.combate) camp.combate.avarias = [];
-      await salvarCampanha({ nave: camp.nave, ...(camp.combate ? { combate: camp.combate } : {}) }).eq("id", id);
+      await salvarCamp({ nave: camp.nave, ...(camp.combate ? { combate: camp.combate } : {}) }, "salvar o reparo do estaleiro");
       await enviar("sistema", `🛠 ${camp.nave.nome_batismo || camp.nave.modelo} sai do estaleiro: casco e escudos no máximo${avarias ? `, ${avarias} avaria(s) reparada(s)` : ""}${total ? ` — ${total} CG` : ""}.`);
       render();
     });
@@ -4448,7 +4463,7 @@ async function telaMesa(id) {
       if (u.campo === "manobra") camp.nave.manobra = (camp.nave.manobra || 0) + u.v;
       if (u.penal?.manobra) camp.nave.manobra = (camp.nave.manobra || 0) + u.penal.manobra;
       if (u.campo === "dano_bonus") { const pd = parseDice(camp.nave.dano); if (pd) camp.nave.dano = `${pd.n + 1}d${pd.f}${pd.mod ? sign(pd.mod) : ""}`; }
-      await salvarCampanha({ nave: camp.nave }).eq("id", id);
+      await salvarCamp({ nave: camp.nave }, "salvar a melhoria");
       await enviar("sistema", `🔧 ${camp.nave.nome_batismo || camp.nave.modelo} recebeu uma melhoria: ${u.n}. ${u.e}`);
       render();
     });
@@ -4456,7 +4471,7 @@ async function telaMesa(id) {
       const v = +$("#nave-dano").value; if (!v || !camp.nave) return;
       const n = { ...camp.nave };
       const abs = Math.min(n.escudos, v); n.escudos -= abs; n.casco = Math.max(0, n.casco - (v - abs));
-      await salvarCampanha({ nave: n }).eq("id", id);
+      await salvarCamp({ nave: n }, "salvar o dano na nave");
       enviar("nave", `A nave sofreu ${v} de dano (${abs} nos escudos). Casco ${n.casco}/${n.casco_max}, Escudos ${n.escudos}/${n.escudos_max}.${n.casco === 0 ? " ⚠ CASCO ZERO — À DERIVA!" : ""}`);
     });
     if (meuPosto && f) app.querySelectorAll("[data-est]").forEach((b) => b.onclick = async () => {
@@ -4470,9 +4485,9 @@ async function telaMesa(id) {
         if (/sobrecarga de propulsores/i.test(acao.n) && camp.nave) {
           const choque = d(4);
           meuPers.dados = { ...meuPers.dados, pvAtual: Math.max(0, (meuPers.dados.pvAtual || 0) - choque) };
-          await sb.from("personagens").update({ dados: meuPers.dados }).eq("id", meuPers.id);
+          await salvarFicha(meuPers.id, meuPers.dados);
           nt.manobraExtra = 2; nt.manobraAte = 1;   // vale até a próxima rodada
-          await salvarCampanha({ combate: camp.combate }).eq("id", id);
+          await salvarCamp({ combate: camp.combate }, "salvar a sobrecarga");
           await enviar("nave", `⚙ ${meuPers.nome} sobrecarrega os propulsores: +2 de Manobrabilidade por 1 turno (Defesa da nave ${defesaNaveParty()}). O engenheiro sofre ${choque} de dano de choque.`);
           return render();
         }
@@ -4483,10 +4498,10 @@ async function telaMesa(id) {
           nt.dobra = { cargas, cascoRef: camp.nave.casco };
           if (cargas >= 2) {
             nt.dobra = null; camp.combate.naveEmCena = false;
-            await salvarCampanha({ combate: camp.combate }).eq("id", id);
+            await salvarCamp({ combate: camp.combate }, "salvar o salto de dobra");
             await enviar("nave", `🌀 Salto de dobra concluído — ${camp.nave.nome_batismo || camp.nave.modelo} desaparece do combate. A tripulação escapa.`);
           } else {
-            await salvarCampanha({ combate: camp.combate }).eq("id", id);
+            await salvarCamp({ combate: camp.combate }, "salvar a carga de dobra");
             await enviar("nave", `🌀 ${meuPers.nome} carrega o motor de dobra (${cargas}/2).${levouDano ? " O casco foi atingido e a carga reiniciou." : " Mais um turno sem dano no casco e a nave salta."}`);
           }
           return render();
@@ -4541,7 +4556,7 @@ async function telaMesa(id) {
         const pd = parseDice(acao.dado); const val = rollNd(pd.n, pd.f).reduce((a, b) => a + b, 0) + (acao.cura === "escudos" ? f.nivel : 0);
         const n = { ...camp.nave };
         n[acao.cura] = Math.min(n[acao.cura + "_max"], n[acao.cura] + val);
-        await salvarCampanha({ nave: n }).eq("id", id);
+        await salvarCamp({ nave: n }, "salvar a cura");
         extra = `+${val} de ${acao.cura}! (${n[acao.cura]}/${n[acao.cura + "_max"]})`;
       }
       // Artilharia: se há combate espacial ativo, resolve contra uma nave inimiga
@@ -4558,8 +4573,10 @@ async function telaMesa(id) {
             marcas.push(`🎯 Vantagem por alinhamento [${nat}/${n2}]`); nt.alinhado = false; mexeuNaTatica = true; }
           if (totalUsado >= def && natUsado !== 1) {
             const pdn = parseDice(camp.nave?.dano || "1d6");
-            const dd = rollNd(pdn.n * (natUsado === 20 ? 2 : 1), pdn.f);
-            let bruto = dd.reduce((x2, y2) => x2 + y2, 0) + pdn.mod;
+            // Crítico: soma dados + bônus primeiro, só depois multiplica por 2 — não dobra
+            // a quantidade de dados rolados (já foi bug real em 3 outros lugares de nave).
+            const dd = rollNd(pdn.n, pdn.f);
+            let bruto = danoCritico(dd.reduce((x2, y2) => x2 + y2, 0), pdn.mod, natUsado === 20 ? 2 : 1);
             if (nt.fraqueza) { const bonus = d(6); bruto += bonus; marcas.push(`🔎 fraqueza +${bonus}`); nt.fraqueza = false; mexeuNaTatica = true; }
             const r2 = danoNave(alvo, bruto);
             extra = `Acertou (Def ${def})! Dano ${camp.nave?.dano}${natUsado === 20 ? " ×2" : ""} [${dd.join(", ")}] → escudos −${r2.escudos}, casco −${r2.casco}. ${alvo.nome}: ${alvo.casco}/${alvo.casco_max}`;
@@ -4571,13 +4588,13 @@ async function telaMesa(id) {
             if (alvo.casco <= 0) extra += "  💥 NAVE ABATIDA!";
           } else extra = `Errou — Defesa ${def} da ${alvo.nome}.${marcas.length ? "  ·  " + marcas.join(" · ") : ""}`;
           camp.combate.agiram = [...new Set([...(camp.combate.agiram || []), meuPosto])];
-          await salvarCampanha({ combate: camp.combate }).eq("id", id);
+          await salvarCamp({ combate: camp.combate }, "salvar a ação do posto");
         }
       } else if (camp.combate?.ativo) {
         camp.combate.agiram = [...new Set([...(camp.combate.agiram || []), meuPosto])];
-        await salvarCampanha({ combate: camp.combate }).eq("id", id);
+        await salvarCamp({ combate: camp.combate }, "salvar a ação do posto");
       }
-      if (mexeuNaTatica) { await salvarCampanha({ combate: camp.combate }).eq("id", id); render(); }
+      if (mexeuNaTatica) { await salvarCamp({ combate: camp.combate }, "salvar o estado tático"); render(); }
       enviar("rolagem", null, { titulo: `${ESTACOES[meuPosto].n} — ${acao.n}`, detalhe: `d20 [${nat}] ${sign(mod)} (${at}+${pn})`, total, crit: nat === 20, fumble: nat === 1, extra });
     });
   };
