@@ -151,6 +151,10 @@ Seções demarcadas por comentários `// ---------------- NOME ----------------`
 - Sem dependências novas sem necessidade real. Sem passo de build — o que está no arquivo é o que roda.
 - PT-BR em identificadores de domínio (`arma`, `pente`, `nave`, `posto`, `mestre`).
 
+## Touch/mobile — "só aparece no :hover" é bug, não estilo
+
+Um elemento com `opacity:0` que só vira visível em `:hover` **não existe** em celular/tablet — não há `:hover` sem mouse, e o elemento fica lá, funcional, mas impossível de descobrir. Já foi bug real duas vezes: `.card-del` (apagar personagem no Hangar) e `.m-reply` (responder mensagem no chat) ficavam em `opacity:0` de repouso. Corrigido pra um valor visível-mas-discreto em repouso (`.4`–`.55`) que intensifica no hover — nunca `0`. Mesmo raciocínio vale pro campo tático: o "modo expandido" (pistas mais altas, tokens maiores, grade de 1 m) era só `:hover`; agora `.cb-campo.perto` (ligado clicando `#cb-zoom`, funciona em qualquer dispositivo) dispara o mesmo CSS. Ao criar um controle secundário "que só aparece ao passar o mouse", sempre perguntar: como alguém sem mouse ativa isso?
+
 ## Camadas de z-index (CSS) — fonte recorrente de bug
 
 `.mp-overlay` 9998 · `.ss-overlay` 9999 · `.pular-link` 10001 · **bancada** (inline em `abrirBancada`) 10020 · `.cri-overlay` 10030 · `.aviso` 10040 · `.nv-cena` 10050 · **`.mdl-overlay`** (modais de `ui.js`) **10060** — deve ficar acima de tudo, pois exige decisão do usuário. Ao criar um overlay novo, conferir se um `confirmModal` disparado de dentro dele ainda aparece por cima.
