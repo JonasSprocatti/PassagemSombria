@@ -19,5 +19,8 @@ jobs:
         with:
           node-version: 22
 
-      - name: Rodar node --test tests/
-        run: node --test tests/
+      # Sem passar caminho: o Node varre o projeto e roda tudo que casa com
+      # *.test.js. `node --test tests/` quebra no Node 22+ — lá um diretório
+      # solto é tratado como arquivo e ele tenta carregar "tests" como módulo.
+      - name: Rodar os testes
+        run: node --test

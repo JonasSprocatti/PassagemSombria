@@ -158,8 +158,10 @@ Root Directory vazio · Output Directory `public` · sem Build/Install Command. 
 `tests/*.test.js`, testador embutido do Node (`node:test` + `node:assert/strict`) — zero instalação, zero `package.json`/`node_modules` novo, roda com:
 
 ```
-node --test tests/
+node --test
 ```
+
+**Sem caminho, de propósito**: o Node varre o projeto e roda tudo que casa com `*.test.js`. Não usar `node --test tests/` — a partir do Node 22 um diretório solto é tratado como arquivo e o runner morre com `Cannot find module '.../tests'`.
 
 **Sem Node instalado na máquina de quem desenvolve** (não pode/não quer instalar): `.github/workflows/testes.yml` roda os mesmos testes automaticamente a cada `git push`/Pull Request, na nuvem do GitHub — zero instalação local. Resultado aparece na aba **Actions** do repositório no GitHub, e como ✓/✗ ao lado do commit. Esse é o jeito recomendado de rodar os testes quando não há Node local.
 
