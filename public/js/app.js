@@ -364,6 +364,20 @@ function danoNave(alvo, valor) {
   return r;
 }
 const rolarAvaria = () => AVARIAS[d(6) - 1];
+// Ataques de uma nave: os "Canhões" (o `dano` padrão do modelo) + o que estiver em
+// `ataques` (torpedos, laser ponto-a-ponto…, cadastrados pelo admin no editor de
+// nave). Com só uma opção, devolve ela direto — quem só tem canhão não vê pergunta
+// nenhuma a mais. `bonus` de cada ataque, se não declarado, cai no +4 padrão de nave.
+async function ataqueDaNave(nave, origemTxt = "") {
+  const pool = [{ n: "Canhões", dano: nave?.dano || "1d6" }, ...(nave?.ataques || [])];
+  if (pool.length === 1) return pool[0];
+  const r = await modalForm({ titulo: `⚔ ${origemTxt || nave?.nome || nave?.nome_batismo || nave?.modelo || "Nave"} — qual arma?`,
+    campos: [{ k: "atk", label: "Ataque", tipo: "select",
+      opcoes: pool.map((a, i) => ({ v: String(i), l: `${a.n || "Canhões"}${a.dano ? ` — ${a.dano}` : ""}${a.extra ? ` (${a.extra})` : ""}` })) }],
+    okLabel: "Disparar" });
+  if (!r?.atk) return null;   // cancelou
+  return pool[+r.atk];
+}
 
 // ---------------- FERRAMENTAS DO MESTRE ----------------
 const sorteia = (lista) => lista[Math.floor(Math.random() * lista.length)];
@@ -3157,6 +3171,8 @@ async function telaMesa(id) {
     $("#cb-fim")?.addEventListener("click", async () => { if (confirm("Encerrar o combate e limpar a ordem?")) { camp.combate = combateVazio(); await salvarCombate(); render(); } });
     app.querySelectorAll("[data-cb-nave]").forEach((b) => b.onclick = async () => {
       const atc = camp.combate.ordem.find((x) => x.id === b.dataset.cbNave); if (!atc) return;
+      const atk = await ataqueDaNave(atc); if (!atk) return;   // cancelou a escolha de arma
+      const bonusAtk = atk.bonus ?? 4;
       // Sem a nave da tripulação em cena, a nave inimiga atira em quem está no chão.
       if (!camp.nave || !camp.combate.naveEmCena) {
         const alvos = camp.combate.ordem.filter((x) => !ehNave(x) && !foraDeCombate(x));
@@ -3166,22 +3182,22 @@ async function telaMesa(id) {
         if (!r0?.alvo) return;
         const alvoP = camp.combate.ordem.find((x) => x.id === r0.alvo);
         snapshot("disparo de nave em pessoa");
-        const natP = d(20), totalP = natP + 4;
-        if (natP === 1 || totalP < (alvoP.cd || 10)) return enviar("rolagem", null, { titulo: `🚀 ${atc.nome} dispara em ${alvoP.nome}`, detalhe: `d20 [${natP}] +4 vs CD ${alvoP.cd || 10}`, total: totalP, fumble: natP === 1, extra: "Errou." });
-        const pdP = parseDice(atc.dano); const ddP = rollNd(pdP.n, pdP.f);
+        const natP = d(20), totalP = natP + bonusAtk;
+        if (natP === 1 || totalP < (alvoP.cd || 10)) return enviar("rolagem", null, { titulo: `🚀 ${atc.nome} dispara ${atk.n} em ${alvoP.nome}`, detalhe: `d20 [${natP}] ${sign(bonusAtk)} vs CD ${alvoP.cd || 10}`, total: totalP, fumble: natP === 1, extra: "Errou." });
+        const pdP = parseDice(atk.dano); const ddP = rollNd(pdP.n, pdP.f);
         const brutoP = ddP.reduce((x, y) => x + y, 0);
         const antesP = alvoP.hp;
         alvoP.hp = Math.max(0, alvoP.hp - brutoP);
         await sincronizarFicha(alvoP, alvoP.hp - antesP);
         await salvarCombate();
-        return enviar("rolagem", null, { titulo: `🚀 ${atc.nome} dispara em ${alvoP.nome}`, detalhe: `d20 [${natP}] +4 · ${atc.dano} [${ddP.join(", ")}]`, total: totalP, extra: `${alvoP.nome}: ${antesP} → ${alvoP.hp} PV.${alvoP.hp <= 0 ? " 💀 CAIU!" : ""}` });
+        return enviar("rolagem", null, { titulo: `🚀 ${atc.nome} dispara ${atk.n} em ${alvoP.nome}`, detalhe: `d20 [${natP}] ${sign(bonusAtk)} · ${atk.dano} [${ddP.join(", ")}]`, total: totalP, extra: `${alvoP.nome}: ${antesP} → ${alvoP.hp} PV.${alvoP.hp <= 0 ? " 💀 CAIU!" : ""}` });
       }
       const alvo = { nome: camp.nave.nome_batismo || camp.nave.modelo, casco: camp.nave.casco, casco_max: camp.nave.casco_max, escudos: camp.nave.escudos, escudos_max: camp.nave.escudos_max, manobra: camp.nave.manobra, nave_party: true };
       snapshot("disparo de nave inimiga");
       const ntx = camp.combate.nave || naveTaticaVazia();
-      const nat = d(20), total = nat + 4, def = ntx.evasiva != null ? ntx.evasiva : 10 + (alvo.manobra || 0);
-      if (nat === 1 || total < def) return enviar("rolagem", null, { titulo: `🚀 ${atc.nome} dispara`, detalhe: `d20 [${nat}] +4 vs Defesa ${def}`, total, fumble: nat === 1, extra: "Errou." });
-      const pd = parseDice(atc.dano); const dd = rollNd(pd.n, pd.f);
+      const nat = d(20), total = nat + bonusAtk, def = ntx.evasiva != null ? ntx.evasiva : 10 + (alvo.manobra || 0);
+      if (nat === 1 || total < def) return enviar("rolagem", null, { titulo: `🚀 ${atc.nome} dispara ${atk.n}`, detalhe: `d20 [${nat}] ${sign(bonusAtk)} vs Defesa ${def}`, total, fumble: nat === 1, extra: "Errou." });
+      const pd = parseDice(atk.dano); const dd = rollNd(pd.n, pd.f);
       const bruto = danoCritico(dd.reduce((x, y) => x + y, 0), pd.mod, nat === 20 ? 2 : 1);
       const r = danoNave(alvo, bruto);
       let extra = `Escudos −${r.escudos}, Casco −${r.casco}. ${alvo.nome}: ${alvo.casco}/${alvo.casco_max}`;
@@ -3189,7 +3205,7 @@ async function telaMesa(id) {
       if (alvo.casco <= 0) extra += "  💀 Casco a zero!";
       if (alvo.nave_party && camp.nave) { camp.nave.casco = alvo.casco; camp.nave.escudos = alvo.escudos; }
       await salvarCamp({ combate: camp.combate, ...(alvo.nave_party && camp.nave ? { nave: camp.nave } : {}) }, "salvar o disparo");
-      await enviar("rolagem", null, { titulo: `🚀 ${atc.nome} dispara`, detalhe: `d20 [${nat}] +4 vs Def ${def} · dano ${atc.dano} [${dd.join(", ")}]${nat === 20 ? " ×2" : ""}`, total, crit: nat === 20, extra });
+      await enviar("rolagem", null, { titulo: `🚀 ${atc.nome} dispara ${atk.n}`, detalhe: `d20 [${nat}] ${sign(bonusAtk)} vs Def ${def} · dano ${atk.dano} [${dd.join(", ")}]${nat === 20 ? " ×2" : ""}`, total, crit: nat === 20, extra });
       render();
     });
     app.querySelectorAll("[data-av-fix2]").forEach((b) => b.onclick = async () => {
@@ -3437,7 +3453,7 @@ async function telaMesa(id) {
         camp.combate.ordem.push({ id: cbId(), tipo: "nave", lado: "inimiga", modelo: base.n,
           nome: iguais ? `${base.n} #${iguais + 1}` : base.n, ini: d(20) + (base.manobra || 0),
           casco: base.casco, casco_max: base.casco, escudos: base.escudos, escudos_max: base.escudos,
-          manobra: base.manobra, dano: base.dano });
+          manobra: base.manobra, dano: base.dano, ataques: base.ataques || [] });
       } else { const b = v.startsWith("c:") ? camp.bestiario[+v.slice(2)] : todasCriaturas()[+v.slice(2)]; if (!b) return;
         // Lacaios entram em bando: uma linha só, com quantidade. O dano transborda de um para o próximo.
         const rq = await modalForm({ titulo: `🎲 ${b.n}`,
@@ -3489,12 +3505,18 @@ async function telaMesa(id) {
       const acerto = nat + atk.bonus + bonusMarcado;
       // Paralisado (regra da mesa): ataque a até 2m dele é Crítico automático (nat 1 ainda falha).
       const paralisadoPerto2 = condsAlvo.includes("paralisado") && distAlvo2 != null && distAlvo2 <= 2.01;
-      const critAuto2 = nat === 20 || (paralisadoPerto2 && nat !== 1);
+      // Armadura anticrítica: mesma checagem do [data-atq], só que aqui o alvo vem
+      // do rastreador — só faz sentido pra linha de jogador (personagem_id).
+      const semCriticoAlvo2 = alvo?.personagem_id
+        ? !!calc({ ...novaFichaDados(), ...(pers.find((p2) => p2.id === alvo.personagem_id)?.dados || {}) }).efeitos?.aoSofrer?.().semCritico
+        : false;
+      const seriaCritico2 = nat === 20 || (paralisadoPerto2 && nat !== 1);
+      const critAuto2 = !semCriticoAlvo2 && seriaCritico2;
       const mult = critAuto2 ? 2 : 1;
       const ds = pd ? rollNd(pd.n, pd.f) : [];
       const danoSoma = pd ? ds.reduce((x, y) => x + y, 0) + pd.mod : 0;
       const danoTotal = pd ? danoCritico(ds.reduce((x, y) => x + y, 0), pd.mod, mult) : 0;
-      const danoTxt = pd ? ` · dano ${atk.dano}${mult > 1 ? ` ×${mult}` : ""}${paralisadoPerto2 && nat !== 20 ? " (crítico automático — Paralisado ≤2m)" : ""} [${ds.join(", ")}]${pd.mod ? ` ${sign(pd.mod)}` : ""}${mult > 1 ? ` = ${danoSoma} ×${mult}` : ""} = ${danoTotal}` : "";
+      const danoTxt = pd ? ` · dano ${atk.dano}${mult > 1 ? ` ×${mult}` : ""}${critAuto2 && paralisadoPerto2 && nat !== 20 ? " (crítico automático — Paralisado ≤2m)" : ""}${semCriticoAlvo2 && seriaCritico2 ? " (🛡 armadura anticrítica bloqueia o crítico)" : ""} [${ds.join(", ")}]${pd.mod ? ` ${sign(pd.mod)}` : ""}${mult > 1 ? ` = ${danoSoma} ×${mult}` : ""} = ${danoTotal}` : "";
       await enviar("rolagem", null, { titulo: `${c.personagem_id ? "🎯" : "👹"} ${c.nome} — ${atk.n}`,
         detalhe: `d20 [${nat}]${detVant} ${sign(atk.bonus)}${bonusMarcado ? ` +${bonusMarcado} Marcado` : ""} = acerto ${acerto}${danoTxt}`,
         total: acerto, crit: critAuto2, fumble: nat === 1,
@@ -3775,13 +3797,21 @@ async function telaMesa(id) {
         // Crítico automático — não só Vantagem. `alvoAberto` já cobre a Vantagem;
         // isto soma o multiplicador que faltava quando o alvo está perto o bastante.
         const paralisadoPerto = condsAlvo.includes("paralisado") && distAlvo != null && distAlvo <= 2.01;
-        const critAuto = nat === 20 || (paralisadoPerto && nat !== 1);   // 1 natural ainda falha, mesmo contra alvo Paralisado
+        // Armadura anticrítica: se o alvo é um personagem com ela equipada, o golpe
+        // nunca multiplica por crítico — nem o natural 20, nem o automático do
+        // Paralisado. Só zera ESSA parte; outros multiplicadores (furtivo do
+        // Assassino) continuam valendo, porque não são especificamente "crítico".
+        const semCriticoAlvo = alvoCombatente?.personagem_id
+          ? !!calc({ ...novaFichaDados(), ...(pers.find((p2) => p2.id === alvoCombatente.personagem_id)?.dados || {}) }).efeitos?.aoSofrer?.().semCritico
+          : false;
+        const critAuto = !semCriticoAlvo && (nat === 20 || (paralisadoPerto && nat !== 1));   // 1 natural ainda falha, mesmo contra alvo Paralisado
         // Multiplicador final: ×2 no crítico, ×2 no furtivo do Assassino — e o
         // Assassino veterano acumula os dois, chegando a ×4.
         const multCrit = (critAuto ? 2 : 1) * (modAtq.multDano || 1);
         const somaDados = dados.reduce((x, y) => x + y, 0);
         const danoFinal = Math.floor(danoCritico(somaDados, danoMod, multCrit) * (enfraquecido ? 0.5 : 1));   // Enfraquecido: metade
-        const marcadores = [nat === 20 ? "CRÍTICO ×2" : (paralisadoPerto && nat !== 1) ? "CRÍTICO automático (alvo Paralisado ≤2m) ×2" : "", furtivo && assassino ? "FURTIVO ×2" : furtivo ? "furtivo +2 acerto" : "", pr.agil ? `Ágil (${atkAttr})` : "", pr.brutal ? "Brutal (vantagem)" : "", enfraquecido ? "Enfraquecido ½" : "", alvoMarcado ? "alvo Marcado +2" : ""].filter(Boolean).join(" · ");
+        const seriaCritico = nat === 20 || (paralisadoPerto && nat !== 1);   // pra mostrar que a armadura bloqueou, não só omitir
+        const marcadores = [critAuto && nat === 20 ? "CRÍTICO ×2" : critAuto ? "CRÍTICO automático (alvo Paralisado ≤2m) ×2" : (semCriticoAlvo && seriaCritico) ? "🛡 armadura anticrítica bloqueia o crítico" : "", furtivo && assassino ? "FURTIVO ×2" : furtivo ? "furtivo +2 acerto" : "", pr.agil ? `Ágil (${atkAttr})` : "", pr.brutal ? "Brutal (vantagem)" : "", enfraquecido ? "Enfraquecido ½" : "", alvoMarcado ? "alvo Marcado +2" : ""].filter(Boolean).join(" · ");
         // Palavras-chave declaradas: condições ao acertar e perfuração de armadura.
         let efeitoKw = "";
         if (nat !== 1 && total >= 0) {
@@ -4366,7 +4396,7 @@ async function telaMesa(id) {
     // nave binds
     $("#def-nave")?.addEventListener("click", async () => {
       const n = NAVES.find((x) => x.n === $("#sel-nave").value);
-      const nave = { modelo: n.n, nome_batismo: $("#nave-nome").value.trim() || n.n, casco: n.casco, casco_max: n.casco, escudos: n.escudos, escudos_max: n.escudos, manobra: n.manobra, dano: n.dano };
+      const nave = { modelo: n.n, nome_batismo: $("#nave-nome").value.trim() || n.n, casco: n.casco, casco_max: n.casco, escudos: n.escudos, escudos_max: n.escudos, manobra: n.manobra, dano: n.dano, ataques: n.ataques || [] };
       await salvarCamp({ nave }, "registrar a nave");
       enviar("nave", `A nave ${nave.nome_batismo} (${n.n}) entrou em serviço. Casco ${n.casco}, Escudos ${n.escudos}, Defesa ${10 + n.manobra}.`);
     });
@@ -4404,7 +4434,7 @@ async function telaMesa(id) {
       camp.combate_nave.inimigas.push({ id: "s" + Math.random().toString(36).slice(2, 8),
         nome: r.nome?.trim() || (iguais ? `${base.n} #${iguais + 1}` : base.n), modelo: base.n,
         casco: base.casco, casco_max: base.casco, escudos: base.escudos, escudos_max: base.escudos,
-        manobra: base.manobra, dano: base.dano });
+        manobra: base.manobra, dano: base.dano, ataques: base.ataques || [] });
       await salvarCbn(); await enviar("sistema", `🚀 Contato hostil: ${camp.combate_nave.inimigas.slice(-1)[0].nome} entrou em alcance.`); render();
     });
     app.querySelectorAll("[data-cbn-rm]").forEach((b) => b.onclick = async () => {
@@ -4413,12 +4443,14 @@ async function telaMesa(id) {
     // Nave inimiga dispara contra a tripulação
     app.querySelectorAll("[data-cbn-atk]").forEach((b) => b.onclick = async () => {
       const x = camp.combate_nave.inimigas[+b.dataset.cbnAtk]; if (!x || !camp.nave) return;
-      const nat = d(20), total = nat + 4;                       // ataque padrão de nave
+      const atk = await ataqueDaNave(x); if (!atk) return;
+      const bonusAtk = atk.bonus ?? 4;
+      const nat = d(20), total = nat + bonusAtk;
       const def = defesaNave(camp.nave);
       if (nat === 1 || total < def) {
-        return enviar("rolagem", null, { titulo: `🚀 ${x.nome} dispara`, detalhe: `d20 [${nat}] +4 vs Defesa ${def}`, total, fumble: nat === 1, extra: "Errou — o disparo passa de raspão." });
+        return enviar("rolagem", null, { titulo: `🚀 ${x.nome} dispara ${atk.n}`, detalhe: `d20 [${nat}] ${sign(bonusAtk)} vs Defesa ${def}`, total, fumble: nat === 1, extra: "Errou — o disparo passa de raspão." });
       }
-      const pd = parseDice(x.dano); const dados = rollNd(pd.n, pd.f);
+      const pd = parseDice(atk.dano); const dados = rollNd(pd.n, pd.f);
       const bruto = danoCritico(dados.reduce((a2, b2) => a2 + b2, 0), pd.mod, nat === 20 ? 2 : 1);
       const r = danoNave(camp.nave, bruto);
       let extra = `Escudos absorveram ${r.escudos}; Casco sofreu ${r.casco}. Nave: ${camp.nave.casco}/${camp.nave.casco_max} casco · ${camp.nave.escudos}/${camp.nave.escudos_max} escudos.`;
@@ -4429,7 +4461,7 @@ async function telaMesa(id) {
       if (camp.nave.casco <= 0) extra += "  💀 CASCO A ZERO: a nave está destruída ou à deriva.";
       await salvarCamp({ nave: camp.nave }, "salvar o disparo inimigo");
       await salvarCbn();
-      await enviar("rolagem", null, { titulo: `🚀 ${x.nome} dispara`, detalhe: `d20 [${nat}] +4 vs Defesa ${def} · dano ${x.dano} [${dados.join(", ")}]${nat === 20 ? " ×2" : ""}`, total, crit: nat === 20, extra });
+      await enviar("rolagem", null, { titulo: `🚀 ${x.nome} dispara ${atk.n}`, detalhe: `d20 [${nat}] ${sign(bonusAtk)} vs Defesa ${def} · dano ${atk.dano} [${dados.join(", ")}]${nat === 20 ? " ×2" : ""}`, total, crit: nat === 20, extra });
       render();
     });
     app.querySelectorAll("[data-av-fix]").forEach((b) => b.onclick = async () => {
@@ -4589,19 +4621,24 @@ async function telaMesa(id) {
         const alvo = typeof esc1 === "string" ? vivas.find((x) => x.id === esc1) : esc1;
         if (alvo) {
           const def = defesaNave(alvo);
+          // Escolhe a arma só se a nave tem mais de uma cadastrada — sem isso, zero
+          // pergunta nova pra quem só tem os canhões padrão (comportamento de sempre).
+          const atkNave = camp.nave?.ataques?.length
+            ? (await ataqueDaNave(camp.nave, acao.n)) || { n: "Canhões", dano: camp.nave?.dano || "1d6" }
+            : { n: "Canhões", dano: camp.nave?.dano || "1d6" };
           // Alinhamento de Rota concede Vantagem: rola um segundo d20 e fica com o melhor
           let natUsado = nat, totalUsado = total, marcas = [];
           if (nt.alinhado) { const n2 = d(20); if (n2 > nat) { natUsado = n2; totalUsado = n2 + mod; }
             marcas.push(`🎯 Vantagem por alinhamento [${nat}/${n2}]`); nt.alinhado = false; mexeuNaTatica = true; }
           if (totalUsado >= def && natUsado !== 1) {
-            const pdn = parseDice(camp.nave?.dano || "1d6");
+            const pdn = parseDice(atkNave.dano || "1d6");
             // Crítico: soma dados + bônus primeiro, só depois multiplica por 2 — não dobra
             // a quantidade de dados rolados (já foi bug real em 3 outros lugares de nave).
             const dd = rollNd(pdn.n, pdn.f);
             let bruto = danoCritico(dd.reduce((x2, y2) => x2 + y2, 0), pdn.mod, natUsado === 20 ? 2 : 1);
             if (nt.fraqueza) { const bonus = d(6); bruto += bonus; marcas.push(`🔎 fraqueza +${bonus}`); nt.fraqueza = false; mexeuNaTatica = true; }
             const r2 = danoNave(alvo, bruto);
-            extra = `Acertou (Def ${def})! Dano ${camp.nave?.dano}${natUsado === 20 ? " ×2" : ""} [${dd.join(", ")}] → escudos −${r2.escudos}, casco −${r2.casco}. ${alvo.nome}: ${alvo.casco}/${alvo.casco_max}`;
+            extra = `Acertou (Def ${def})! ${atkNave.n} ${atkNave.dano}${natUsado === 20 ? " ×2" : ""} [${dd.join(", ")}] → escudos −${r2.escudos}, casco −${r2.casco}. ${alvo.nome}: ${alvo.casco}/${alvo.casco_max}`;
             // Tiro de Precisão: dano no casco desativa um subsistema por 1d4 turnos.
             if (comDesv && r2.casco > 0) { const t4 = d(4);
               aplicarCond(alvo, "Subsistema off", t4);

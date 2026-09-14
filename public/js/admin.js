@@ -332,6 +332,7 @@ export async function painelAdmin(voltarPara = "racas") {
     { v: "vantagem", l: "▲ Concede Vantagem" },
     { v: "imunidade", l: "🚫 Concede imunidade" },
     { v: "recurso", l: "★ Habilidade por descanso" },
+    { v: "sem_critico", l: "🛡 Nega dano crítico (armadura anticrítica)" },
   ];
   const camposDoEfeito = (e, i) => {
     const num = (k, lbl, val, ph) => `<label>${lbl}<input data-ef="${i}" data-c="${k}" type="number" value="${val ?? ""}" placeholder="${ph || ""}"/></label>`;
@@ -350,6 +351,7 @@ export async function painelAdmin(voltarPara = "racas") {
         return `<label>Imune a<select data-ef="${i}" data-c="a">${opcoesImuneA(e.a)}</select></label>` +
           (precisaDescrever ? txt("a", "Descreva", ehSentinela ? "" : e.a, "queda, ser derrubado, terreno difícil…") : ""); }
       case "recurso": return txt("n", "Nome", e.n, "Fôlego de Aço") + sel("freq", "Recarrega em", e.freq || "longo", [{ v: "curto", l: "descanso curto" }, { v: "longo", l: "descanso longo" }, { v: "sessao", l: "por sessão" }]);
+      case "sem_critico": return `<p class="regra">Sem campo nenhum pra preencher — quem usar isto equipado nunca sofre o ×2 (ou ×4) de um golpe crítico contra si. Outros multiplicadores (furtivo do Assassino) continuam valendo, só o "é crítico" em si é anulado.</p>`;
       default: return num("valor", "Quanto", e.valor, "ex: 2");
     }
   };
@@ -431,7 +433,8 @@ export async function painelAdmin(voltarPara = "racas") {
       ["turnos", "Turnos", "numero"], ["d", "Descrição", "area"]] },
     nave: { rot: "Nave", ic: "🚀", campos: [
       ["n", "Nome", "texto"], ["casco", "Casco", "numero"], ["escudos", "Escudos", "numero"],
-      ["manobra", "Manobrabilidade", "numero"], ["dano", "Dano", "texto", null, "4d10"],
+      ["manobra", "Manobrabilidade", "numero"], ["dano", "Canhões (ataque padrão)", "texto", null, "4d10"],
+      ["ataques", "Outros ataques (opcional)", "ataques"],
       ["trip", "Tripulação", "texto"], ["desc", "Descrição", "area"]] },
     raca: { rot: "Raça", ic: "🌌", campos: [
       ["nome", "Nome", "texto"], ["planeta", "Planeta", "texto"], ["titulo", "Epíteto", "texto"],
@@ -462,6 +465,7 @@ export async function painelAdmin(voltarPara = "racas") {
     const base = nativo || existente;
     const it = base ? JSON.parse(JSON.stringify(base)) : { efeitos: [] };
     it.efeitos = it.efeitos || [];
+    if (tipo === "nave") it.ataques = it.ataques || [];
     const ov2 = document.createElement("div"); ov2.className = "ss-overlay ov-modal"; ov2.style.zIndex = "10010";
     const fechar2 = () => ov2.remove();
     const campo = ([k, lbl, t, ops, ph]) => {
@@ -501,6 +505,19 @@ export async function painelAdmin(voltarPara = "racas") {
                 <span>${esc(KEYWORDS[nome] || "sem descrição")}</span>
                 ${autos.length ? `<span class="auto-tag">${esc(autos.join(" · "))}</span>` : ""}</span></label>`; }).join("")}</div></div>`;
       }
+      if (t === "ataques") { const lista = it.ataques || [];
+        return `<div class="kw-campo"><label style="margin-bottom:4px">${lbl} <button id="natk-add" class="mini" type="button">＋</button></label>
+          <p class="regra">Além dos canhões padrão de cima, dá pra cadastrar outras armas da nave (torpedos, laser ponto-a-ponto…) — quem dispara escolhe qual usar na hora.</p>
+          ${lista.length ? lista.map((a2, i2) => `<div class="ed-item">
+            <div class="ed-grade">
+              <label>Nome<input data-natk="${i2}" data-k="n" value="${esc(a2.n || "")}" placeholder="Torpedo de Plasma"/></label>
+              <label>Bônus de acerto<input data-natk="${i2}" data-k="bonus" type="number" value="${a2.bonus ?? 4}"/></label>
+              <label>Dano<input data-natk="${i2}" data-k="dano" value="${esc(a2.dano || "2d10")}"/></label>
+            </div>
+            <label>Observação<input data-natk="${i2}" data-k="extra" value="${esc(a2.extra || "")}" placeholder="alcance curto, gasta 1 carga…"/></label>
+            <button class="mini rm" data-natk-del="${i2}" type="button">remover ataque</button></div>`).join("")
+            : `<p class="regra"><i>Só os canhões padrão por enquanto.</i></p>`}</div>`;
+      }
       if (t === "area") return `<label>${lbl}<textarea data-k="${k}" rows="3">${esc(v || "")}</textarea></label>`;
       if (t === "select") return `<label>${lbl}<select data-k="${k}">${(ops || []).map((o) => `<option value="${o.v}" ${v === o.v ? "selected" : ""}>${o.l}</option>`).join("")}</select></label>`;
       if (t === "numero") return `<label>${lbl}<input data-k="${k}" type="number" value="${v ?? ""}"/></label>`;
@@ -512,8 +529,9 @@ export async function painelAdmin(voltarPara = "racas") {
       ov2.innerHTML = `<div class="ss-painel" style="width:640px;max-width:96vw;margin:auto;border:1px solid var(--line);border-radius:10px;max-height:94vh">
         <div class="mp-topo"><b>${esq.ic} ${nativo ? `Ajustar ${esc(nativo.n || "")}` : existente ? "Editar" : `Novo ${esq.rot.toLowerCase()}`}</b>${nativo ? `<span class="dim" style="font-size:11px">item do livro — o original é preservado</span>` : ""}<button id="it-x" class="mp-x" style="margin-left:auto">✕</button></div>
         <div class="di-corpo">
-          <div class="ed-grade">${esq.campos.filter((c) => c[2] !== "area" && c[2] !== "kwpick").map(campo).join("")}</div>
+          <div class="ed-grade">${esq.campos.filter((c) => !["area", "kwpick", "ataques"].includes(c[2])).map(campo).join("")}</div>
           ${esq.campos.filter((c) => c[2] === "kwpick").map(campo).join("")}
+          ${esq.campos.filter((c) => c[2] === "ataques").map(campo).join("")}
           ${esq.campos.filter((c) => c[2] === "area").map(campo).join("")}
           ${blocoEfeitos(it)}
           <div class="ed-nome-erro" style="display:${faltaNome ? "" : "none"}"><div class="ed-erros">Dê um nome ao ${esq.rot.toLowerCase()}.</div></div>
@@ -542,6 +560,11 @@ export async function painelAdmin(voltarPara = "racas") {
         it.escala = it.escala || {};
         if (v) it.escala[nv] = v; else delete it.escala[nv];
         if (!Object.keys(it.escala).length) delete it.escala;
+      });
+      ov2.querySelector("#natk-add")?.addEventListener("click", () => { it.ataques.push({ n: "", bonus: 4, dano: "2d10", extra: "" }); pintar2(); });
+      ov2.querySelectorAll("[data-natk-del]").forEach((b) => b.onclick = () => { it.ataques.splice(+b.dataset.natkDel, 1); pintar2(); });
+      ov2.querySelectorAll("[data-natk]").forEach((el) => el.oninput = () => {
+        const a2 = it.ataques[+el.dataset.natk]; if (a2) a2[el.dataset.k] = el.dataset.k === "bonus" ? +el.value : el.value;
       });
       ov2.querySelectorAll("[data-kw]").forEach((cb) => cb.onchange = () => {
         const atuais = String(it.kw || "").split(/,|·/).map((x) => x.trim()).filter(Boolean);

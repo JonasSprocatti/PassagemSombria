@@ -111,6 +111,13 @@ export const EFEITOS = {
     rotulo: (e) => `−${e.valor} de dano físico recebido`,
     sofrer: (e, ctx) => { ctx.reducao = (ctx.reducao || 0) + e.valor; } },
 
+  // { tipo:"sem_critico" } — ataques contra você nunca multiplicam por crítico
+  // (armadura anticrítica). Só anula o ×2 do crítico em si; outro multiplicador
+  // que não seja especificamente "é crítico" (ex. furtivo do Assassino) continua valendo.
+  sem_critico: {
+    rotulo: () => `imune a dano crítico`,
+    sofrer: (e, ctx) => { ctx.semCritico = true; } },
+
   // { tipo:"por_implante", cada:3, attr:"conj", valor:1 } — escala com o cromo
   por_implante: {
     rotulo: (e) => `+${e.valor} em ${e.attr === "conj" ? "Conjuração" : e.attr} a cada ${e.cada} implantes`,
@@ -219,7 +226,7 @@ export class FichaEfeitos {
 
   // Redução de dano acumulada (Endurecer e afins).
   aoSofrer() {
-    const ctx = { reducao: 0, fontes: [] };
+    const ctx = { reducao: 0, semCritico: false, fontes: [] };
     for (const fonte of this.fontes)
       for (const e of fonte.efeitosDe(MOMENTOS.AO_SOFRER))
         if (EFEITOS[e.tipo]?.sofrer) { EFEITOS[e.tipo].sofrer(e, ctx); ctx.fontes.push(fonte.nome); }

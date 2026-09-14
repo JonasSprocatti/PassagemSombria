@@ -240,6 +240,34 @@ describe("condições novas (Motor Travado e Hesitante)", () => {
   });
 });
 
+describe("Blindagem Dispersora de Impacto — armadura anticrítica", () => {
+  const comBlindagem = () => ({
+    ...novaFichaDados(),
+    inventario: [{ tipo: "armadura", nome: "Blindagem Dispersora de Impacto", equip: true }],
+  });
+
+  test("quem veste nega dano crítico (k.efeitos.aoSofrer().semCritico)", () => {
+    const k = calc(comBlindagem());
+    assert.equal(k.efeitos.aoSofrer().semCritico, true);
+  });
+
+  test("sem a armadura, semCritico fica false — não é o padrão de todo mundo", () => {
+    const k = calc(novaFichaDados());
+    assert.equal(k.efeitos.aoSofrer().semCritico, false);
+  });
+
+  test("carrega o penalidade de −3 Furtividade junto", () => {
+    const k = calc(comBlindagem());
+    assert.equal(k.per["Furtividade"], -3);
+  });
+
+  test("CD reflete a armadura pesada (+3), sem Destreza (pesada zera o ajuste)", () => {
+    const f = { ...comBlindagem(), pontosAttr: { ...novaFichaDados().pontosAttr, Des: 4 } };
+    const k = calc(f);
+    assert.equal(k.cd, 13);   // 10 base + 3 da armadura + 0 de Destreza (pesada)
+  });
+});
+
 describe("parseDice", () => {
   test("lê dado com e sem bônus", () => {
     assert.deepEqual(parseDice("2d6+3"), { n: 2, f: 6, mod: 3 });
