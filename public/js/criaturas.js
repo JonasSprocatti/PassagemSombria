@@ -154,6 +154,13 @@ export function validar(c) {
       if (!EFEITOS[e.tipo]) erros.push(`efeito desconhecido em "${h.n}": ${e.tipo}`);
       if (e.tipo === "dano" && !e.dano) erros.push(`"${h.n}" é dano mas não tem dado`);
       if (e.tipo === "condicao" && !e.cond) erros.push(`"${h.n}" é condição mas não diz qual`);
+      // Imunidade precisa de "a" (imune a X) OU "limiar" (couraça) — pode ter só um
+      // dos dois (ex. Couraça de Anéis só tem limiar). "__outro__" é a sentinela do
+      // select "Imune a" (ver admin.js): o admin escolheu "Outro" mas não chegou a
+      // descrever; sem isto, salvava assim mesmo e a imunidade ficava inerte pra
+      // sempre, sem avisar ninguém.
+      if (e.tipo === "imunidade" && e.limiar == null && (!e.a || e.a === "__outro__"))
+        erros.push(`"${h.n}" é imunidade mas não diz a quê, nem tem limiar de couraça`);
     }
   }
   return erros;

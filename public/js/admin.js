@@ -13,13 +13,35 @@ import {
 } from "./dados-jogo.js";
 import { BESTIARIO, NIVEIS_AMEACA } from "./dados-bestiario.js";
 import { NPCS, PAPEIS } from "./dados-npcs.js";
-import { CONDICOES, novaFichaDados, calc } from "./regras.js";
+import { CONDICOES, TIPOS_DANO, novaFichaDados, calc } from "./regras.js";
 import { validarEfeitos } from "./efeitos.js";
 import { modalForm, confirmModal } from "./ui.js";
 import {
   sb, esc, usuario, criaturaMod, conteudoMod, sincronizarExtra,
   gerarFichaHTML, imprimirFichaHTML,
 } from "./app.js";
+
+// Campo "imune a" reutilizado no editor de criatura E no editor genérico de item —
+// antes era texto livre, então um typo ("fisico" sem acento, "Cegueira" em vez de
+// "Cego") deixava a imunidade sem efeito nenhum, em silêncio. Lista fechada (tipo de dano +
+// condição do sistema) cobre o caso comum; "Outro" libera texto pra imunidades
+// narrativas que não têm lista (surpresa, terreno difícil, queda…).
+const OUTRO_IMUNE = "__outro__";
+const opcoesImuneA = (valorAtual) => {
+  const conhecido = TIPOS_DANO.includes(valorAtual) || CONDICOES.includes(valorAtual);
+  return `<option value="">— escolha —</option>
+    <optgroup label="Tipo de dano">${TIPOS_DANO.map((t) => `<option value="${t}" ${valorAtual === t ? "selected" : ""}>${t}</option>`).join("")}</optgroup>
+    <optgroup label="Condição">${CONDICOES.map((cnd) => `<option value="${cnd}" ${valorAtual === cnd ? "selected" : ""}>${cnd}</option>`).join("")}</optgroup>
+    <option value="${OUTRO_IMUNE}" ${valorAtual && !conhecido ? "selected" : ""}>Outro (descrever)…</option>`;
+};
+// As 3 únicas strings que aurasSobre()/auraNega() realmente reconhecem em `nega` —
+// era texto livre separado por vírgula; escrever "Cura" com maiúscula ou "scripts" em
+// vez de "tecnomancia" gravava uma zona que não anulava nada, sem nenhum aviso.
+const OPCOES_NEGA = [
+  { v: "tecnomancia", l: "Tecnomancia (Scripts)" },
+  { v: "cura", l: "Cura" },
+  { v: "implantes", l: "Implantes" },
+];
 
 export async function painelAdmin(voltarPara = "racas") {
   const C = await conteudoMod();
@@ -153,7 +175,10 @@ export async function painelAdmin(voltarPara = "racas") {
       if (!e || !e.tipo) return "";
       if (e.tipo === "dano") return `<label>Dado de dano<input data-ef="dano" value="${esc(e.dano || "1d6")}" placeholder="1d6"/></label>
         <label>Em quem<select data-ef="alvo">${[["atacante", "quem a atingiu"], ["alvo", "no alvo dela"], ["todos_proximos", "todos por perto"]].map(([v, l]) => `<option value="${v}" ${e.alvo === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
-        <label>Tipo (opcional)<input data-ef="tipoDano" value="${esc(e.tipoDano || "")}" placeholder="ácido, fogo…"/></label>`;
+        <label>Tipo de dano<select data-ef="tipoDano">
+          <option value="" ${!e.tipoDano ? "selected" : ""}>mesmo da arma/ataque</option>
+          ${TIPOS_DANO.map((t) => `<option value="${t}" ${e.tipoDano === t ? "selected" : ""}>${t}</option>`).join("")}
+        </select></label>`;
       if (e.tipo === "cura") return `<label>PV fixos<input data-ef="valor" type="number" value="${e.valor ?? 0}"/></label>
         <label>ou dado<input data-ef="dado" value="${esc(e.dado || "")}" placeholder="1d6"/></label>`;
       if (e.tipo === "condicao") return `<label>Condição<select data-ef="cond">${CONDICOES.map((x) => `<option ${e.cond === x ? "selected" : ""}>${x}</option>`).join("")}</select></label>
@@ -161,10 +186,18 @@ export async function painelAdmin(voltarPara = "racas") {
         <label>CD para evitar<input data-ef="cd" type="number" value="${e.cd ?? ""}" placeholder="vazio = automático"/></label>`;
       if (e.tipo === "invocar") return `<label>Criatura invocada<input data-ef="criatura" value="${esc(e.criatura || "")}" placeholder="Enxame Adaptativo"/></label>
         <label>Quantidade (dado)<input data-ef="dado" value="${esc(e.dado || "1d4")}"/></label>`;
-      if (e.tipo === "imunidade") return `<label>Imune a<input data-ef="a" value="${esc(e.a || "")}" placeholder="Cegueira"/></label>
-        <label>Ignora dano abaixo de<input data-ef="limiar" type="number" value="${e.limiar ?? ""}" placeholder="ex: 10"/></label>`;
+      if (e.tipo === "imunidade") {
+        // Some se e.a for vazio (nada escolhido ainda) OU já for um valor reconhecido;
+        // aparece quando é a sentinela "Outro" (mostra vazio pra digitar) ou um texto
+        // livre antigo que não bate com nada da lista (fichas de antes desta UI).
+        const ehSentinela = e.a === OUTRO_IMUNE;
+        const precisaDescrever = e.a && !TIPOS_DANO.includes(e.a) && !CONDICOES.includes(e.a);
+        return `<label>Imune a<select data-ef-imune="1">${opcoesImuneA(e.a)}</select></label>
+        ${precisaDescrever ? `<label>Descreva<input data-ef="a" value="${esc(ehSentinela ? "" : e.a)}" placeholder="surpresa, terreno difícil, queda…"/></label>` : ""}
+        <label>Ignora dano abaixo de<input data-ef="limiar" type="number" value="${e.limiar ?? ""}" placeholder="ex: 10"/></label>`; }
       if (e.tipo === "zona") return `<label>Raio (m)<input data-ef="raio" type="number" value="${e.raio ?? 15}"/></label>
-        <label>Anula<input data-ef="nega" value="${esc((e.nega || []).join(", "))}" placeholder="cura, tecnomancia, implantes"/></label>`;
+        <div class="kw-campo"><label style="margin-bottom:4px">Anula</label>
+          <div class="filtros">${OPCOES_NEGA.map((op) => `<label class="chk"><input type="checkbox" data-ef-nega="${op.v}" ${(e.nega || []).includes(op.v) ? "checked" : ""}/> ${op.l}</label>`).join("")}</div></div>`;
       if (e.tipo === "adaptar") return `<label>Resistência ganha<input data-ef="valor" type="number" value="${e.valor ?? 3}" min="1"/></label>
         <p class="regra">Ao sofrer um tipo de dano pela primeira vez, todas as linhas desta criatura no rastreador passam a abater esse valor daquele tipo, pelo resto do combate.</p>`;
       return "";
@@ -251,10 +284,21 @@ export async function painelAdmin(voltarPara = "racas") {
         box.querySelectorAll("[data-ef]").forEach((el) => el.oninput = () => {
           const campo = el.dataset.ef; let v = el.value;
           if (["turnos", "cd", "valor", "limiar", "raio"].includes(campo)) v = v === "" ? undefined : +v;
-          if (campo === "nega") v = v.split(",").map((x) => x.trim()).filter(Boolean);
           if (v === undefined || v === "") delete h.efeito[campo]; else h.efeito[campo] = v;
           const dica = ov2.querySelector(".cri-dica");
           if (dica) dica.textContent = `${c.habs.filter((x) => x.efeito).length} habilidade(s) automática(s)`;
+        });
+        // "Imune a": escolher no select repinta (pode precisar mostrar/esconder o
+        // campo "Descreva"). Escolher "Outro" grava a sentinela mesmo — é ela que faz
+        // o campo de texto aparecer vazio; digitar ali sobrescreve com o texto real.
+        box.querySelectorAll("[data-ef-imune]").forEach((el) => el.onchange = () => {
+          h.efeito.a = el.value; pintar2();
+        });
+        // "Anula": um checkbox por valor reconhecido, junta os marcados num array.
+        box.querySelectorAll("[data-ef-nega]").forEach((el) => el.onchange = () => {
+          const atual = new Set(h.efeito.nega || []);
+          if (el.checked) atual.add(el.dataset.efNega); else atual.delete(el.dataset.efNega);
+          h.efeito.nega = [...atual];
         });
       });
 
@@ -300,7 +344,11 @@ export async function painelAdmin(voltarPara = "racas") {
       case "deslocamento": return sel("modo", "Como", e.modo || "soma", [{ v: "soma", l: "soma metros" }, { v: "dobra", l: "dobra o total" }]) + (e.modo === "dobra" ? "" : num("valor", "Metros", e.valor));
       case "acerto": case "dano": return num("valor", "Quanto", e.valor) + sel("contra", "Quando", e.contra || "", CONTRA);
       case "vantagem": return sel("em", "Em que", e.em || "ataque", [{ v: "ataque", l: "ataques" }, { v: "pericia", l: "uma perícia" }]) + (e.em === "pericia" ? sel("pericia", "Qual", e.pericia, PERICIAS.map(([p]) => ({ v: p, l: p }))) : "");
-      case "imunidade": return txt("a", "Imune a", e.a, "queda, ser derrubado, Cegueira…");
+      case "imunidade": {
+        const ehSentinela = e.a === OUTRO_IMUNE;
+        const precisaDescrever = e.a && !TIPOS_DANO.includes(e.a) && !CONDICOES.includes(e.a);
+        return `<label>Imune a<select data-ef="${i}" data-c="a">${opcoesImuneA(e.a)}</select></label>` +
+          (precisaDescrever ? txt("a", "Descreva", ehSentinela ? "" : e.a, "queda, ser derrubado, terreno difícil…") : ""); }
       case "recurso": return txt("n", "Nome", e.n, "Fôlego de Aço") + sel("freq", "Recarrega em", e.freq || "longo", [{ v: "curto", l: "descanso curto" }, { v: "longo", l: "descanso longo" }, { v: "sessao", l: "por sessão" }]);
       default: return num("valor", "Quanto", e.valor, "ex: 2");
     }
@@ -348,6 +396,11 @@ export async function painelAdmin(voltarPara = "racas") {
         let v = el.value;
         if (["valor"].includes(c)) v = v === "" ? undefined : +v;
         if (c === "tipo") { item.efeitos[+el.dataset.ef] = { tipo: v, momento: e.momento || "ficha" }; return repintar(); }
+        // Select de "Imune a": muda o que fica visível (some/aparece o campo
+        // "Descreva"), por isso sempre repinta — ao contrário do campo de texto
+        // que escreve na mesma chave `a`, que não deve perder o foco a cada tecla.
+        // "Outro" grava a própria sentinela: é ela que faz o texto aparecer vazio.
+        if (c === "a" && el.tagName === "SELECT") { e.a = v; return repintar(); }
         if (v === "" || v === undefined) delete e[c]; else e[c] = v;
         if (grande) repintar(); else revalidarEfeitos(raiz, item);
       };

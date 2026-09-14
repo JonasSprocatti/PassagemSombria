@@ -293,6 +293,10 @@ export function validarEfeitos(efs) {
     if (e.tipo === "atributo" && !e.attr) erros.push("efeito de atributo não diz qual");
     if (e.tipo === "pericia" && !e.pericia) erros.push("efeito de perícia não diz qual");
     if (e.tipo === "recurso" && !e.n) erros.push("recurso sem nome");
+    // "__outro__" é a sentinela do select "Imune a" (ver admin.js): o admin escolheu
+    // "Outro" mas não chegou a descrever; sem isto, salvava assim mesmo e a imunidade
+    // ficava inerte pra sempre, sem avisar ninguém.
+    if (e.tipo === "imunidade" && (!e.a || e.a === "__outro__")) erros.push("imunidade não diz a quê");
     if (e.tipo === "multiplicar_dano" && !e.fator) erros.push("multiplicar dano sem fator");
     if (e.tipo === "multiplicar_dano" && !CONDICOES_ALVO[e.quando]) erros.push(`situação desconhecida: ${e.quando}`);
     if (e.tipo === "bonus_recompensa" && typeof e.pct !== "number") erros.push("bônus de recompensa sem percentual");
