@@ -23,7 +23,7 @@ import {
 import {
   shell, esc, img, imgFig, extras, escalaTabela, etiquetasKw,
   todasArmas, todasArmaduras, todosImplantes, todasNaves, todasCriaturas,
-  todosNPCs, todosConsumiveis, perfil, painelAdmin,
+  todosNPCs, todosConsumiveis, perfil,
 } from "./app.js";
 
 export function telaBiblioteca(aba = "racas") {
@@ -200,5 +200,5 @@ export function telaBiblioteca(aba = "racas") {
       <div class="mast-sub">Tudo do livro Passagem Sombria, pesquisável e completo${podeAdmin ? ` · <button id="abrir-admin" class="mini">🛠 Administrar conteúdo</button>` : ""}</div></header>
     <div class="filtros">${abas.map(([id2, l]) => `<a href="#/biblioteca/${id2}" class="${aba === id2 ? "on" : ""}">${l}</a>`).join("")}</div>
     <section class="sec">${corpo}</section>`, "biblioteca");
-  document.getElementById("abrir-admin")?.addEventListener("click", () => painelAdmin(aba));
+  document.getElementById("abrir-admin")?.addEventListener("click", async () => { const { painelAdmin } = await import("./admin.js"); painelAdmin(aba); });
 }
