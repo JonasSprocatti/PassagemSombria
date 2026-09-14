@@ -2,7 +2,8 @@
 // Roda com: node --test tests/
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { chavesDaArma, propsArma, ARMAS, KEYWORDS } from "../public/js/dados-jogo.js";
+import { chavesDaArma, propsArma, ARMAS, KEYWORDS, IMPLANTES } from "../public/js/dados-jogo.js";
+import { parseDice } from "../public/js/regras.js";
 
 describe("chavesDaArma", () => {
   test("separa uma arma com várias palavras-chave, uma por uma", () => {
@@ -83,6 +84,21 @@ describe("conteúdo das armas: toda arma com kw reconhece sua(s) palavra(s)-chav
       const efeito = propsArma(arma).efeito;
       assert.ok(efeito, `propsArma não gerou nenhuma descrição para "${arma.kw}"`);
       assert.notEqual(efeito, arma.kw, `descrição de "${arma.n}" saiu igual ao texto cru do kw`);
+    });
+  }
+});
+
+// Implantes com `ataque` declarado (ex. Lâmina Oculta Retrátil) agem como uma
+// arma extra em telaMesa (ver `implanteComoArma`/`catDoAtaque` em app.js) — o
+// dado precisa parsear e, se declarar kw, precisa ser reconhecido do mesmo jeito
+// que uma arma de verdade, senão o ataque do implante sai sem descrição/mudo.
+describe("conteúdo dos implantes: todo `ataque` declarado tem dado válido e kw reconhecido", () => {
+  for (const imp of IMPLANTES) {
+    if (!imp.ataque) continue;
+    test(`"${imp.n}" (dano: "${imp.ataque.dano}")`, () => {
+      assert.ok(parseDice(imp.ataque.dano), `dado de dano "${imp.ataque.dano}" não parseia`);
+      assert.ok(["branca", "fogo"].includes(imp.ataque.tipo || "branca"), `tipo de ataque inválido em "${imp.n}"`);
+      if (imp.ataque.kw) assert.ok(chavesDaArma(imp.ataque).length > 0, `kw "${imp.ataque.kw}" não reconhecido`);
     });
   }
 });

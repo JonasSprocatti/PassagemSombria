@@ -268,6 +268,49 @@ describe("Blindagem Dispersora de Impacto — armadura anticrítica", () => {
   });
 });
 
+describe("Coração Sintético de Duplo Fluxo — PV máximo extra e resistência", () => {
+  const comImplante = () => ({ ...novaFichaDados(), implantes: ["Coração Sintético de Duplo Fluxo"] });
+
+  test("k.pvMax = f.pvMax + 5 enquanto o implante está instalado", () => {
+    const f = { ...comImplante(), pvMax: 20 };
+    assert.equal(calc(f).pvMax, 25);
+  });
+
+  test("sem o implante, k.pvMax é só o valor bruto salvo", () => {
+    const f = { ...novaFichaDados(), pvMax: 20 };
+    assert.equal(calc(f).pvMax, 20);
+  });
+
+  test("removido o implante, o bônus some (k.pvMax cai de novo)", () => {
+    const comK = calc({ ...comImplante(), pvMax: 20 });
+    const semK = calc({ ...novaFichaDados(), pvMax: 20 });
+    assert.equal(comK.pvMax, 25);
+    assert.equal(semK.pvMax, 20);
+  });
+
+  test("dá Vantagem (resistência) em testes contra Envenenado", () => {
+    const k = calc(comImplante());
+    assert.deepEqual(k.efeitos.resistencias(), ["envenenado"]);
+  });
+
+  test("sem o implante, sem resistência a Envenenado", () => {
+    const k = calc(novaFichaDados());
+    assert.deepEqual(k.efeitos.resistencias(), []);
+  });
+});
+
+describe("k.escudoMax soma armadura (absorve) + efeitos declarados (escudo_max)", () => {
+  test("sem armadura de escudo nem efeito, escudoMax é 0", () => {
+    assert.equal(calc(novaFichaDados()).escudoMax, 0);
+  });
+
+  test("armadura com absorve continua funcionando sozinha", () => {
+    const f = { ...novaFichaDados(), inventario: [{ tipo: "armadura", nome: "Escudo de Energia Pessoal", equip: true }] };
+    const k = calc(f);
+    assert.ok(k.escudoMax > 0, "armadura com absorve deveria conceder escudoMax");
+  });
+});
+
 describe("parseDice", () => {
   test("lê dado com e sem bônus", () => {
     assert.deepEqual(parseDice("2d6+3"), { n: 2, f: 6, mod: 3 });

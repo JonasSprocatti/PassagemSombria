@@ -118,6 +118,27 @@ export const EFEITOS = {
     rotulo: () => `imune a dano crítico`,
     sofrer: (e, ctx) => { ctx.semCritico = true; } },
 
+  // { tipo:"pv_max", valor:5 } — vida máxima extra enquanto a fonte estiver ativa
+  // (implante, item equipado, passiva de modo). Some em k.pvMaxBonus; calc()
+  // soma isso ao f.pvMax bruto pra formar k.pvMax (o teto de verdade em jogo).
+  pv_max: {
+    rotulo: (e) => `${sinal(e.valor)} de PV máximo`,
+    ficha: (e, k) => { k.pvMaxBonus = (k.pvMaxBonus || 0) + e.valor; } },
+
+  // { tipo:"escudo_max", valor:10 } — escudo concedido por algo além da armadura
+  // com `absorve` (implante, filosofia, modo). Some em k.escudoBonus; calc()
+  // soma isso ao absorve da armadura pra formar k.escudoMax.
+  escudo_max: {
+    rotulo: (e) => `${sinal(e.valor)} de Escudo`,
+    ficha: (e, k) => { k.escudoBonus = (k.escudoBonus || 0) + e.valor; } },
+
+  // { tipo:"resistencia", a:"psíquico" } — mais fraco que imunidade: não anula,
+  // só dá Vantagem em qualquer teste de resistência (salvaguarda/CD) contra
+  // aquele tipo de dano elemental ou condição/efeito ("a" casa com o nome da
+  // condição, ex. "Paralisado", ou com um TIPOS_DANO, ex. "psíquico").
+  resistencia: {
+    rotulo: (e) => `resistência a ${e.a} (Vantagem nos testes de resistência)` },
+
   // { tipo:"por_implante", cada:3, attr:"conj", valor:1 } — escala com o cromo
   por_implante: {
     rotulo: (e) => `+${e.valor} em ${e.attr === "conj" ? "Conjuração" : e.attr} a cada ${e.cada} implantes`,
@@ -281,6 +302,11 @@ export class FichaEfeitos {
   imunidades() {
     return this.fontes.flatMap((x) => x.efeitos.filter((e) => e.tipo === "imunidade").map((e) => e.a));
   }
+  // Resistências (mais fracas que imunidade): lista normalizada em minúsculas,
+  // pra bater com o nome da condição ou tipo de dano no momento do teste.
+  resistencias() {
+    return this.fontes.flatMap((x) => x.efeitos.filter((e) => e.tipo === "resistencia").map((e) => (e.a || "").toLowerCase()));
+  }
   recursos() {
     return this.fontes.flatMap((x) => x.efeitos.filter((e) => e.tipo === "recurso")
       .map((e) => ({ ...e, fonte: x.nome })));
@@ -304,6 +330,9 @@ export function validarEfeitos(efs) {
     // "Outro" mas não chegou a descrever; sem isto, salvava assim mesmo e a imunidade
     // ficava inerte pra sempre, sem avisar ninguém.
     if (e.tipo === "imunidade" && (!e.a || e.a === "__outro__")) erros.push("imunidade não diz a quê");
+    if (e.tipo === "resistencia" && (!e.a || e.a === "__outro__")) erros.push("resistência não diz a quê");
+    if (e.tipo === "pv_max" && typeof e.valor !== "number") erros.push("PV máximo extra sem valor numérico");
+    if (e.tipo === "escudo_max" && typeof e.valor !== "number") erros.push("escudo extra sem valor numérico");
     if (e.tipo === "multiplicar_dano" && !e.fator) erros.push("multiplicar dano sem fator");
     if (e.tipo === "multiplicar_dano" && !CONDICOES_ALVO[e.quando]) erros.push(`situação desconhecida: ${e.quando}`);
     if (e.tipo === "bonus_recompensa" && typeof e.pct !== "number") erros.push("bônus de recompensa sem percentual");

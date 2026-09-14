@@ -176,8 +176,8 @@ export function gerarFichaHTML(nome, f, k) {
     </div></div>
     <div class="grid6">${ATTRS.map(attrCard).join("")}</div>
     <div class="vit">
-      <div><span class="dim">Pontos de Vida</span><b>${f.pvAtual || 0} / ${f.pvMax || 0}</b>
-        <span class="barra"><i style="width:${f.pvMax ? Math.max(0, Math.min(100, 100 * f.pvAtual / f.pvMax)) : 0}%;background:${ACC}"></i></span></div>
+      <div><span class="dim">Pontos de Vida</span><b>${f.pvAtual || 0} / ${k.pvMax || 0}</b>
+        <span class="barra"><i style="width:${k.pvMax ? Math.max(0, Math.min(100, 100 * f.pvAtual / k.pvMax)) : 0}%;background:${ACC}"></i></span></div>
       <div><span class="dim">RAM</span><b>${k.ramLivre} / ${k.ramMax}</b>
         <span class="barra"><i style="width:${k.ramMax ? Math.max(0, Math.min(100, 100 * k.ramLivre / k.ramMax)) : 0}%;background:${ACC3}"></i></span></div>
       <div><span class="dim">Defesa (CD)</span><b>${k.cd}</b></div>
@@ -317,9 +317,12 @@ function aplicarDescanso(f, tipo) {
   // (que vale "até o fim da batalha").
   if (f.escudoGasto) { notas.push("escudo pessoal recarregado"); f.escudoGasto = 0; }
   if (f.pvTemp) { notas.push(`${f.pvTemp} PV Temporário se dissolve`); f.pvTemp = 0; }
+  // PV máximo EFETIVO (base salva + qualquer bônus de item/implante/modo em vigor),
+  // não o valor bruto — senão quem tem vida máxima extra não conseguia usá-la no descanso.
+  const pvMaxEf = calc(f).pvMax;
   if (tipo === "longo") {
-    pvRec = Math.max(0, (f.pvMax || 0) - (f.pvAtual || 0));
-    f.pvAtual = f.pvMax || 0;
+    pvRec = Math.max(0, pvMaxEf - (f.pvAtual || 0));
+    f.pvAtual = pvMaxEf;
     ramRec = f.ramGasta || 0; f.ramGasta = 0;
     f.modos = {};                       // o ar volta ao normal: modos ligados se desfazem
     const totPentes = reporPentes(f);
@@ -329,7 +332,7 @@ function aplicarDescanso(f, tipo) {
     cat.filter((a) => a.freq === "curto").forEach((a) => { if (f.usos[a.id]) { delete f.usos[a.id]; habsReset++; } });
     const nCurto = cat.filter((a) => a.freq === "curto").length;
     notas.push(`${nCurto} habilidade(s) de descanso curto reiniciada(s)`);
-    if (f.raca === "Mercusys") { const cura = d(4); pvRec = Math.min(cura, Math.max(0, (f.pvMax || 0) - (f.pvAtual || 0))); f.pvAtual = Math.min(f.pvMax || 0, (f.pvAtual || 0) + cura); notas.push(`regeneração Mercusys +${cura} PV`); }
+    if (f.raca === "Mercusys") { const cura = d(4); pvRec = Math.min(cura, Math.max(0, pvMaxEf - (f.pvAtual || 0))); f.pvAtual = Math.min(pvMaxEf, (f.pvAtual || 0) + cura); notas.push(`regeneração Mercusys +${cura} PV`); }
     else notas.push("PV: use Kits Médicos");
     notas.push(`${reporPentes(f)} pente(s) repostos`);
   }
@@ -993,7 +996,7 @@ async function telaHangar() {
       <div class="info">
         <div class="nome">${esc(p.nome) || "— sem nome —"}</div>
         <div class="meta">${esc(f.raca || "raça?")} · ${esc(f.classe || "classe?")}${p.campanha_id ? " · ☄ em campanha" : ""}</div>
-        <div class="card-stats"><span>PV <b>${f.pvAtual || 0}</b>/${f.pvMax || 0}</span><span>CD <b>${k.cd}</b></span><span class="sombra-c">RAM <b>${k.ramLivre}</b>/${k.ramMax}</span></div>
+        <div class="card-stats"><span>PV <b>${f.pvAtual || 0}</b>/${k.pvMax}</span><span>CD <b>${k.cd}</b></span><span class="sombra-c">RAM <b>${k.ramLivre}</b>/${k.ramMax}</span></div>
       </div>
     </article>`; }).join("");
   shell("hangar", `
@@ -1130,12 +1133,12 @@ async function telaFicha(id) {
           <span class="regra" style="margin:6px 0 0;display:block;font-size:9px">pontos de nível (+1/nível a partir do NV2)</span>
           <input class="pt-attr" data-a="${a}" type="number" min="0" max="${(f.pontosAttr[a] || 0) + Math.max(0, sobra)}" value="${f.pontosAttr[a] || 0}" ${sobra <= 0 && !(f.pontosAttr[a] > 0) ? "disabled" : ""} title="Distribua aqui os pontos de atributo ganhos ao subir de nível (+1 por nível, a partir do nível 2). Sem pontos livres, o campo trava."/></div>`).join("")}</div>
         ${(() => {
-          const pvP = f.pvMax ? Math.max(0, Math.min(100, 100 * f.pvAtual / f.pvMax)) : 0;
+          const pvP = k.pvMax ? Math.max(0, Math.min(100, 100 * f.pvAtual / k.pvMax)) : 0;
           const ramP = k.ramMax ? Math.max(0, Math.min(100, 100 * k.ramLivre / k.ramMax)) : 0;
           const est = f.pvAtual <= 0 ? "morto" : pvP <= 30 ? "critico" : pvP <= 60 ? "ferido" : "";
           return `<div class="vitais-barras" style="margin-top:14px">
             <div class="vb" data-barra="ficha-pv">
-              <div class="vb-topo"><span>❤ Pontos de Vida</span><b class="${est}">${f.pvAtual}<span class="dim">/${f.pvMax}</span></b></div>
+              <div class="vb-topo"><span>❤ Pontos de Vida</span><b class="${est}">${f.pvAtual}<span class="dim">/${k.pvMax}</span></b>${k.pvMaxBonus ? `<span class="dim" style="font-size:10px" title="PV máximo base ${f.pvMax || 0} + ${k.pvMaxBonus} de bônus">(${sign(k.pvMaxBonus)})</span>` : ""}</div>
               <div class="vb-trilho"><span class="rastro"></span><span class="cb-hp-barra vb-fill ${est}" style="width:${pvP}%"></span></div>
               ${est === "morto" ? `<span class="vb-aviso">☠ Inconsciente — role a salvaguarda de morte no seu turno.</span>`
                 : est === "critico" ? `<span class="vb-aviso">⚠ Gravemente ferido</span>` : ""}
@@ -1689,7 +1692,7 @@ async function telaMesa(id) {
     const { data: fresco } = await sb.from("personagens").select("dados").eq("id", alvo.id).single();
     const dd = { ...novaFichaDados(), ...(fresco?.dados || alvo.dados) };
     const antes = dd.pvAtual || 0;
-    dd.pvAtual = Math.max(0, Math.min(dd.pvMax || 0, antes + delta));
+    dd.pvAtual = Math.max(0, Math.min(calc(dd).pvMax, antes + delta));
     if (dd.pvAtual === antes) return;
     dd.log = [{ q: new Date().toISOString(), t: `${delta < 0 ? "💥" : "✚"} ${Math.abs(delta)} PV no combate (${antes} → ${dd.pvAtual})` }, ...(dd.log || [])].slice(0, 60);
     await salvarFicha(alvo.id, dd);
@@ -1754,23 +1757,34 @@ async function telaMesa(id) {
       // Endurecer e afins só abatem dano FÍSICO.
       const reduzido = tipoDano === "físico" ? (kA.efeitos?.aoSofrer?.().reducao || 0) : 0;
       let resta = Math.max(0, valor - reduzido);
-      const noEscudo = Math.min(kA.escudoLivre, resta);
-      if (noEscudo) { dd.escudoGasto = (dd.escudoGasto || 0) + noEscudo; resta -= noEscudo; }
+      // Escudo: diferente de PV Temporário (abaixo), não deixa passar o excedente.
+      // Regra pedida: "o escudo tem 10, você toma 15 — os 5 de excesso não passam".
+      // Enquanto o escudo tiver QUALQUER carga, a instância de dano inteira é
+      // bloqueada, mesmo que estoure e o zere — só a PRÓXIMA instância, já sem
+      // escudo, volta a valer normal.
+      const escudoAntes = kA.escudoLivre;
+      let absorvidoEscudo = 0;
+      if (escudoAntes > 0 && resta > 0) {
+        absorvidoEscudo = resta;
+        dd.escudoGasto = (dd.escudoGasto || 0) + Math.min(escudoAntes, resta);
+        resta = 0;
+      }
+      // PV Temporário: aqui sim o excedente passa — é só um estoque a mais de PV.
       const noTemp = Math.min(dd.pvTemp || 0, resta);
       if (noTemp) { dd.pvTemp = (dd.pvTemp || 0) - noTemp; resta -= noTemp; }
       const antesPv = dd.pvAtual || 0;
       dd.pvAtual = Math.max(0, antesPv - resta);
       const partes = [];
       if (reduzido) partes.push(`−${reduzido} redução`);
-      if (noEscudo) partes.push(`🛡 escudo absorve ${noEscudo}`);
+      if (absorvidoEscudo) partes.push(`🛡 escudo bloqueia o golpe inteiro (${absorvidoEscudo})${absorvidoEscudo > escudoAntes ? ` — estourou o escudo (tinha ${escudoAntes})` : ""}`);
       if (noTemp) partes.push(`✚ PV temp absorve ${noTemp}`);
-      partes.push(`−${resta} (${dd.pvAtual}/${dd.pvMax || alvo.hp_max})`);
+      partes.push(`−${resta} (${dd.pvAtual}/${kA.pvMax || dd.pvMax || alvo.hp_max})`);
       dd.log = [{ q: new Date().toISOString(), t: `💥 ${valor} de dano — ${partes.join(" · ")}` }, ...(dd.log || [])].slice(0, 60);
       await salvarFicha(alvo.personagem_id, dd);
       if (pjA) pjA.dados = dd;
       if (meuPers && meuPers.id === alvo.personagem_id) meuPers.dados = dd;
       alvo.hp = dd.pvAtual;   // o rastreador acompanha a ficha
-      return { aplicado: resta, reduzido, escudo: noEscudo, temp: noTemp, msg: msgResist + partes.join(" · ") };
+      return { aplicado: resta, reduzido, escudo: absorvidoEscudo, temp: noTemp, msg: msgResist + partes.join(" · ") };
     }
     // ---- Criatura: PV Temporário vive na própria linha do rastreador ----
     let resta = valor;
@@ -1940,6 +1954,11 @@ async function telaMesa(id) {
   //  area + raio → escolhe um epicentro no campo e pega todo mundo dentro do raio
   // `empurrao`: metros que o alvo atingido é jogado para longe do epicentro (ou de
   // quem conjurou, quando não há epicentro) no campo tático — Repulsão Cinética e afins.
+  // Resistência (mais fraca que imunidade — `{tipo:"resistencia", a:...}` em
+  // efeitos.js): não anula nada, só dá Vantagem no teste de resistência contra
+  // aquele tipo de dano/condição. `chave` casa contra o nome da condição sendo
+  // resistida OU o tipo de dano do ataque, sem diferenciar maiúsculas.
+  const temResistencia = (kAlvo, chave) => !!(kAlvo?.efeitos && chave && kAlvo.efeitos.resistencias().includes(String(chave).toLowerCase()));
   const aplicarEmAlvos = async ({ titulo, origem, dado = null, acerto = null, atributo = null, pericia = null, cd = null, cond = null, turnos = 2, area = false, raio = null, tipoDano = "físico", empurrao = 0 }) => {
     if (!camp.combate?.ativo || !camp.combate.ordem.length) {
       await enviar("sistema", `★ ${origem}: sem combate no rastreador — o Mestre resolve.${dado ? ` (dano ${dado})` : ""}${cond ? ` (${cond} ${turnos}t)` : ""}`);
@@ -1991,16 +2010,18 @@ async function telaMesa(id) {
         pegou = natA === 20 || (natA !== 1 && tot >= defesa);
         det = ` [ataque ${natA}${sign(acerto)}=${tot} vs Def ${defesa} — ${pegou ? "acertou" : "errou"}]`;
       } else if ((atributo || pericia) && cd != null) {
-        let bo;
+        let bo, kA = null;
         if (alvo.personagem_id) {
-          const kA = calc({ ...novaFichaDados(), ...((pers || []).find((p) => p.id === alvo.personagem_id)?.dados || {}) });
+          kA = calc({ ...novaFichaDados(), ...((pers || []).find((p) => p.id === alvo.personagem_id)?.dados || {}) });
           if (pericia) { const pa = (PERICIAS.find(([n]) => n === pericia) || [])[1]; bo = (kA.attr[pa] || 0) + (kA.per[pericia] || 0); }
           else bo = kA.attr[atributo] || 0;
         } else bo = NIVEIS_AMEACA[alvo.ameaca]?.ordem ?? Math.max(0, defesa - 10);
         const rot = pericia || atributo;
-        const natS = d(20), tot = natS + bo;
+        const temRes = temResistencia(kA, cond) || temResistencia(kA, tipoDano);
+        const natS = temRes ? Math.max(d(20), d(20)) : d(20);
+        const tot = natS + bo;
         pegou = tot < cd;
-        det = ` [${rot} ${natS}${sign(bo)}=${tot} vs CD ${cd} — ${pegou ? "falhou" : "resistiu"}]`;
+        det = ` [${rot} ${natS}${sign(bo)}=${tot}${temRes ? " (resistência: Vant.)" : ""} vs CD ${cd} — ${pegou ? "falhou" : "resistiu"}]`;
       }
       let danoMsg = "";
       if (pegou && rolDano) { const rd = await aplicarDanoAlvo(alvo, rolDano, tipoDano); danoMsg = ` ${rd.msg}`; if (rd.imune) pegou = false; }
@@ -2021,6 +2042,18 @@ async function telaMesa(id) {
     return true;
   };
 
+  // Implante com `ataque` declarado (ex. Lâmina Oculta Retrátil) age como uma
+  // arma branca extra, sempre "equipada" enquanto o implante estiver instalado —
+  // rola dado próprio de dano em vez de só somar bônus num ataque já existente.
+  const implanteComoArma = (nome) => {
+    const imp = todosImplantes().find((x) => x.n === nome);
+    if (!imp?.ataque) return null;
+    return { n: imp.n, preco: 0, dano: imp.ataque.dano, tipo: imp.ataque.tipo || "branca",
+      per: imp.ataque.per || "Armas Brancas", attr: imp.ataque.attr || "For",
+      kw: imp.ataque.kw, efeitos: imp.ataque.efeitos, _implante: true };
+  };
+  const catDoAtaque = (nome) => todasArmas().find((x) => x.n === nome) || implanteComoArma(nome);
+
   const render = async () => {
     if (canalMesa) { sb.removeChannel(canalMesa); canalMesa = null; }
     const f = meuPers ? { ...novaFichaDados(), ...meuPers.dados } : null;
@@ -2029,7 +2062,13 @@ async function telaMesa(id) {
     // a CD das Placas e todo efeito declarado de implante, enquanto ela estiver no raio.
     const semImplantes = auraNega("implantes");
     const k = f ? calc(f, { semImplantes }) : null;
-    const armasEq = f ? (f.inventario || []).filter((i) => i.tipo === "arma" && i.equip) : [];
+    const armasEq = f ? [
+      ...(f.inventario || []).filter((i) => i.tipo === "arma" && i.equip),
+      // Implantes com ataque próprio entram na mesma lista — sempre "equipados"
+      // enquanto instalados; a Zona Morta já os tira de f.implantes quando ativa.
+      ...(semImplantes ? [] : (f.implantes || [])).filter((nome) => implanteComoArma(nome))
+        .map((nome) => ({ nome, tipo: "arma", equip: true, _implante: true })),
+    ] : [];
     const nave = camp.nave;
     const meuPosto = membros?.find((m) => m.perfil_id === usuario.id)?.posto;
     const cbn = camp.combate_nave || combateNaveVazio();
@@ -2158,11 +2197,11 @@ async function telaMesa(id) {
             <select id="sel-pers" title="Troque de personagem sem sair da mesa">${meuPers ? "" : `<option value="">— vincular personagem —</option>`}
               ${(meus || []).map((m) => `<option value="${m.id}" ${meuPers?.id === m.id ? "selected" : ""}>${esc(m.nome) || "sem nome"}${m.campanha_id === id ? "" : " (vincular)"}</option>`).join("")}</select>
             ${f ? `${(() => {
-              const pvP = f.pvMax ? Math.max(0, Math.min(100, 100 * f.pvAtual / f.pvMax)) : 0;
+              const pvP = k.pvMax ? Math.max(0, Math.min(100, 100 * f.pvAtual / k.pvMax)) : 0;
               const ramP = k.ramMax ? Math.max(0, Math.min(100, 100 * k.ramLivre / k.ramMax)) : 0;
               const est = f.pvAtual <= 0 ? "morto" : pvP <= 30 ? "critico" : pvP <= 60 ? "ferido" : "";
               return `<div class="vitais-barras compacto">
-                <div class="vb" data-barra="mesa-pv"><div class="vb-topo"><span>❤ PV</span><b class="${est}">${f.pvAtual}<span class="dim">/${f.pvMax}</span></b></div>
+                <div class="vb" data-barra="mesa-pv"><div class="vb-topo"><span>❤ PV</span><b class="${est}">${f.pvAtual}<span class="dim">/${k.pvMax}</span></b></div>
                   <div class="vb-trilho"><span class="rastro"></span><span class="cb-hp-barra vb-fill ${est}" style="width:${pvP}%"></span></div></div>
                 <div class="vb" data-barra="mesa-ram"><div class="vb-topo"><span>◈ RAM</span><b class="sombra-c">${k.ramLivre}<span class="dim">/${k.ramMax}</span></b></div>
                   <div class="vb-trilho"><span class="rastro"></span><span class="cb-hp-barra vb-fill ram" style="width:${ramP}%"></span></div></div>
@@ -2208,9 +2247,9 @@ async function telaMesa(id) {
               <button id="rolar-per" class="mini">TESTE</button>
               <button id="teste-oposto" class="mini" title="Teste oposto: você e um alvo rolam perícias diferentes e o maior vence">⚖ OPOSTO</button>
               ${armasEq.length ? `<label class="chk" style="margin:0" title="Ataque furtivo: +2 no acerto (armas Ocultas / Assassino) e dano DOBRADO para o Assassino."><input type="checkbox" id="atq-furtivo"/> 🥷 Furtivo</label>` : ""}
-              ${armasEq.map((a, i) => { const cat = todasArmas().find((x) => x.n === a.nome); const pr = cat ? propsArma(cat) : {};
-                const tip = [cat?.kw ? `${cat.kw}: ${pr.efeito}` : "", pr.area ? `Área: ${pr.areaTxt}` : "", pr.alcance ? `Alcance: ${pr.alcanceTxt}` : "", pr.agil ? "Ágil (Des)" : ""].filter(Boolean).join(" · ");
-                return `<button class="mini atq" data-atq="${i}" title="${esc(tip)}">⚔ ${esc(a.nome)} (${cat ? danoArma(cat, f.nivel) : "—"})${pr.area ? " ◎" : ""}${pr.agil ? " ⚡" : ""}${pr.aoAcertar?.length ? " 🏷" : ""}${pr.ignoraArmadura ? " 🗡" : ""}</button>`; }).join("")}
+              ${armasEq.map((a, i) => { const cat = catDoAtaque(a.nome); const pr = cat ? propsArma(cat) : {};
+                const tip = [a._implante ? "Ataque de implante" : "", cat?.kw ? `${cat.kw}: ${pr.efeito}` : "", pr.area ? `Área: ${pr.areaTxt}` : "", pr.alcance ? `Alcance: ${pr.alcanceTxt}` : "", pr.agil ? "Ágil (Des)" : ""].filter(Boolean).join(" · ");
+                return `<button class="mini atq" data-atq="${i}" title="${esc(tip)}">${a._implante ? "⧉" : "⚔"} ${esc(a.nome)} (${cat ? danoArma(cat, f.nivel) : "—"})${pr.area ? " ◎" : ""}${pr.agil ? " ⚡" : ""}${pr.aoAcertar?.length ? " 🏷" : ""}${pr.ignoraArmadura ? " 🗡" : ""}</button>`; }).join("")}
               <select id="sel-scr">${(f.deck.length ? SCRIPTS.filter((s) => f.deck.includes(s.n)) : SCRIPTS.filter((s) => s.c === 0)).map((s) => `<option>${esc(s.n)}</option>`).join("")}</select>
               <button id="conjurar" class="mini">⚡ CONJURAR</button>
               ${(() => { const ats = habilidadesAtivas(f);
@@ -2274,13 +2313,13 @@ async function telaMesa(id) {
           </section>` : ""}
           <section class="sec"><header><span class="tag">🩺</span><h2>Estado da tripulação</h2></header>
             ${(pers || []).length ? (pers || []).map((x) => { const fx = { ...novaFichaDados(), ...(x.dados || {}) }; const kx = calc(fx);
-              const pv = fx.pvMax ? Math.max(0, Math.min(100, 100 * fx.pvAtual / fx.pvMax)) : 0;
+              const pv = kx.pvMax ? Math.max(0, Math.min(100, 100 * fx.pvAtual / kx.pvMax)) : 0;
               const ram = kx.ramMax ? Math.max(0, Math.min(100, 100 * kx.ramLivre / kx.ramMax)) : 0;
-              const crit = fx.pvAtual <= 0 ? "morto" : (fx.pvMax && fx.pvAtual / fx.pvMax <= 0.3) ? "ferido" : "";
+              const crit = fx.pvAtual <= 0 ? "morto" : (kx.pvMax && fx.pvAtual / kx.pvMax <= 0.3) ? "ferido" : "";
               const linhaCb = (camp.combate?.ordem || []).find((c2) => c2.personagem_id === x.id);
               return `<div class="pf-linha ${crit}" data-inspect="${x.id}" title="Ver ficha completa">
                 <span class="pf-nome">${esc(x.nome) || "sem nome"}${fx.pvAtual <= 0 ? " ☠" : ""}${fx.pvTemp ? ` <b class="tech-c">✚${fx.pvTemp}</b>` : ""}${kx.escudoLivre ? ` <b class="sombra-c">🛡${kx.escudoLivre}</b>` : ""}</span>
-                <span class="cb-hp" title="Pontos de Vida"><span class="cb-hp-barra" style="width:${pv}%;background:${crit === "ferido" ? "var(--perigo)" : "var(--tech)"}"></span><b>${fx.pvAtual}/${fx.pvMax}</b></span>
+                <span class="cb-hp" title="Pontos de Vida"><span class="cb-hp-barra" style="width:${pv}%;background:${crit === "ferido" ? "var(--perigo)" : "var(--tech)"}"></span><b>${fx.pvAtual}/${kx.pvMax}</b></span>
                 <span class="cb-hp" title="RAM"><span class="cb-hp-barra" style="width:${ram}%;background:var(--sombra)"></span><b>${kx.ramLivre}/${kx.ramMax}</b></span>
                 ${(linhaCb?.cond || []).length ? `<span class="cb-conds">${linhaCb.cond.map((cd) => `<span class="cb-cond ${infoCond(cd.n)?.dano ? "sangra" : "estado"}" title="${esc(cd.n)} · ${cd.turnos} turno(s)">${infoCond(cd.n)?.ic || "🏷"} ${esc(cd.n)} ${cd.turnos}</span>`).join("")}</span>` : ""}
               </div>`; }).join("") : `<p class="regra">Nenhum personagem vinculado ainda.</p>`}
@@ -2399,7 +2438,7 @@ async function telaMesa(id) {
         const { data: fresco } = await sb.from("personagens").select("dados").eq("id", alvo.id).single();
         const dados = { ...novaFichaDados(), ...(fresco?.dados || alvo.dados) };
         const antes = dados.pvAtual || 0;
-        dados.pvAtual = Math.max(0, Math.min(dados.pvMax || 0, antes + (m.tipo === "dano" ? -p.valor : p.valor)));
+        dados.pvAtual = Math.max(0, Math.min(calc(dados).pvMax, antes + (m.tipo === "dano" ? -p.valor : p.valor)));
         dados.log = [{ q: new Date().toISOString(), t: `${m.tipo === "dano" ? "💥" : "✚"} ${p.valor} PV — ${esc(p.origem || "mesa")}` }, ...(dados.log || [])].slice(0, 60);
         if (!(await salvarFicha(alvo.id, dados, "aplicar o dano/cura"))) { bt.disabled = false; return; }
         alvo.dados = dados;                          // mantém o estado local coerente
@@ -2581,7 +2620,7 @@ async function telaMesa(id) {
     app.querySelectorAll("[data-inspect]").forEach((el2) => el2.onclick = () => {
       const alvo = (pers || []).find((x) => x.id === el2.dataset.inspect); if (!alvo) return;
       const fx = { ...novaFichaDados(), ...(alvo.dados || {}) }; const kx = calc(fx);
-      const pvP = fx.pvMax ? Math.max(0, Math.min(100, 100 * fx.pvAtual / fx.pvMax)) : 0;
+      const pvP = kx.pvMax ? Math.max(0, Math.min(100, 100 * fx.pvAtual / kx.pvMax)) : 0;
       const ramP = kx.ramMax ? Math.max(0, Math.min(100, 100 * kx.ramLivre / kx.ramMax)) : 0;
       const est = fx.pvAtual <= 0 ? "morto" : pvP <= 30 ? "critico" : pvP <= 60 ? "ferido" : "";
       const res = normalizaPentes(fx); const tpm = TIPOS_PENTE[fx.tipoPente || PENTE_PADRAO];
@@ -2598,7 +2637,7 @@ async function telaMesa(id) {
           <button id="ins-x" class="mp-x" style="margin-left:auto">✕</button></div>
         <div class="di-corpo">
           <div class="vitais-barras">
-            <div class="vb"><div class="vb-topo"><span>❤ Vida</span><b class="${est}">${fx.pvAtual}<span class="dim">/${fx.pvMax}</span></b></div>
+            <div class="vb"><div class="vb-topo"><span>❤ Vida</span><b class="${est}">${fx.pvAtual}<span class="dim">/${kx.pvMax}</span></b></div>
               <div class="vb-trilho"><span class="cb-hp-barra vb-fill ${est}" style="width:${pvP}%"></span></div></div>
             <div class="vb"><div class="vb-topo"><span>◈ RAM</span><b class="sombra-c">${kx.ramLivre}<span class="dim">/${kx.ramMax}</span></b></div>
               <div class="vb-trilho"><span class="cb-hp-barra vb-fill ram" style="width:${ramP}%"></span></div></div>
@@ -2702,12 +2741,17 @@ async function telaMesa(id) {
             <p class="regra fac-desc"><i>${esc(nv.d)}</i></p></div>`; }).join("");
 
       const painelCon = () => `<button id="con-novo" class="mini eq">➕ Publicar contrato</button>`
-        + (camp.contratos.length ? camp.contratos.map((c, i) => `<div class="det grande" style="border-left:3px solid ${c.status === "concluido" ? "var(--tech)" : c.status === "aceito" ? "var(--chrome)" : "var(--line)"}">
+        + (camp.contratos.length ? camp.contratos.map((c, i) => { const itens = c.recompensaItens || [];
+            return `<div class="det grande" style="border-left:3px solid ${c.status === "concluido" ? "var(--tech)" : c.status === "aceito" ? "var(--chrome)" : "var(--line)"}">
             <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><b>${esc(c.titulo)}</b><span class="best-tag">${esc(c.status)}</span></div>
             <p>${esc(c.desc)}</p>
-            <p class="regra"><b class="chrome">Recompensa:</b> ${esc(c.recompensa)}${c.faccao ? ` · <b>Contratante:</b> ${esc(c.faccao)}` : ""}</p>
+            <p class="regra"><b class="chrome">Recompensa:</b> ${esc(c.recompensa)}${c.recompensaCg ? ` · ${c.recompensaCg} CG` : ""}${c.recompensaXp ? ` · ${c.recompensaXp} XP` : ""}${c.faccao ? ` · <b>Contratante:</b> ${esc(c.faccao)}` : ""}</p>
+            ${itens.length ? `<p class="regra">${itens.map((it, j) => `<span class="pente-tipo" style="margin:2px">${{arma:"⚔",armadura:"🛡",implante:"⧉",consumivel:"🎒",nave:"🚀"}[it.tipo] || "🎁"} ${esc(it.nome)}${it.qtd > 1 ? ` ×${it.qtd}` : ""} <a href="javascript:void 0" data-con-item-del="${i}:${j}" title="Remover">✕</a></span>`).join(" ")}</p>` : ""}
             <div class="filtros"><button class="mini" data-con-st="${i}" data-st="aberto">Aberto</button><button class="mini" data-con-st="${i}" data-st="aceito">Aceito</button>
-              <button class="mini" data-con-st="${i}" data-st="concluido">Concluído</button><button class="mini rm" data-con-del="${i}">✕</button></div></div>`).join("")
+              <button class="mini" data-con-st="${i}" data-st="concluido">Concluído</button>
+              <button class="mini" data-con-item="${i}" title="Adicionar item/arma/armadura/nave declarado como recompensa deste contrato">➕ Item</button>
+              ${(c.recompensaCg || c.recompensaXp || itens.length) ? `<button class="mini eq" data-con-entregar="${i}" title="Distribui CG/XP/itens declarados a toda a tripulação conectada">🎁 Entregar</button>` : ""}
+              <button class="mini rm" data-con-del="${i}">✕</button></div></div>`; }).join("")
           : `<p class="regra">Nenhum contrato publicado. Os que você publicar aparecem para a tripulação na mesa.</p>`);
 
       let linCache = null;
@@ -2910,11 +2954,15 @@ async function telaMesa(id) {
           const r = await modalForm({ titulo: "📋 Publicar contrato", campos: [
             { k: "titulo", label: "Título", tipo: "texto" },
             { k: "desc", label: "Descrição / objetivo", tipo: "area", rows: 3 },
-            { k: "recompensa", label: "Recompensa", tipo: "texto", valor: "1000 CG" },
+            { k: "recompensa", label: "Recompensa (texto, aparece pra tripulação)", tipo: "texto", valor: "1000 CG" },
+            { k: "cg", label: "CG estruturado (opcional — some ao clicar 🎁 Entregar depois)", tipo: "numero", valor: 0, min: 0 },
+            { k: "xp", label: "XP estruturado (opcional)", tipo: "numero", valor: 0, min: 0 },
             { k: "faccao", label: "Contratante", tipo: "select", opcoes: ["—", ...FACCOES.map((f) => f.n)] },
           ], okLabel: "Publicar" });
           if (!r || !r.titulo) return;
-          camp.contratos.push({ id: "k" + Math.random().toString(36).slice(2, 8), titulo: r.titulo, desc: r.desc || "", recompensa: r.recompensa || "", faccao: r.faccao === "—" ? "" : r.faccao, status: "aberto" });
+          camp.contratos.push({ id: "k" + Math.random().toString(36).slice(2, 8), titulo: r.titulo, desc: r.desc || "", recompensa: r.recompensa || "",
+            recompensaCg: +r.cg || 0, recompensaXp: +r.xp || 0, recompensaItens: [],
+            faccao: r.faccao === "—" ? "" : r.faccao, status: "aberto" });
           await salvarCamp({ contratos: camp.contratos });
           await enviar("sistema", `📋 Novo contrato disponível: ${r.titulo} — ${r.recompensa || "recompensa a negociar"}.`);
           pintar();
@@ -2926,6 +2974,72 @@ async function telaMesa(id) {
         });
         ov.querySelectorAll("[data-con-del]").forEach((b) => b.onclick = async () => {
           camp.contratos.splice(+b.dataset.conDel, 1); await salvarCamp({ contratos: camp.contratos }); pintar();
+        });
+        // Item/arma/armadura/nave declarado como recompensa de um contrato — igual
+        // ao seletor de "🎁 Conceder equipamento" (mestre-loot), só que fica
+        // guardado no contrato até o Mestre clicar em "Entregar".
+        ov.querySelectorAll("[data-con-item]").forEach((b) => b.onclick = async () => {
+          const c = camp.contratos[+b.dataset.conItem]; if (!c) return;
+          const cats = [
+            ["arma", "⚔ Arma", ARMAS.filter((x) => x.preco || x.nano)],
+            ["armadura", "🛡 Armadura", ARMADURAS],
+            ["item", "🎒 Consumível", CONSUMIVEIS.map((c2) => ({ n: c2.n, preco: c2.p }))],
+            ["implante", "⧉ Implante", IMPLANTES.map((i2) => ({ n: i2.n, preco: i2.p }))],
+            ["nave", "🚀 Nave (substitui a nave da party ao entregar)", NAVES.map((n2) => ({ n: n2.n }))],
+          ];
+          const r = await modalForm({ titulo: "🎁 Item de recompensa",
+            descricao: "Fica guardado no contrato — só vai para a tripulação quando você clicar em \"🎁 Entregar\".",
+            campos: [
+              { k: "cat", label: "Categoria", tipo: "select", opcoes: cats.map(([v, l]) => ({ v, l })) },
+              { k: "item", label: "Item (digite o nome exato ou escolha depois)", tipo: "texto" },
+              { k: "qtd", label: "Quantidade", tipo: "numero", valor: 1, min: 1, max: 20 },
+            ], okLabel: "Continuar" });
+          if (!r) return;
+          const lista = (cats.find(([v]) => v === r.cat) || [])[2] || [];
+          let nome = (r.item || "").trim();
+          if (!nome || !lista.some((x) => x.n === nome)) {
+            const filtrada = nome ? lista.filter((x) => x.n.toLowerCase().includes(nome.toLowerCase())) : lista;
+            if (!filtrada.length) return alert("Nenhum item encontrado com esse nome.");
+            const r2 = await modalForm({ titulo: "🎁 Escolher item",
+              campos: [{ k: "n", label: `${filtrada.length} opção(ões)`, tipo: "select",
+                opcoes: filtrada.slice(0, 60).map((x) => ({ v: x.n, l: `${x.n}${x.preco ? ` — ${x.preco} CG` : ""}` })) }], okLabel: "Adicionar" });
+            if (!r2?.n) return; nome = r2.n;
+          }
+          (c.recompensaItens = c.recompensaItens || []).push({ tipo: r.cat === "item" ? "item" : r.cat, nome, qtd: Math.max(1, +r.qtd || 1) });
+          await salvarCamp({ contratos: camp.contratos }); pintar();
+        });
+        ov.querySelectorAll("[data-con-item-del]").forEach((b) => b.onclick = async () => {
+          const [ci, cj] = b.dataset.conItemDel.split(":").map(Number);
+          const c = camp.contratos[ci]; if (!c?.recompensaItens) return;
+          c.recompensaItens.splice(cj, 1);
+          await salvarCamp({ contratos: camp.contratos }); pintar();
+        });
+        // Entrega tudo que o contrato declara: CG/XP estruturados (via o mesmo
+        // canal "recompensa" que mestre-xp/mestre-cg usam — cada cliente conectado
+        // aplica na própria ficha ao ouvir a mensagem) e cada item/arma/armadura
+        // (via o payload "loot", igual mestre-loot). Nave é diferente: não há
+        // inventário de naves por jogador, então ou vira a nave da party (se ainda
+        // não tem) ou pede confirmação pra substituir a que já existe.
+        ov.querySelectorAll("[data-con-entregar]").forEach((b) => b.onclick = async () => {
+          const c = camp.contratos[+b.dataset.conEntregar]; if (!c) return;
+          if (!(await confirmModal(`Entregar as recompensas de "${c.titulo}" a toda a tripulação conectada?`, { okLabel: "Entregar" }))) return;
+          if (c.recompensaCg || c.recompensaXp) {
+            await enviar("recompensa", `O Mestre entregou a recompensa de "${c.titulo}"${c.recompensaXp ? ` (${c.recompensaXp} XP)` : ""}${c.recompensaCg ? ` (${c.recompensaCg} CG)` : ""} à tripulação.`,
+              { ...(c.recompensaXp ? { xp: c.recompensaXp } : {}), ...(c.recompensaCg ? { creditos: c.recompensaCg } : {}) });
+          }
+          for (const it of c.recompensaItens || []) {
+            if (it.tipo === "nave") {
+              const base = NAVES.find((n2) => n2.n === it.nome); if (!base) continue;
+              if (camp.nave && !(await confirmModal(`A party já tem a nave "${camp.nave.nome_batismo || camp.nave.modelo}". Substituir por "${it.nome}" (recompensa do contrato)?`, { okLabel: "Substituir", perigo: true }))) continue;
+              camp.nave = { modelo: base.n, nome_batismo: base.n, casco: base.casco, casco_max: base.casco, escudos: base.escudos, escudos_max: base.escudos, manobra: base.manobra, dano: base.dano, ataques: base.ataques || [] };
+              await salvarCamp({ nave: camp.nave }, "salvar a nave de recompensa");
+              await enviar("sistema", `🚀 Recompensa de "${c.titulo}": a party recebe a nave ${it.nome}.`);
+              continue;
+            }
+            await enviar("recompensa", `O Mestre entregou ${it.qtd > 1 ? `${it.qtd}× ` : ""}${it.nome} (recompensa de "${c.titulo}") à tripulação.`,
+              { loot: { nome: it.nome, tipo: it.tipo, qtd: it.qtd } });
+          }
+          pintar();
         });
         // anotações
         ov.querySelector("#not-salvar") && (ov.querySelector("#not-salvar").onclick = async () => {
@@ -3446,7 +3560,7 @@ async function telaMesa(id) {
       const v = $("#cb-quem").value; if (!v) return;
       if (v.startsWith("j:")) { const p = (pers || []).find((x) => x.id === v.slice(2)); if (!p) return;
         const kk = calc({ ...novaFichaDados(), ...p.dados }); const nome = p.nome || "Tripulante";
-        camp.combate.ordem.push({ id: cbId(), nome, ini: d(20) + kk.iniciativa, hp: p.dados.pvAtual ?? kk.attr.Con, hp_max: p.dados.pvMax || 1, cd: kk.cd, tipo: "jogador", personagem_id: p.id });
+        camp.combate.ordem.push({ id: cbId(), nome, ini: d(20) + kk.iniciativa, hp: p.dados.pvAtual ?? kk.attr.Con, hp_max: kk.pvMax || 1, cd: kk.cd, tipo: "jogador", personagem_id: p.id });
       } else if (v.startsWith("ni:")) {
         const base = NAVES[+v.slice(3)]; if (!base) return;
         const iguais = camp.combate.ordem.filter((x) => x.modelo === base.n).length;
@@ -3682,7 +3796,7 @@ async function telaMesa(id) {
         if (trava) return alert(`${meuPers.nome} está ${trava.n} e não pode agir neste turno.`);
         if (!(await gastarAcao("Ação Principal", `atacar com ${a.nome}`))) return;
         const itemInv = (meuPers.dados.inventario || []).find((x) => x.nome === a.nome && x.equip);
-        const catBase = todasArmas().find((x) => x.n === a.nome);
+        const catBase = catDoAtaque(a.nome);
         const cat = armaMontada(catBase, itemInv);
         if (!cat) return alert(`Não encontrei "${a.nome}" no arsenal. Se a arma foi renomeada na administração, reequipe-a na ficha.`);
         const pr = propsArma(cat);
@@ -3759,7 +3873,19 @@ async function telaMesa(id) {
         const enfraquecido = condsMinhas.includes("enfraquecido");                              // metade do dano físico
         const alvoMarcado = condsAlvo.includes("marcado");                                      // +2 no acerto de quem o ataca
         const alvoAberto = condsAlvo.some((n) => /atordoado|paralisado|caído|cego|surpreso/.test(n));   // Vantagem contra ele
-        const furtivo = $("#atq-furtivo")?.checked;
+        // Furtividade real: o checkbox 🥷 só vale mecanicamente (bônus de acerto
+        // e dano dobrado) se o alvo está de fato desprevenido — Surpreso, ou ainda
+        // não teve turno neste combate (1ª rodada, a vez dele ainda não chegou).
+        // Antes o checkbox valia sozinho, sem checagem nenhuma por trás — qualquer
+        // um marcava e levava o bônus mesmo com o alvo alerta e reagindo havia turnos.
+        // Sem alvo do rastreador (fora de combate / Mestre narrando à parte) mantém
+        // como sempre foi: a palavra do jogador vale, o Mestre adjudica.
+        const furtivoMarcado = $("#atq-furtivo")?.checked;
+        const idxAlvoCb = alvoCombatente ? (camp.combate?.ordem || []).findIndex((x) => x.id === alvoCombatente.id) : -1;
+        const alvoAindaNaoAgiu = !!alvoCombatente && camp.combate?.rodada === 1 && idxAlvoCb > (camp.combate?.turno ?? -1);
+        const alvoRealmenteDesprevenido = !alvoCombatente || condsAlvo.includes("surpreso") || alvoAindaNaoAgiu;
+        const furtivo = !!(furtivoMarcado && alvoRealmenteDesprevenido);
+        const furtivoNegado = furtivoMarcado && !furtivo;
         const assassino = f.classe === "Assassino";
         // Ágil: usa o melhor de For/Des no acerto e no dano
         const atkAttr = pr.agil ? (k.attr.Des >= k.attr.For ? "Des" : "For") : cat.attr;
@@ -3811,7 +3937,7 @@ async function telaMesa(id) {
         const somaDados = dados.reduce((x, y) => x + y, 0);
         const danoFinal = Math.floor(danoCritico(somaDados, danoMod, multCrit) * (enfraquecido ? 0.5 : 1));   // Enfraquecido: metade
         const seriaCritico = nat === 20 || (paralisadoPerto && nat !== 1);   // pra mostrar que a armadura bloqueou, não só omitir
-        const marcadores = [critAuto && nat === 20 ? "CRÍTICO ×2" : critAuto ? "CRÍTICO automático (alvo Paralisado ≤2m) ×2" : (semCriticoAlvo && seriaCritico) ? "🛡 armadura anticrítica bloqueia o crítico" : "", furtivo && assassino ? "FURTIVO ×2" : furtivo ? "furtivo +2 acerto" : "", pr.agil ? `Ágil (${atkAttr})` : "", pr.brutal ? "Brutal (vantagem)" : "", enfraquecido ? "Enfraquecido ½" : "", alvoMarcado ? "alvo Marcado +2" : ""].filter(Boolean).join(" · ");
+        const marcadores = [critAuto && nat === 20 ? "CRÍTICO ×2" : critAuto ? "CRÍTICO automático (alvo Paralisado ≤2m) ×2" : (semCriticoAlvo && seriaCritico) ? "🛡 armadura anticrítica bloqueia o crítico" : "", furtivo && assassino ? "FURTIVO ×2" : furtivo ? "furtivo +2 acerto" : furtivoNegado ? "🥷 furtivo NÃO vale — alvo não está desprevenido" : "", pr.agil ? `Ágil (${atkAttr})` : "", pr.brutal ? "Brutal (vantagem)" : "", enfraquecido ? "Enfraquecido ½" : "", alvoMarcado ? "alvo Marcado +2" : ""].filter(Boolean).join(" · ");
         // Palavras-chave declaradas: condições ao acertar e perfuração de armadura.
         let efeitoKw = "";
         if (nat !== 1 && total >= 0) {
@@ -3847,11 +3973,16 @@ async function telaMesa(id) {
         // Aplica condições declaradas (palavra-chave + munição) no alvo acertado, com teste quando há CD.
         const aplicarCondsNoAlvo = (alvo) => {
           const linhas = [];
+          const kAlvoRes = alvo.personagem_id
+            ? calc({ ...novaFichaDados(), ...((pers || []).find((p2) => p2.id === alvo.personagem_id)?.dados || {}) })
+            : null;
           for (const ac of [...(pr.aoAcertar || []), ...(munCond ? [munCond] : [])]) {
             if (!ac.cond) continue;
             let resistiu = false, det = "";
-            if (ac.cd) { const b = resistDe(alvo, "Con"); const n2 = d(20); const t2 = n2 + b;
-              resistiu = t2 >= ac.cd; det = ` [Con ${n2}${sign(b)}=${t2} vs CD ${ac.cd}]`; }
+            if (ac.cd) { const b = resistDe(alvo, "Con");
+              const temRes = temResistencia(kAlvoRes, ac.cond) || temResistencia(kAlvoRes, munTipo);
+              const n2 = temRes ? Math.max(d(20), d(20)) : d(20); const t2 = n2 + b;
+              resistiu = t2 >= ac.cd; det = ` [Con ${n2}${sign(b)}=${t2}${temRes ? " (resist.)" : ""} vs CD ${ac.cd}]`; }
             if (!resistiu) aplicarCond(alvo, ac.cond, ac.turnos || 1, minhaLinhaCb()?.id || null);
             linhas.push(`${resistiu ? "🛡" : "🏷"} ${ac.origem || ac.cond}: ${resistiu ? "resistiu" : `${ac.cond} ${ac.turnos || 1}t`}${det}`);
           }
@@ -4302,7 +4433,7 @@ async function telaMesa(id) {
             if (rc?.curaPropria && alvo.id !== meuPers.id) {
               const dd = { ...novaFichaDados(), ...meuPers.dados };
               const antes = dd.pvAtual || 0;
-              dd.pvAtual = Math.min(dd.pvMax || 0, antes + rc.curaPropria);
+              dd.pvAtual = Math.min(k.pvMax, antes + rc.curaPropria);
               if (dd.pvAtual !== antes) {
                 meuPers.dados = dd;
                 await salvarFicha(meuPers.id, dd);

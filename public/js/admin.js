@@ -333,6 +333,9 @@ export async function painelAdmin(voltarPara = "racas") {
     { v: "imunidade", l: "🚫 Concede imunidade" },
     { v: "recurso", l: "★ Habilidade por descanso" },
     { v: "sem_critico", l: "🛡 Nega dano crítico (armadura anticrítica)" },
+    { v: "pv_max", l: "❤ Concede PV máximo extra" },
+    { v: "escudo_max", l: "🛡 Concede Escudo (absorve o golpe inteiro enquanto durar)" },
+    { v: "resistencia", l: "◐ Concede Resistência (mais fraca que imunidade — Vantagem no teste)" },
   ];
   const camposDoEfeito = (e, i) => {
     const num = (k, lbl, val, ph) => `<label>${lbl}<input data-ef="${i}" data-c="${k}" type="number" value="${val ?? ""}" placeholder="${ph || ""}"/></label>`;
@@ -352,6 +355,14 @@ export async function painelAdmin(voltarPara = "racas") {
           (precisaDescrever ? txt("a", "Descreva", ehSentinela ? "" : e.a, "queda, ser derrubado, terreno difícil…") : ""); }
       case "recurso": return txt("n", "Nome", e.n, "Fôlego de Aço") + sel("freq", "Recarrega em", e.freq || "longo", [{ v: "curto", l: "descanso curto" }, { v: "longo", l: "descanso longo" }, { v: "sessao", l: "por sessão" }]);
       case "sem_critico": return `<p class="regra">Sem campo nenhum pra preencher — quem usar isto equipado nunca sofre o ×2 (ou ×4) de um golpe crítico contra si. Outros multiplicadores (furtivo do Assassino) continuam valendo, só o "é crítico" em si é anulado.</p>`;
+      case "pv_max": return num("valor", "PV máximo extra", e.valor, "ex: 5") + `<p class="regra">Só conta enquanto a fonte estiver ativa (equipada/instalada) — remover o item encolhe o PV máximo de novo.</p>`;
+      case "escudo_max": return num("valor", "Escudo extra", e.valor, "ex: 10") + `<p class="regra">Diferente de PV Temporário: enquanto tiver QUALQUER carga, absorve a instância de dano INTEIRA, mesmo que estoure e zere o escudo — o excesso não passa. Recarrega em qualquer descanso.</p>`;
+      case "resistencia": {
+        const ehSentinela = e.a === OUTRO_IMUNE;
+        const precisaDescrever = e.a && !TIPOS_DANO.includes(e.a) && !CONDICOES.includes(e.a);
+        return `<label>Resistente a<select data-ef="${i}" data-c="a">${opcoesImuneA(e.a)}</select></label>` +
+          (precisaDescrever ? txt("a", "Descreva", ehSentinela ? "" : e.a, "medo, radiação…") : "") +
+          `<p class="regra">Mais fraco que imunidade: não anula nada, só dá Vantagem no teste de resistência (salvaguarda/CD) contra esse dano/condição.</p>`; }
       default: return num("valor", "Quanto", e.valor, "ex: 2");
     }
   };

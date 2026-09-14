@@ -155,10 +155,15 @@ export function calc(f, opcoes = {}) {
   // Pentes que a pessoa carrega: 5 + mod de Força (1 no cano + o resto na reserva).
   k.pentesMax = Math.max(2, 5 + (k.attr.For || 0));
   k.pentesReserva = k.pentesMax - 1;
-  // Escudo pessoal (armadura com `absorve`): soma que some antes do PV; recarrega no descanso.
-  k.escudoMax = armRef?.absorve || 0;
+  // Escudo pessoal: soma da armadura com `absorve` + qualquer efeito declarado
+  // (`escudo_max`, implante/filosofia/modo) — some antes do PV; recarrega no descanso.
+  k.escudoMax = (armRef?.absorve || 0) + (k.escudoBonus || 0);
   k.escudoLivre = Math.max(0, k.escudoMax - (f.escudoGasto || 0));
   k.pvTemp = Math.max(0, f.pvTemp || 0);
+  // PV máximo efetivo: o valor bruto salvo na ficha (level up) + qualquer bônus
+  // declarado (`pv_max`, implante/item/modo) que só vale enquanto a fonte durar.
+  k.pvMaxBonus = k.pvMaxBonus || 0;
+  k.pvMax = Math.max(0, (f.pvMax || 0) + k.pvMaxBonus);
   k.efeitos = fe;
   return k;
 }
