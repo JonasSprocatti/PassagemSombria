@@ -26,6 +26,26 @@ import {
   todosNPCs, todosConsumiveis, perfil,
 } from "./app.js";
 
+// Termo de busca persiste entre trocas de aba (inclusive vindo do link "encontrei
+// em: X" do índice cruzado) — mas não sobrevive a um F5, é só estado de sessão.
+let buscaAtual = "";
+// Índice leve — só os nomes de cada aba — pra dizer "existe, mas em outra aba"
+// sem precisar re-renderizar o HTML inteiro de todas elas a cada tecla digitada.
+const indiceAba = (id2) => ({
+  racas: RACAS.map((r) => r.nome),
+  classes: Object.keys(CLASSES),
+  armas: todasArmas().map((a) => a.n),
+  armaduras: todasArmaduras().map((a) => a.n),
+  implantes: todosImplantes().map((i) => i.n),
+  scripts: SCRIPTS.map((s) => s.n),
+  filosofias: Object.keys(FILOSOFIAS),
+  naves: todasNaves().map((n) => n.n),
+  consumiveis: todosConsumiveis().map((c) => c.n),
+  bestiario: todasCriaturas().map((c) => c.n),
+  npcs: todosNPCs().map((n) => n.n),
+  mecanicas: extras("mecanicas").map((m) => m.titulo),
+}[id2] || []);
+
 export function telaBiblioteca(aba = "racas") {
   const abas = [["regras", "📖 Regras"], ["racas", "Raças"], ["classes", "Classes"], ["armas", "Arsenal"], ["armaduras", "Armaduras"], ["implantes", "Implantes"], ["scripts", "Scripts"], ["filosofias", "Filosofias"], ["naves", "Naves"], ["consumiveis", "Consumíveis"], ["bestiario", "Bestiário"], ["npcs", "NPCs"], ["mecanicas", "Mecânicas"]];
   let corpo = "";
@@ -198,7 +218,34 @@ export function telaBiblioteca(aba = "racas") {
   shell("biblioteca", `
     <header class="masthead"><h1>BIBLIOTECA<span> DO SISTEMA</span></h1>
       <div class="mast-sub">Tudo do livro Passagem Sombria, pesquisável e completo${podeAdmin ? ` · <button id="abrir-admin" class="mini">🛠 Administrar conteúdo</button>` : ""}</div></header>
+    <div class="filtros"><input id="bib-busca" placeholder="🔍 Buscar nesta aba (nome, palavra-chave, efeito…)" style="flex:1;min-width:220px" value="${esc(buscaAtual)}"/></div>
+    <div id="bib-cross" class="regra" hidden></div>
     <div class="filtros">${abas.map(([id2, l]) => `<a href="#/biblioteca/${id2}" class="${aba === id2 ? "on" : ""}">${l}</a>`).join("")}</div>
     <section class="sec">${corpo}</section>`, "biblioteca");
   document.getElementById("abrir-admin")?.addEventListener("click", async () => { const { painelAdmin } = await import("./admin.js"); painelAdmin(aba); });
+
+  // ---- Busca ----------------------------------------------------------------
+  // Filtra os cards desta aba pelo texto (nome, descrição, o que tiver no card).
+  // Um índice leve (só nomes, não o HTML inteiro) cobre as OUTRAS abas, pra avisar
+  // "isso existe, mas em Arsenal" em vez de deixar parecer que não existe.
+  const secao = document.querySelector("section.sec");
+  const cross = document.getElementById("bib-cross");
+  const aplicarBusca = (termoBruto) => {
+    const termo = termoBruto.trim().toLowerCase();
+    let visiveis = 0;
+    secao.querySelectorAll(":scope > details, :scope > div.det").forEach((card) => {
+      const bate = !termo || card.textContent.toLowerCase().includes(termo);
+      card.hidden = !bate; if (bate) visiveis++;
+    });
+    if (!termo) { cross.hidden = true; return; }
+    if (visiveis) { cross.hidden = true; return; }
+    const outrosNomes = abas.filter(([id2]) => id2 !== aba && id2 !== "regras")
+      .flatMap(([id2, l]) => indiceAba(id2).some((n) => n.toLowerCase().includes(termo)) ? [[id2, l]] : []);
+    cross.hidden = false;
+    cross.innerHTML = outrosNomes.length
+      ? `Nada nesta aba. Encontrei em: ${outrosNomes.map(([id2, l]) => `<a href="#/biblioteca/${id2}">${l}</a>`).join(" · ")} <span class="dim">(clique pra ir lá e buscar de novo)</span>`
+      : `<i>Nada encontrado em nenhuma aba.</i>`;
+  };
+  document.getElementById("bib-busca").oninput = (e) => { buscaAtual = e.target.value; aplicarBusca(buscaAtual); };
+  if (buscaAtual) aplicarBusca(buscaAtual);
 }

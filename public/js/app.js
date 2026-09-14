@@ -1623,6 +1623,11 @@ async function telaMesa(id) {
   let asCegas = false;           // rolagem às cegas: resultado só para o Mestre, fora do chat
   const pilhaUndo = [];          // snapshots para desfazer a última ação do Mestre (máx 10)
   let recapFeita = false;        // a recapitulação aparece uma vez por entrada na mesa
+  // Macros de rolagem: expressões salvas por personagem, só no navegador (não sincroniza
+  // entre dispositivos nem precisa de coluna nova no banco — é preferência de UI).
+  const macrosDe = (pid) => { if (!pid) return [];
+    try { return JSON.parse(localStorage.getItem("ps-macros-" + pid) || "[]"); } catch { return []; } };
+  const salvarMacros = (pid, lista) => { try { localStorage.setItem("ps-macros-" + pid, JSON.stringify(lista.slice(0, 12))); } catch {} };
   // O realtime devolve as nossas próprias gravações. Se chegarem enquanto ainda
   // estamos no meio de uma operação, sobrescrevem o estado local e travam o turno.
   let gravandoAte = 0;
@@ -2205,7 +2210,8 @@ async function telaMesa(id) {
               ${(f.inventario || []).filter((it) => ehConsumivel(it.nome) && (it.qtd || 1) > 0)
                 .map((it) => { const c = ehConsumivel(it.nome);
                   return `<button class="mini item-usa" data-item="${esc(it.nome)}" title="${esc(c.d)} · ${esc(c.acao)}">${c.ic} ${esc(it.nome.replace(/ de Batalha| de Campo| de Nanofibra|Kit de |Granada de |Granada /i, "").slice(0, 16))} <b>×${it.qtd || 1}</b></button>`; }).join("")}
-              <input id="dado-livre" placeholder="1d20+2d10" style="width:80px"/><button id="rolar-livre" class="mini">🎲</button>
+              <input id="dado-livre" placeholder="1d20+2d10" style="width:80px"/><button id="rolar-livre" class="mini">🎲</button><button id="macro-salvar" class="mini" title="Salvar essa expressão como macro, pra rolar num clique depois">☆</button>
+              ${macrosDe(meuPers?.id).map((m, i) => `<span class="macro-par"><button class="mini macro-chip" data-macro="${i}" title="${esc(m.expr)}${vantagem ? ` · ${vantagem > 0 ? "vantagem" : "desvantagem"} ligada` : ""}">🎲 ${esc(m.rotulo)}</button><button class="mini rm" data-macro-del="${i}" title="Remover macro">✕</button></span>`).join("")}
             </div>
             <div class="acoes-mesa"><b class="chrome">Direcionar dano:</b>
               <select id="sel-alvo">${(pers || []).map((x) => `<option value="${x.id}">${esc(x.nome)}</option>`).join("")}</select>
@@ -4329,8 +4335,24 @@ async function telaMesa(id) {
         }
         enviar("rolagem", null, { titulo: `Script — ${s.n}`, detalhe: `d20 [${nat}] +${k.conj} · ${s.c} RAM · ${s.a}`, total: nat + k.conj, crit: nat === 20, fumble: nat === 1, extra: s.d.slice(0, 90) });
         render(); };
-      $("#rolar-livre").onclick = () => { const v = $("#dado-livre").value.trim(); const r = rolarExpr(v.replace(/^\//, ""), vantagem); if (!r) return;
+      const rolarLivre = (v) => { const r = rolarExpr(v.replace(/^\//, ""), vantagem); if (!r) return;
         enviar("rolagem", null, { titulo: (privada ? "🔒 " : "") + `Rolagem ${v}`, detalhe: r.detalhe, total: r.total, ...(privada ? { privada: true } : {}) }); };
+      $("#rolar-livre").onclick = () => rolarLivre($("#dado-livre").value.trim());
+      $("#macro-salvar")?.addEventListener("click", async () => {
+        const expr = $("#dado-livre").value.trim();
+        if (!expr) return alert("Digite uma expressão em '1d20+2d10' antes de salvar como macro.");
+        const r = await modalForm({ titulo: "☆ Salvar macro", descricao: `Vai rolar "${expr}" com um clique só.`,
+          campos: [{ k: "rotulo", label: "Nome curto (aparece no botão)", tipo: "texto", valor: expr.slice(0, 14) }], okLabel: "Salvar" });
+        if (!r?.rotulo?.trim()) return;
+        const lista = macrosDe(meuPers.id); lista.push({ rotulo: r.rotulo.trim().slice(0, 14), expr });
+        salvarMacros(meuPers.id, lista); render();
+      });
+      app.querySelectorAll("[data-macro]").forEach((b) => b.onclick = () => {
+        const m = macrosDe(meuPers.id)[+b.dataset.macro]; if (m) rolarLivre(m.expr);
+      });
+      app.querySelectorAll("[data-macro-del]").forEach((b) => b.onclick = () => {
+        const lista = macrosDe(meuPers.id); lista.splice(+b.dataset.macroDel, 1); salvarMacros(meuPers.id, lista); render();
+      });
       $("#enviar-dano").onclick = () => { const v = +$("#dano-val").value; if (!v) return;
         const alvo = pers.find((x) => x.id === $("#sel-alvo").value);
         enviar("dano", null, { alvo_id: alvo.id, alvo_nome: alvo.nome, valor: v, origem: `de ${meuPers.nome}`, aplicado: false }); };
