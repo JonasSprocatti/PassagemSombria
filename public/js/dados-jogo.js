@@ -487,7 +487,7 @@ export const ARMAS = [
   "tipo": "branca",
   "per": "Armas Brancas",
   "attr": "Des",
-  "kw": "Compacto e Ágil",
+  "kw": "Ágil, Oculta",
   "desc": "Um dispositivo compacto de polímero reforçado e fibra de carbono, com cerca de 15 centímetros quando retraído. Ao ser ativado, expande-se rapidamente em uma haste rígida de aproximadamente 1,5 metros, usada por agentes de patrulha, exploradores e equipes de co"
  },
  {
@@ -550,7 +550,7 @@ export const ARMAS = [
   "tipo": "branca",
   "per": "Armas Brancas",
   "attr": "For",
-  "kw": "Despedaçador",
+  "kw": "Brutal, Perfurante Leve",
   "desc": "Feito de um bloco de motor afiado amarrado a um cano de aço temperado. Bruto, feio e mortal."
  },
  {
@@ -595,7 +595,7 @@ export const ARMAS = [
   "tipo": "branca",
   "per": "Armas Brancas",
   "attr": "For",
-  "kw": "Destruidora",
+  "kw": "Brutal, Certeira",
   "desc": "Literalmente uma ferramenta de desmanche de naves espaciais acoplada a um cabo longo. É lento, pesado e desajeitado, mas quando acerta, amassa aço e esmaga ossos com a mesma facilidade."
  },
  {
@@ -622,7 +622,7 @@ export const ARMAS = [
   "tipo": "branca",
   "per": "Armas Brancas",
   "attr": "For",
-  "kw": "Pesada / Queimadura",
+  "kw": "Pesada, Queimadura",
   "desc": "Uma arma absurda de 2 metros de comprimento que possui aletas de ventilação para o núcleo de energia não explodir na mão do usuário."
  },
  {
@@ -640,7 +640,7 @@ export const ARMAS = [
   "tipo": "fogo",
   "per": "Armas de Fogo",
   "attr": "Des",
-  "kw": "Área 3x3m",
+  "kw": "Área",
   "desc": "Dois tanques nas costas e um bico dispersor. Usado originalmente para limpar esporos alienígenas hostis, rapidamente encontrou lugar nas guerras de trincheiras."
  },
  {
@@ -649,7 +649,7 @@ export const ARMAS = [
   "tipo": "fogo",
   "per": "Armas de Fogo",
   "attr": "Des",
-  "kw": "Marcador Térmico",
+  "kw": "Marcador",
   "desc": "Uma ferramenta de resgate que atira um cartucho de fósforo brilhante."
  },
  {
@@ -658,7 +658,7 @@ export const ARMAS = [
   "tipo": "fogo",
   "per": "Armas de Fogo",
   "attr": "Des",
-  "kw": "Silenciosa / Toxina Lenta",
+  "kw": "Silenciosa, Tóxica",
   "desc": "Sem pólvora. Usa ar comprimido de pequenos cilindros para disparar agulhas envenenadas de forma silenciosa."
  },
  {
@@ -685,7 +685,7 @@ export const ARMAS = [
   "tipo": "fogo",
   "per": "Armas de Fogo",
   "attr": "Des",
-  "kw": "Rajada Silenciosa",
+  "kw": "Rajada, Silenciosa",
   "desc": "Utiliza um pente de 10 virotes e um motor rápido de retesamento."
  },
  {
@@ -694,7 +694,7 @@ export const ARMAS = [
   "tipo": "fogo",
   "per": "Armas de Fogo",
   "attr": "Des",
-  "kw": "Explosão em Área 3x3",
+  "kw": "Área",
   "desc": "Uma arma acoplada de cano largo que atira projéteis explosivos em arco sobre obstáculos."
  },
  {
@@ -703,7 +703,7 @@ export const ARMAS = [
   "tipo": "fogo",
   "per": "Armas de Fogo",
   "attr": "Des",
-  "kw": "Inesquivável / Contínuo",
+  "kw": "Inesquivável, Sangramento",
   "desc": "Um equipamento tático Proturno e corporativo. A arma não atira projéteis ou lasers visíveis, ela cria uma onda de calor que ferve a água no sangue do inimigo."
  },
  {
@@ -721,7 +721,7 @@ export const ARMAS = [
   "tipo": "fogo",
   "per": "Armas de Fogo",
   "attr": "Des",
-  "kw": "Sangramento em Área",
+  "kw": "Área, Sangramento",
   "desc": "Uma arma cruel criada por Catadores, que atira um monte de sucata, pregos e vidro em alta velocidade."
  },
  {
@@ -775,7 +775,7 @@ export const ARMAS = [
   "tipo": "fogo",
   "per": "Armas de Fogo",
   "attr": "Des",
-  "kw": "Mira Telescópica",
+  "kw": "Telescópica",
   "desc": "Longo, frágil de perto e letal de longe. Possui computadores balísticos acoplados à mira que calculam a gravidade e o vento do planeta automaticamente."
  },
  {
@@ -811,7 +811,7 @@ export const ARMAS = [
   "tipo": "fogo",
   "per": "Armas de Fogo",
   "attr": "Des",
-  "kw": "Curto Alcance / Descarregar",
+  "kw": "Curto Alcance, Descarregar",
   "desc": "Uma relíquia brutal de canos serrados. Tem apenas dois tiros antes de precisar recarregar manualmente."
  },
  {
@@ -829,7 +829,7 @@ export const ARMAS = [
   "tipo": "fogo",
   "per": "Armas de Fogo",
   "attr": "Des",
-  "kw": "Pesada / Fogo de Supressão",
+  "kw": "Pesada, Fogo de Supressão",
   "desc": "Seis canos giratórios alimentados por uma mochila de munição. Só pode ser segurada adequadamente por Exoesqueletos ou pessoas com Força 14+."
  },
  {
@@ -910,7 +910,7 @@ export const ARMAS = [
   "tipo": "branca",
   "per": "Armas Brancas",
   "attr": "For",
-  "kw": "Despedaçador",
+  "kw": "Brutal, Perfurante Leve",
   "desc": "O enxame inteiro migra para uma só mão e forma uma cabeça de machado brutal. Forma do implante Tatuagens de Nano-Enxame — não pode ser arremessada, largada nem desarmada."
  },
  {
@@ -1166,7 +1166,6 @@ export const KEYWORDS = {
   "Oculta": "+2 no acerto contra desprevenidos ou em Ataque Furtivo.",
   "Ultra-Oculta / Surpresa": "Quase indetectável; +2 no acerto em surpresa/furtivo.",
   "Ágil": "Pode usar Destreza no lugar de Força no acerto e no dano.",
-  "Compacto e Ágil": "Compacta; pode usar Destreza no acerto e no dano.",
   "Híbrida de Atributo": "Usa o melhor entre Força e Destreza.",
   "Aderência": "Vantagem em Acrobacia para escalar; +2 de dano fixo atacando de um ponto elevado.",
   "Derretimento": "Ignora qualquer bônus de armadura metálica do alvo.",
@@ -1174,36 +1173,30 @@ export const KEYWORDS = {
   "Atordoante": "Dano máximo no dado faz o alvo perder a Ação de Movimento no próximo turno.",
   "Alcance": "Atinge a até 3m; sem ataque de oportunidade ao recuar.",
   "Alcance Maior": "Alcance estendido no corpo a corpo.",
+  "Telescópica": "Alcance longo de verdade — mira calculada.",
   "Impacto": "Ao acertar, pode empurrar o alvo 2m para trás.",
   "Puxão": "Ao acertar, pode puxar o alvo 2m em sua direção.",
   "Derrubar": "Ao acertar, pode derrubar o alvo (fica Caído).",
   "Investida": "+2 no acerto — golpe de carga, feito após avançar contra o alvo.",
+  "Certeira": "Rola o acerto com Vantagem (o maior de dois) — combine com Brutal pra também dobrar o dano.",
   "Perfurante": "Ignora parte da armadura do alvo.",
   "Perfurante Leve": "Ignora uma pequena parte da armadura.",
   "Sangramento": "Ao acertar, o alvo sofre dano de sangramento nos turnos seguintes.",
-  "Sangramento em Área": "Estilhaços: sangramento em todos os alvos da área.",
   "Tóxica": "Injeta toxina; o alvo testa Constituição ou sofre veneno.",
   "Silenciosa": "Disparo sem ruído — não denuncia sua posição.",
-  "Silenciosa / Toxina Lenta": "Silenciosa; injeta toxina de ação lenta.",
   "Rajada": "Gasta o dobro de munição; área de 2m de raio ao redor de quem você mirar.",
-  "Rajada Silenciosa": "Rajada (área 2m, dobro de munição) e sem ruído — Oculta.",
   "Anti-Sintético": "+2 de dano contra androides, drones e sintéticos (identificados pelo nome).",
-  "Marcador Térmico": "Marca o alvo; aliados o veem através de fumaça/paredes finas.",
-  "Mira Telescópica": "Longo alcance de verdade — mesmo efeito de Telescópica.",
+  "Marcador": "Marca o alvo; aliados o veem através de fumaça/paredes finas.",
   "Cone de Repulsão": "Área de 2m de raio; todos atingidos são empurrados 3m para longe de quem atirou.",
-  "Área 3x3m": "Atinge todos num raio de 1,5m ao redor de quem você mirar.",
-  "Explosão em Área 3x3": "Atinge todos num raio de 1,5m; cada alvo rola a própria Defesa contra a explosão.",
   "Sobreaquecimento": "Num 1 natural, a arma superaquece e causa 1d4 de dano térmico em quem atira.",
   "Curto Alcance": "+1 no acerto de perto; não estende o alcance de fogo.",
-  "Curto Alcance / Descarregar": "Curto alcance; marque \"Descarregar\" pra esvaziar o pente inteiro num tiro só, com dado de dano extra por bala gasta.",
+  "Descarregar": "Marque a caixinha \"Descarregar\" pra esvaziar o pente inteiro num tiro só, com dado de dano extra por bala gasta.",
   "Pesada": "−2 no acerto ao disparar (Soldado com Memória Muscular ignora a penalidade).",
-  "Pesada / Queimadura": "Pesada (−2 acerto); ao acertar, o alvo pega fogo (Em chamas, Constituição CD 13 evita).",
-  "Pesada / Fogo de Supressão": "Pesada (−2 acerto); ao acertar, suprime o alvo (Acovardado, Constituição CD 13 evita).",
+  "Queimadura": "Ao acertar, o alvo pega fogo (Em chamas, Constituição CD 13 evita).",
+  "Fogo de Supressão": "Ao acertar, suprime o alvo (Acovardado, Constituição CD 13 evita).",
   "Artilharia": "Área de 5m de raio ao redor de quem você mirar; gasta o dobro de munição.",
   "Atravessa Paredes": "Área de 3m de raio; ignora cobertura de qualquer alvo atingido.",
-  "Inesquivável / Contínuo": "Ignora cobertura; ao acertar, sangramento contínuo garantido (sem teste de resistência).",
-  "Despedaçador": "Rola o dano com Vantagem e ignora 1 de armadura do alvo.",
-  "Destruidora": "Rola o dano E o acerto com Vantagem — devastadora, difícil de errar e de aguentar.",
+  "Inesquivável": "Ignora cobertura — não dá pra se esconder de um tiro assim.",
   "Brutal": "Rola o dado de dano com Vantagem (o maior de dois).",
   "Defensiva": "Concede bônus defensivo enquanto empunhada.",
   "Aparar": "Pode gastar a Reação para aparar um ataque corpo a corpo.",
@@ -1223,23 +1216,21 @@ export const KEYWORDS = {
 // ---------------------------------------------------------------------------
 export const PALAVRAS_CHAVE = {
   "Ágil":              { props: { agil: true } },
-  "Compacto e Ágil":   { props: { agil: true, oculta: true } },
   "Híbrida de Atributo": { props: { agil: true } },
   "Saque Rápido":      { props: { agil: true } },
   "Oculta":            { props: { oculta: true } },
   "Ultra-Oculta / Surpresa": { props: { oculta: true }, efeitos: [{ tipo: "acerto", valor: 2, momento: "ao_atacar" }] },
   "Silenciosa":        { props: { oculta: true } },
-  // Brutal = base (Vantagem no dano). As outras 3 eram reskins puros do mesmo
-  // efeito — cada uma ganhou um adicional que combina com o próprio nome/flavor,
-  // em vez de ser só um sinônimo de Brutal.
   "Brutal":            { props: { brutal: true } },
-  "Despedaçador":      { props: { brutal: true }, ignoraArmadura: 1 },              // "brutal contra armaduras"
-  "Destruidora":       { props: { brutal: true }, efeitos: [{ tipo: "vantagem", em: "ataque", momento: "ao_atacar" }] }, // devastadora: também Vantagem no ACERTO
-  "Investida":         { efeitos: [{ tipo: "acerto", valor: 2, momento: "ao_atacar" }] },  // golpe de carga: +2 no acerto, não é mais um clone de Brutal
+  // "Despedaçador" (Brutal + ignora 1 de armadura) e "Destruidora" (Brutal +
+  // Vantagem no acerto) eram nomes fixos pra combinações que já dava pra montar
+  // sozinho: "Brutal, Perfurante Leve" e "Brutal, Certeira". Removidas — a
+  // segunda metade de cada uma é só esta "Certeira" aqui (Vantagem no acerto).
+  "Certeira":          { efeitos: [{ tipo: "vantagem", em: "ataque", momento: "ao_atacar" }] },
+  "Investida":         { efeitos: [{ tipo: "acerto", valor: 2, momento: "ao_atacar" }] },  // golpe de carga: +2 no acerto
   "Alcance":           { props: { alcance: true, alcanceTxt: "3m (corpo a corpo)" } },
   "Alcance Maior":     { props: { alcance: true, alcanceTxt: "estendido" } },
   "Telescópica":       { props: { alcance: true, alcanceTxt: "longo (mirar)" } },
-  "Mira Telescópica":  { props: { alcance: true, alcanceTxt: "longo (mirar)" } },   // sinônimo de Telescópica — antes não tinha entrada própria e caía sem efeito
   // Curto alcance é só o padrão de arma de fogo sem Alcance Maior/Telescópica —
   // sozinha essa restrição não fazia NADA (nem penalidade, nem compensação).
   // +1 no acerto: mais fácil de acertar de perto, compensa o alcance curto.
@@ -1248,28 +1239,39 @@ export const PALAVRAS_CHAVE = {
   // `chavesDeArmasEquipadas`/`modificarAtaque()` — dobraria o bônus. `acerto`
   // só é lido pelo segundo caminho, então é seguro.)
   "Curto Alcance":     { efeitos: [{ tipo: "acerto", valor: 1, momento: "ao_atacar" }] },
-  "Marcador Térmico":  { props: { alcance: true }, aoAcertar: { cond: "Marcado", turnos: 2 } },
+  // Descarregar: checkbox próprio (🔫) ao lado de Furtivo — esvazia o pente
+  // carregado inteiro num só disparo, some dados extra de dano proporcionais
+  // às balas gastas além do custo normal. Ver `[data-atq]`/`#atq-descarregar`.
+  "Descarregar":       { props: { descarrega: true } },
+  // Alcance + aplica Marcado — self-contido de propósito: não reaproveita a
+  // palavra-chave "Alcance" acima (essa é pensada pra armas brancas, o texto
+  // "3m corpo a corpo" ficaria errado numa arma de fogo). "Marcador" já inclui
+  // o próprio `alcance:true` sem herdar esse texto.
+  "Marcador":          { props: { alcance: true }, aoAcertar: { cond: "Marcado", turnos: 2 } },
   // Palavras de Área: `raio` (metros) faz `[data-atq]` abrir um seletor de EPICENTRO
   // de verdade (como o `aplicarEmAlvos` de scripts/granadas) e atingir todo mundo
   // dentro do raio — antes só mostrava o texto "◎ Área", sem afetar mais de 1 alvo.
   "Área":              { props: { area: true, areaTxt: "raio de 2m", raio: 2 } },
-  "Área 3x3m":         { props: { area: true, areaTxt: "raio de 1,5m", raio: 1.5 } },
-  "Explosão em Área 3x3": { props: { area: true, areaTxt: "raio de 1,5m", raio: 1.5 } },
   "Rajada":            { props: { area: true, areaTxt: "raio de 2m", raio: 2 } },
-  "Rajada Silenciosa": { props: { area: true, areaTxt: "raio de 2m", raio: 2, oculta: true } },
   "Cone de Repulsão":  { props: { area: true, areaTxt: "raio de 2m, empurra 3m", raio: 2, empurrao: 3 } },
   "Artilharia":        { props: { area: true, areaTxt: "raio de 5m", raio: 5 } },
+  // Ignora cobertura: reaproveita "Inesquivável" abaixo — "Atravessa Paredes,
+  // Inesquivável" descreve a mesma coisa duas vezes na mesma arma, então o
+  // próprio nome já inclui isso sem precisar combinar com outra palavra-chave.
   "Atravessa Paredes": { props: { area: true, areaTxt: "raio de 3m, ignora cobertura", raio: 3, ignoraCobertura: true } },
   "Sangramento":       { aoAcertar: { cond: "Sangrando", turnos: 3 } },
-  "Sangramento em Área": { props: { area: true, areaTxt: "raio de 2m", raio: 2 }, aoAcertar: { cond: "Sangrando", turnos: 3 } },
   "Tóxica":            { aoAcertar: { cond: "Envenenado", turnos: 3, cd: 13 } },
-  "Toxina Lenta":      { props: { oculta: true }, aoAcertar: { cond: "Envenenado", turnos: 3, cd: 13 } },
-  "Silenciosa / Toxina Lenta": { props: { oculta: true }, aoAcertar: { cond: "Envenenado", turnos: 3, cd: 13 } },
   "Atordoante":        { aoAcertar: { cond: "Atordoado", turnos: 1, cd: 13 } },
   "Concussão":         { aoAcertar: { cond: "Atordoado", turnos: 1, cd: 13 } },
   "Derrubar":          { aoAcertar: { cond: "Caído", turnos: 2 } },
   "Impacto":           { aoAcertar: { cond: "Caído", turnos: 2, cd: 13 } },
   "Puxão":             { aoAcertar: { cond: "Caído", turnos: 2, cd: 13 } },
+  // Queimadura/Fogo de Supressão: extraídas de "Pesada / Queimadura" e "Pesada /
+  // Fogo de Supressão" — compõem com "Pesada" via vírgula agora, em vez de
+  // ficarem congeladas numa combinação só. Qualquer arma leve também pode usar
+  // "Queimadura" ou "Fogo de Supressão" sozinha, sem precisar ser Pesada.
+  "Queimadura":        { aoAcertar: { cond: "Em chamas", turnos: 3, cd: 13 } },
+  "Fogo de Supressão": { aoAcertar: { cond: "Acovardado", turnos: 2, cd: 13 } },
   // Anti-Sintético/Ferramenta eram idênticas (mesmo +2 contra robôs) e o efeito
   // nem funcionava de verdade — `contra:"robos"` depende do alvo já mirado, e
   // `modificarAtaque()` nunca recebia o alvo em `[data-atq]` (corrigido agora,
@@ -1290,22 +1292,16 @@ export const PALAVRAS_CHAVE = {
   // Pesada: −2 no acerto de verdade agora (checado em `[data-atq]` via `pr.pesada`,
   // negado por `k.efeitos.imunidades()` conter "penalidade de -2 com armas Pesadas"
   // — a passiva "Memória Muscular" do Soldado já dizia isso, mas nada aplicava a
-  // penalidade que ela prometia anular; achado ao mecanizar isto).
+  // penalidade que ela prometia anular; achado ao mecanizar isto). Compõe com
+  // "Queimadura"/"Fogo de Supressão" via vírgula em vez de nomes congelados.
   "Pesada":            { props: { pesada: true } },
-  "Pesada / Queimadura": { props: { pesada: true }, aoAcertar: { cond: "Em chamas", turnos: 3, cd: 13 } },
-  "Pesada / Fogo de Supressão": { props: { pesada: true }, aoAcertar: { cond: "Acovardado", turnos: 2, cd: 13 } },
   // Sobreaquecimento: num natural 1, a arma superaquece e queima quem atira
   // (1d4 térmico) — checado em `[data-atq]` via `pr.sobreaquece`.
   "Sobreaquecimento":  { props: { sobreaquece: true } },
-  // Descarregar: checkbox próprio (🔫) ao lado de Furtivo — esvazia o pente
-  // carregado inteiro num só disparo, some dados extras de dano proporcionais
-  // às balas gastas além do custo normal. Ver `[data-atq]`/`#atq-descarregar`.
-  "Curto Alcance / Descarregar": { props: { descarrega: true } },
-  // Inesquivável: ignora cobertura (não dá pra se esconder de um tiro assim).
-  // Contínuo: sangramento GARANTIDO ao acertar, sem teste de resistência (ao
-  // contrário de "Sangramento" comum, que também não tem CD — aqui o diferencial
-  // é "inesquivável" = ignora cobertura, junto do dano contínuo).
-  "Inesquivável / Contínuo": { props: { ignoraCobertura: true }, aoAcertar: { cond: "Sangrando", turnos: 3 } },
+  // Ignora cobertura (não dá pra se esconder de um tiro assim). "Contínuo" (a
+  // outra metade do antigo "Inesquivável / Contínuo") reaproveita "Sangramento"
+  // acima — são o mesmo efeito exato (Sangrando, 3 turnos, sem CD).
+  "Inesquivável":      { props: { ignoraCobertura: true } },
 };
 
 // Lê a lista de palavras-chave de uma arma (o campo `kw` pode ter várias, separadas por vírgula).
@@ -1325,15 +1321,22 @@ export function chavesDaArma(cat) {
 export function propsArma(cat) {
   const chaves = chavesDaArma(cat);
   const p = { agil: false, oculta: false, brutal: false, area: false, areaTxt: "",
-              alcance: false, alcanceTxt: "", ignoraArmadura: 0, aoAcertar: [], efeitos: [] };
+              alcance: false, alcanceTxt: "", ignoraArmadura: 0, raio: 0, empurrao: 0, aoAcertar: [], efeitos: [] };
   for (const c of chaves) {
     Object.assign(p, c.props || {}, {
       agil: p.agil || !!c.props?.agil, oculta: p.oculta || !!c.props?.oculta,
       brutal: p.brutal || !!c.props?.brutal, area: p.area || !!c.props?.area,
       areaTxt: c.props?.areaTxt || p.areaTxt, alcance: p.alcance || !!c.props?.alcance,
       alcanceTxt: c.props?.alcanceTxt || p.alcanceTxt,
+      // `raio`/`empurrao` de área e `ignoraArmadura` (abaixo) SOMAM entre fontes —
+      // nunca "o último escrito vence": uma arma com duas palavras-chave/mods que
+      // concedem o MESMO tipo de bônus (ex. Perfurante + Perfurante Leve, ou duas
+      // fontes de raio de área) empilha os dois valores, em vez de um sobrescrever
+      // o outro silenciosamente ou só valer o maior.
+      raio: c.props?.raio ? p.raio + c.props.raio : p.raio,
+      empurrao: c.props?.empurrao ? p.empurrao + c.props.empurrao : p.empurrao,
     });
-    if (c.ignoraArmadura) p.ignoraArmadura = Math.max(p.ignoraArmadura, c.ignoraArmadura);
+    if (c.ignoraArmadura) p.ignoraArmadura += c.ignoraArmadura;
     if (c.aoAcertar) p.aoAcertar.push({ ...c.aoAcertar, origem: c.nome });
     if (c.efeitos) p.efeitos.push(...c.efeitos.map((e) => ({ ...e, origem: c.nome })));
   }
@@ -1493,7 +1496,7 @@ export const MODS_ARMA = [
   { n: "Serrilha de Combate", slot: "fio", p: 2600, ic: "🩸", turnos: 2,
     d: "Dentes vibratórios rasgam a carne: aplica Sangramento ao acertar.", kw: "Sangramento" },
   { n: "Núcleo Térmico", slot: "nucleo", p: 2200, ic: "🔥", turnos: 3,
-    d: "A lâmina esquenta ao branco: o alvo pega fogo ao ser acertado.", kw: "Em chamas" },
+    d: "A lâmina esquenta ao branco: o alvo pega fogo ao ser acertado.", kw: "Queimadura" },
   { n: "Injetor de Neurotoxina", slot: "nucleo", p: 3200, ic: "🧪", turnos: 2,
     d: "Reservatório na guarda: aplica Envenenado ao acertar.", kw: "Tóxica" },
   { n: "Descarga de Choque", slot: "nucleo", p: 2800, ic: "💫", turnos: 2,

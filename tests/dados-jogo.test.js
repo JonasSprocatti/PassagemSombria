@@ -2,15 +2,15 @@
 // Roda com: node --test tests/
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { chavesDaArma, propsArma, ARMAS, KEYWORDS, IMPLANTES, PALAVRAS_CHAVE } from "../public/js/dados-jogo.js";
+import { chavesDaArma, propsArma, ARMAS, KEYWORDS, IMPLANTES, PALAVRAS_CHAVE, MODS_ARMA } from "../public/js/dados-jogo.js";
 import { parseDice } from "../public/js/regras.js";
 import { FichaEfeitos, Portador } from "../public/js/efeitos.js";
 
 describe("chavesDaArma", () => {
   test("separa uma arma com várias palavras-chave, uma por uma", () => {
-    const chaves = chavesDaArma({ kw: "Destruidora, Perfurante, Aparar" });
+    const chaves = chavesDaArma({ kw: "Brutal, Perfurante, Aparar" });
     assert.equal(chaves.length, 3);
-    assert.deepEqual(chaves.map((c) => c.nome), ["Destruidora", "Perfurante", "Aparar"]);
+    assert.deepEqual(chaves.map((c) => c.nome), ["Brutal", "Perfurante", "Aparar"]);
   });
 
   test("arma sem palavra-chave devolve lista vazia", () => {
@@ -18,9 +18,9 @@ describe("chavesDaArma", () => {
     assert.deepEqual(chavesDaArma({}), []);
   });
 
-  test("kw composto sem vírgula (ex. 'Pesada / Queimadura') não é quebrado em duas", () => {
+  test("kw composto sem vírgula (ex. 'Ultra-Oculta / Surpresa') não é quebrado em duas", () => {
     // Só vírgula e · separam palavras-chave; "/" dentro de uma frase é uma frase só.
-    const chaves = chavesDaArma({ kw: "Pesada / Queimadura" });
+    const chaves = chavesDaArma({ kw: "Ultra-Oculta / Surpresa" });
     assert.equal(chaves.length, 1);
   });
 });
@@ -31,24 +31,28 @@ describe("propsArma", () => {
     assert.equal(p.ignoraArmadura, 2);
   });
 
-  test("com várias keywords, usa a maior ignoraArmadura entre elas (não soma)", () => {
-    // Perfurante ignora 2, Perfurante Leve ignora 1 — juntas na mesma arma, vale a maior.
+  // Duas palavras-chave que concedem o MESMO tipo de bônus (aqui, ignora armadura)
+  // SOMAM — não fica só a maior, e não sobrescreve uma a outra. Mesma regra vale
+  // pra `raio`/`empurrao` de palavras de Área (ver comentário em propsArma()).
+  test("com várias keywords do mesmo tipo de bônus, os valores somam", () => {
     const p = propsArma({ kw: "Perfurante, Perfurante Leve" });
-    assert.equal(p.ignoraArmadura, 2);
+    assert.equal(p.ignoraArmadura, 3);
   });
 
-  test("Brutal/Destruidora marcam vantagem no dado de dano", () => {
+  test("Brutal e Certeira (a antiga 'Destruidora') marcam Vantagem — cada uma na sua metade", () => {
     assert.equal(propsArma({ kw: "Brutal" }).brutal, true);
-    assert.equal(propsArma({ kw: "Destruidora" }).brutal, true);
+    assert.equal(propsArma({ kw: "Brutal, Certeira" }).brutal, true);
+    const vantAcerto = propsArma({ kw: "Certeira" }).efeitos.find((e) => e.tipo === "vantagem");
+    assert.ok(vantAcerto, "Certeira devia declarar um efeito de vantagem no ataque");
   });
 
   // Regressão do bug relatado em produção: a descrição (`efeito`) de uma arma com
-  // várias palavras-chave saía "Destruidora, Perfurante, Aparar: Destruidora, Perfurante,
+  // várias palavras-chave saía "Brutal, Perfurante, Aparar: Brutal, Perfurante,
   // Aparar." — repetindo o rótulo como se fosse a explicação, porque KEYWORDS era
   // buscado pela string INTEIRA da arma, que nunca bate com nada, e caía de volta
   // no próprio texto cru.
   test("efeito nunca é igual ao texto cru da arma (não duplica)", () => {
-    const cat = { kw: "Destruidora, Perfurante, Aparar" };
+    const cat = { kw: "Brutal, Perfurante, Aparar" };
     const p = propsArma(cat);
     assert.notEqual(p.efeito, cat.kw);
     assert.ok(p.efeito.includes(KEYWORDS["Perfurante"]));
@@ -56,14 +60,14 @@ describe("propsArma", () => {
   });
 
   // Regressão do PRÓPRIO conserto acima: uma arma com um kw composto só (sem vírgula,
-  // ex. "Pesada / Queimadura") tem em KEYWORDS uma frase específica pra essa combinação
-  // exata. Juntar palavra por palavra (via chaves[].nome, que já vem fuzzy-casado pra
-  // "Pesada" sozinho) perde a parte "queimadura" da descrição — o efeito tem que
-  // preferir a frase inteira quando ela existir.
+  // ex. "Ultra-Oculta / Surpresa") tem em KEYWORDS uma frase específica pra essa
+  // combinação exata. Juntar palavra por palavra (via chaves[].nome, que cairia no
+  // fuzzy-match de "Ultra-Oculta" pra... nada, já que não é prefixo de nenhuma chave)
+  // perderia a descrição — o efeito tem que preferir a frase inteira quando ela existir.
   test("kw composto usa a descrição específica do dicionário, não a genérica por palavra", () => {
-    const p = propsArma({ kw: "Pesada / Queimadura" });
-    assert.equal(p.efeito, KEYWORDS["Pesada / Queimadura"]);
-    assert.notEqual(p.efeito, KEYWORDS["Pesada"]);
+    const p = propsArma({ kw: "Ultra-Oculta / Surpresa" });
+    assert.equal(p.efeito, KEYWORDS["Ultra-Oculta / Surpresa"]);
+    assert.notEqual(p.efeito, "");
   });
 
   test("arma sem palavra-chave não tem efeito nem propriedades especiais", () => {
@@ -89,16 +93,22 @@ describe("conteúdo das armas: toda arma com kw reconhece sua(s) palavra(s)-chav
   }
 });
 
-// Regressão: `chavesDaArma` só casa por EXATO ou por PREFIXO quando o kw não tem
-// vírgula/·. Um nome composto (ex. "Pesada / Queimadura") sem entrada própria em
-// PALAVRAS_CHAVE cai no prefixo mais curto que bater ("Pesada"), perdendo a outra
-// metade do efeito silenciosamente. Toda arma cadastrada precisa ter uma chave
-// EXATA no dicionário — nenhuma pode depender do fallback fuzzy.
-describe("conteúdo das armas: toda arma tem uma chave EXATA em PALAVRAS_CHAVE (sem depender do fuzzy-match)", () => {
+// Regressão: `chavesDaArma` só casa por EXATO ou por PREFIXO quando um pedaço do
+// kw (cada um separado por vírgula/·) não bate direto. Um nome composto sem
+// entrada própria em PALAVRAS_CHAVE cai no prefixo mais curto que bater (ex. a
+// antiga "Pesada / Queimadura" caía em "Pesada" sozinha), perdendo a outra
+// metade do efeito silenciosamente. Cada PEDAÇO do kw de toda arma cadastrada
+// precisa ter uma chave EXATA no dicionário — nenhum pode depender do fallback
+// fuzzy. Armas hoje podem ter mais de uma palavra-chave separada por vírgula
+// (ex. "Brutal, Certeira") — por isso o teste checa pedaço por pedaço, não a
+// string inteira do `kw`.
+describe("conteúdo das armas: cada palavra-chave do kw é uma entrada EXATA em PALAVRAS_CHAVE (sem depender do fuzzy-match)", () => {
   for (const arma of ARMAS) {
     if (!arma.kw) continue;
     test(`"${arma.n}" (kw: "${arma.kw}")`, () => {
-      assert.ok(PALAVRAS_CHAVE[arma.kw], `"${arma.kw}" não é uma chave exata de PALAVRAS_CHAVE — vai cair no fuzzy-match`);
+      const pedacos = arma.kw.split(/,|·/).map((x) => x.trim()).filter(Boolean);
+      for (const pedaco of pedacos)
+        assert.ok(PALAVRAS_CHAVE[pedaco], `"${pedaco}" (de "${arma.kw}") não é uma chave exata de PALAVRAS_CHAVE — vai cair no fuzzy-match`);
     });
   }
 });
@@ -133,6 +143,23 @@ describe("PALAVRAS_CHAVE: toda palavra de Área declara um raio", () => {
   }
 });
 
+// `raio`/`empurrao` seguem a mesma regra de "soma, não sobrescreve" que
+// `ignoraArmadura` — nenhuma arma cadastrada combina duas palavras de Área hoje,
+// mas o merge em propsArma() tem que ficar protegido pra qualquer conteúdo futuro
+// que combine (ex. um mod de bancada que também declare raio/empurrão).
+describe("propsArma: raio e empurrao somam entre fontes, igual ignoraArmadura", () => {
+  test("duas palavras de Área somam o raio", () => {
+    const p = propsArma({ kw: "Área, Artilharia" });
+    assert.equal(p.raio, 2 + 5);
+  });
+  test("empurrao soma se houver mais de uma fonte", () => {
+    const p = propsArma({ kw: "Cone de Repulsão, Cone de Repulsão" });
+    // mesma palavra-chave duas vezes é um caso degenerado (não deveria acontecer
+    // em conteúdo real), mas o merge não pode quebrar nem ficar negativo.
+    assert.equal(p.empurrao, 3 + 3);
+  });
+});
+
 // Regressão do bug de verdade: Anti-Sintético/Ferramenta declaravam
 // `{tipo:"dano",valor:2,contra:"robos"}`, mas `combina("robos")` depende do
 // `alvo` passado a `modificarAtaque()` — que `[data-atq]` nunca preenchia. Este
@@ -155,6 +182,20 @@ describe("dano contra 'robos' (Anti-Sintético) dispara só com o alvo certo", (
     const ctx = fe.modificarAtaque({ acerto: 0, dano: 0, arma: { tipo: "fogo" } });
     assert.equal(ctx.dano, 0);
   });
+});
+
+// Regressão do bug de verdade: o mod de bancada "Núcleo Térmico" declarava
+// `kw:"Em chamas"` — essa palavra-chave nunca existiu (só a CONDIÇÃO se chama
+// assim; a palavra-chave que a aplica é "Queimadura") — o mod estava 100%
+// inerte desde sempre. Cada mod que referencia uma palavra-chave (`m.kw`)
+// precisa apontar pra uma entrada EXATA de PALAVRAS_CHAVE.
+describe("conteúdo dos mods de bancada: todo `kw` referenciado existe em PALAVRAS_CHAVE", () => {
+  for (const mod of MODS_ARMA) {
+    if (!mod.kw) continue;
+    test(`"${mod.n}" (kw: "${mod.kw}")`, () => {
+      assert.ok(PALAVRAS_CHAVE[mod.kw], `"${mod.kw}" (mod "${mod.n}") não existe em PALAVRAS_CHAVE`);
+    });
+  }
 });
 
 // Implantes com `ataque` declarado (ex. Lâmina Oculta Retrátil) agem como uma

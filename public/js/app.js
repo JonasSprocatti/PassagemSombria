@@ -551,6 +551,11 @@ async function telaFichaPublica(token) {
 }
 
 export function shell(titulo, corpo, ativo = "") {
+  // Tela cheia (hoje só o login): zera o padding do body pra `.tela-login` virar
+  // um container de tela inteira de verdade (min-height:100dvh direto, sem ter
+  // que descontar um número mágico do padding do body na conta) — mais simples
+  // e sem acoplamento com um valor de padding que pode mudar no resto do app.
+  document.body.classList.toggle("pagina-cheia", titulo === "login");
   const nav = usuario ? `
     <nav class="menu">
       <a href="#/hangar" class="brand" title="Passagem Sombria"><img src="logo.svg" alt="Passagem Sombria" class="brand-logo"/><span class="brand-txt">PASSAGEM<b>SOMBRIA</b></span></a>

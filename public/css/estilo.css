@@ -1,6 +1,10 @@
 :root{--void:#0a0c15;--panel:#10131f;--panel2:#151928;--line:#262c42;--ink:#dde3f4;--dim:#8189a3;--tech:#59e3c8;--chrome:#f0a860;--sombra:#a78bfa;--perigo:#f07a7a}
 *{box-sizing:border-box;margin:0}
 body{min-height:100vh;background:radial-gradient(1200px 600px at 85% -10%,rgba(89,227,200,.06),transparent 60%),radial-gradient(900px 500px at -10% 110%,rgba(167,139,250,.07),transparent 55%),var(--void);color:var(--ink);font-family:'IBM Plex Sans',sans-serif;padding:20px 14px 60px}
+/* Tela cheia (login): zera o padding do body pra a tela poder centralizar contra
+   a altura real do viewport sem precisar descontar um número mágico na conta —
+   ver `.tela-login` mais abaixo e o toggle em `shell()` (app.js). */
+body.pagina-cheia{padding:0}
 .frame{max-width:1080px;margin:0 auto}
 a{color:var(--tech)}
 b{font-weight:600}
@@ -870,16 +874,16 @@ body.a11y-reduzir .nv-ganhos li,body.a11y-reduzir .nv-linha,body.a11y-reduzir .m
    PRIMEIRA IMPRESSÃO — login e hangar
    O resto do app é ferramenta; estas duas telas são a porta de entrada do mundo.
    ============================================================================ */
-/* min-height calc(100vh - 80px) em vez de um "88vh" aproximado: 80px é exatamente
-   o padding vertical do body (20px + 60px, ver topo do arquivo) — com um número
-   fixo em vh, esse padding sobra por fora da conta e o cartão de login fica
-   visivelmente descentralizado (mais para cima/baixo do que o meio real da tela).
-   100dvh (dynamic viewport height) por cima do 100vh corrige o mesmo problema no
-   mobile: no Safari/Chrome de celular, 100vh conta a área atrás da barra de
-   endereço, então o "centro" calculado nunca bate com o que a pessoa realmente vê
-   até rolar a página — dvh já é a altura visível de verdade. Navegadores sem
-   suporte a dvh simplesmente ignoram essa segunda declaração e ficam com a de vh. */
-.tela-login{position:relative;min-height:calc(100vh - 80px);min-height:calc(100dvh - 80px);display:flex;align-items:center;justify-content:center;overflow:hidden}
+/* Tela cheia de verdade — `body.pagina-cheia` (ligado em shell(), app.js, só na
+   tela de login) zera o padding do body, então aqui não tem número nenhum pra
+   descontar: min-height bate direto com a altura real do viewport. 100dvh por
+   cima do 100vh é o que resolve o resto no celular — no Safari/Chrome mobile,
+   100vh conta a área atrás da barra de endereço, então o centro calculado nunca
+   bate com o que a pessoa vê até rolar a página; dvh já é a altura visível de
+   verdade. Navegadores sem suporte a dvh ignoram essa segunda declaração e ficam
+   com a de vh. O padding próprio (não mais herdado do body) garante a mesma
+   respiração nas bordas em telas bem estreitas.*/
+.tela-login{position:relative;min-height:100vh;min-height:100dvh;padding:20px 14px;display:flex;align-items:center;justify-content:center;overflow:hidden}
 .tela-login .estrelas{position:absolute;inset:0;pointer-events:none;
   background:
     radial-gradient(1.5px 1.5px at 12% 22%,rgba(255,255,255,.85),transparent),
