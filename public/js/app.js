@@ -459,22 +459,39 @@ function montarA11y() {
   b.setAttribute("aria-expanded", "false");
   b.textContent = "♿";
   document.body.appendChild(b);
-  let painel = null;
+  let painel = null, fundo = null;
+  // Fechar tinha só dois jeitos: clicar de novo no ♿ (nada visual indica que é
+  // "fechar", é o mesmo ícone de abrir) ou apertar Esc (não existe no celular).
+  // Sem nenhum "X" nem overlay de fundo pra tocar fora, quem abria pelo toque
+  // ficava preso — só recarregando a página. Agora: botão ✕ visível no canto do
+  // painel, toque no overlay de fundo fecha, Esc continua funcionando, e clicar
+  // de novo no ♿ também (mantém o toggle de antes).
+  const fecharPainel = () => {
+    if (fundo) { fundo.remove(); fundo = null; }
+    if (painel) { painel.remove(); painel = null; }
+    b.setAttribute("aria-expanded", "false");
+  };
   b.onclick = () => {
-    if (painel) { painel.remove(); painel = null; b.setAttribute("aria-expanded", "false"); return; }
+    if (painel) { fecharPainel(); return; }
+    fundo = document.createElement("div");
+    fundo.className = "a11y-fundo";
+    fundo.onclick = fecharPainel;
+    document.body.appendChild(fundo);
     painel = document.createElement("div");
     painel.className = "a11y-painel"; painel.setAttribute("role", "dialog");
     painel.setAttribute("aria-label", "Opções de acessibilidade");
-    painel.innerHTML = `<h3>Acessibilidade</h3><p class="regra">As escolhas ficam salvas neste dispositivo.</p>`
+    painel.innerHTML = `<button type="button" class="a11y-x" aria-label="Fechar">✕</button>`
+      + `<h3>Acessibilidade</h3><p class="regra">As escolhas ficam salvas neste dispositivo.</p>`
       + A11Y.map(({ k, lbl, d }) => `<label title="${esc(d)}"><input type="checkbox" data-a11y="${k}" ${localStorage.getItem("ps-a11y-" + k) === "1" ? "checked" : ""}/> <span>${esc(lbl)}</span></label>`).join("");
     document.body.appendChild(painel);
     b.setAttribute("aria-expanded", "true");
+    painel.querySelector(".a11y-x").onclick = fecharPainel;
     painel.querySelectorAll("[data-a11y]").forEach((i) => i.onchange = () => {
       localStorage.setItem("ps-a11y-" + i.dataset.a11y, i.checked ? "1" : "0"); aplicarA11y();
     });
     painel.querySelector("input")?.focus();
   };
-  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && painel) { painel.remove(); painel = null; b.setAttribute("aria-expanded", "false"); b.focus(); } });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && painel) { fecharPainel(); b.focus(); } });
 }
 
 // ---------------- ROTEADOR ----------------

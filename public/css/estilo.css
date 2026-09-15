@@ -528,12 +528,22 @@ body.a11y-grande .regra,body.a11y-grande small,body.a11y-grande .dim{font-size:1
   background:var(--panel);border:1px solid var(--line);color:var(--ink);font-size:20px;cursor:pointer;
   box-shadow:0 4px 16px rgba(0,0,0,.5)}
 .a11y-btn:hover{border-color:var(--tech);color:var(--tech)}
+/* Overlay de fundo: escurece a tela e fecha o painel ao tocar fora dele — antes
+   não existia, então no celular (sem Esc, e sem nenhum botão de fechar visível)
+   quem abria pelo toque ficava preso ali, sem jeito nenhum de sair sem recarregar. */
+.a11y-fundo{position:fixed;inset:0;z-index:9989;background:rgba(4,5,10,.55)}
 .a11y-painel{position:fixed;right:14px;bottom:70px;z-index:9991;background:var(--panel);border:1px solid var(--line);
   border-radius:10px;padding:14px;width:265px;box-shadow:0 8px 30px rgba(0,0,0,.6)}
-.a11y-painel h3{margin:0 0 4px;font-family:'Chakra Petch',sans-serif;font-size:15px}
+.a11y-painel h3{margin:0 0 4px;font-family:'Chakra Petch',sans-serif;font-size:15px;padding-right:26px}
 .a11y-painel .regra{margin:0 0 10px}
 .a11y-painel label{display:flex;align-items:center;gap:8px;padding:7px 0;font-size:13px;cursor:pointer}
 .a11y-painel input[type=checkbox]{width:18px;height:18px;flex-shrink:0}
+/* Botão de fechar visível — o próprio ♿ reabrindo/fechando não é óbvio como
+   "fechar" pra quem não sabe que é um toggle. */
+.a11y-x{position:absolute;top:8px;right:8px;width:26px;height:26px;border-radius:50%;
+  background:var(--panel2);border:1px solid var(--line);color:var(--dim);font-size:13px;
+  line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.a11y-x:hover{color:var(--perigo);border-color:var(--perigo)}
 @media(max-width:720px){.a11y-btn{bottom:10px;right:10px;width:42px;height:42px}.a11y-painel{right:8px;left:8px;width:auto}}
 .mdl-info{font-size:13px;color:var(--dim);line-height:1.55;margin:0 0 4px}
 
@@ -860,7 +870,16 @@ body.a11y-reduzir .nv-ganhos li,body.a11y-reduzir .nv-linha,body.a11y-reduzir .m
    PRIMEIRA IMPRESSÃO — login e hangar
    O resto do app é ferramenta; estas duas telas são a porta de entrada do mundo.
    ============================================================================ */
-.tela-login{position:relative;min-height:88vh;display:flex;align-items:center;justify-content:center;overflow:hidden}
+/* min-height calc(100vh - 80px) em vez de um "88vh" aproximado: 80px é exatamente
+   o padding vertical do body (20px + 60px, ver topo do arquivo) — com um número
+   fixo em vh, esse padding sobra por fora da conta e o cartão de login fica
+   visivelmente descentralizado (mais para cima/baixo do que o meio real da tela).
+   100dvh (dynamic viewport height) por cima do 100vh corrige o mesmo problema no
+   mobile: no Safari/Chrome de celular, 100vh conta a área atrás da barra de
+   endereço, então o "centro" calculado nunca bate com o que a pessoa realmente vê
+   até rolar a página — dvh já é a altura visível de verdade. Navegadores sem
+   suporte a dvh simplesmente ignoram essa segunda declaração e ficam com a de vh. */
+.tela-login{position:relative;min-height:calc(100vh - 80px);min-height:calc(100dvh - 80px);display:flex;align-items:center;justify-content:center;overflow:hidden}
 .tela-login .estrelas{position:absolute;inset:0;pointer-events:none;
   background:
     radial-gradient(1.5px 1.5px at 12% 22%,rgba(255,255,255,.85),transparent),
@@ -943,6 +962,14 @@ label input,label select,label textarea{text-transform:none;letter-spacing:norma
   .grid-fichas{grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
   .card-pers .nome{font-size:15px}
   .attr .av{font-size:25px}
+  /* Legibilidade geral no celular: texto base maior, e as caixas/cards de
+     conteúdo (`.det` — regras, biblioteca, contratos, itens do admin…) ganham
+     mais respiro interno e os parágrafos passam a justificado em vez de
+     alinhados à esquerda, que é o que o pedido de UI/UX pediu especificamente. */
+  .login-caixa .sub{font-size:13.5px}
+  .regra{font-size:13px}
+  .det{padding:16px 18px;font-size:14px}
+  .det p{text-align:justify}
 }
 
 /* Suprimentos na ficha */
