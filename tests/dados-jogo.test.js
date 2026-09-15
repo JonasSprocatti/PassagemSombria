@@ -93,6 +93,21 @@ describe("conteúdo das armas: toda arma com kw reconhece sua(s) palavra(s)-chav
   }
 });
 
+// Regressão direta do bug pego pelo teste acima: "Área" tinha entrada em
+// PALAVRAS_CHAVE (props.area/raio) mas ficou sem texto em KEYWORDS — nenhuma
+// arma com kw:"Área" sozinha (sem outra palavra-chave junto) tinha descrição
+// nenhuma (`propsArma().efeito` saía ""). Checa isso pra TODA entrada de
+// PALAVRAS_CHAVE de uma vez, sem depender de existir uma arma cadastrada que
+// use aquela chave sozinha — pega o gap na hora de criar a palavra-chave, não
+// só quando alguém cadastra uma arma com ela.
+describe("toda entrada de PALAVRAS_CHAVE tem texto correspondente em KEYWORDS", () => {
+  for (const nome of Object.keys(PALAVRAS_CHAVE)) {
+    test(`"${nome}" tem descrição em KEYWORDS`, () => {
+      assert.ok(KEYWORDS[nome], `"${nome}" existe em PALAVRAS_CHAVE mas não tem texto em KEYWORDS — propsArma().efeito sai vazio pra arma que usar só essa palavra-chave`);
+    });
+  }
+});
+
 // Regressão: `chavesDaArma` só casa por EXATO ou por PREFIXO quando um pedaço do
 // kw (cada um separado por vírgula/·) não bate direto. Um nome composto sem
 // entrada própria em PALAVRAS_CHAVE cai no prefixo mais curto que bater (ex. a

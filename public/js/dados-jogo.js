@@ -1184,6 +1184,7 @@ export const KEYWORDS = {
   "Sangramento": "Ao acertar, o alvo sofre dano de sangramento nos turnos seguintes.",
   "Tóxica": "Injeta toxina; o alvo testa Constituição ou sofre veneno.",
   "Silenciosa": "Disparo sem ruído — não denuncia sua posição.",
+  "Área": "Atinge todos num raio de 2m ao redor de quem você mirar.",
   "Rajada": "Gasta o dobro de munição; área de 2m de raio ao redor de quem você mirar.",
   "Anti-Sintético": "+2 de dano contra androides, drones e sintéticos (identificados pelo nome).",
   "Marcador": "Marca o alvo; aliados o veem através de fumaça/paredes finas.",
