@@ -486,7 +486,7 @@ export async function painelAdmin(voltarPara = "racas") {
         const marcos = Object.keys(esc2).map(Number).sort((x, y) => x - y);
         return `<div class="kw-campo"><label style="margin-bottom:4px">${lbl}</label>
           <p class="regra">Deixe vazio para dano fixo. Preenchendo, a arma passa a subir de dado nos níveis indicados —
-            é assim que funcionam as Tatuagens de Nano-Enxame, e qualquer arma pode ter isso.</p>
+            é assim que funcionam as formas de Nano-Tatuagem do Cortex Central de Nano-Enxame, e qualquer arma pode ter isso.</p>
           <div class="escala-edit">
             <div class="escala-faixa"><i>NV 1+</i><b>${esc(it.dano || "—")}</b><span class="dim">dano base</span></div>
             ${[5, 9].map((nv) => `<div class="escala-faixa ${esc2[nv] ? "atual" : ""}">

@@ -5,7 +5,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./config.js";
 import { EFEITOS as EFEITOS_FICHA, validarEfeitos } from "./efeitos.js";
-import { RACAS, CLASSES, FILOSOFIAS, IMPLANTES, SCRIPTS, ARMAS, ARMADURAS, PERICIAS, NAVES, ESTACOES, REGRAS_NAVE, RIQUEZA, TEMAS, CONVERTE_2D8, KEYWORDS, PALAVRAS_CHAVE, chavesDaArma, propsArma, AVARIAS, UPGRADES_NAVE, TURNOS_POR_PENTE, custoTiro, TIROS_POR_PENTE, TIPOS_PENTE, PENTE_PADRAO, CONSUMIVEIS, ehConsumivel, SLOTS_ARMA, SLOTS_POR_ARMA, MODS_ARMA, modsDoSlot, acharMod } from "./dados-jogo.js";
+import { RACAS, CLASSES, FILOSOFIAS, IMPLANTES, SCRIPTS, ARMAS, ARMADURAS, PERICIAS, NAVES, ESTACOES, REGRAS_NAVE, RIQUEZA, TEMAS, CONVERTE_2D8, KEYWORDS, PALAVRAS_CHAVE, chavesDaArma, propsArma, AVARIAS, UPGRADES_NAVE, TURNOS_POR_PENTE, custoTiro, TIROS_POR_PENTE, TIPOS_PENTE, PENTE_PADRAO, CONSUMIVEIS, ehConsumivel, SLOTS_ARMA, SLOTS_POR_ARMA, MODS_ARMA, modsDoSlot, acharMod, LIMITE_TATUAGENS } from "./dados-jogo.js";
 import { BESTIARIO, NIVEIS_AMEACA } from "./dados-bestiario.js";
 import { NPCS, PAPEIS } from "./dados-npcs.js";
 import { FACCOES, NIVEIS_REPUTACAO, TABELAS, REFERENCIA  } from "./dados-mestre.js";
@@ -1290,26 +1290,32 @@ async function telaFicha(id) {
         })()}
       </section>
 
-      ${(f.implantes || []).includes("Tatuagens de Nano-Enxame") ? (() => {
+      ${(f.implantes || []).includes("Cortex Central de Nano-Enxame") ? (() => {
         const formas = ARMAS.filter((a2) => a2.nano);
         const tatuadas = (f.inventario || []).filter((it) => formas.some((x) => x.n === it.nome));
-        const grátis = 3;                       // o implante vem com 3 formas; extras custam 250 CG
-        const extra = Math.max(0, tatuadas.length - grátis + 1) * 0 + 250;
-        return `<section class="sec"><header><span class="tag">🖋</span><h2>Tatuagens de Nano-Enxame</h2>
-          <span class="extra">${tatuadas.length} forma(s) tatuada(s)</span></header>
-          <p class="regra">O implante vem com <b>3 formas</b> à sua escolha. Cada forma adicional custa
-            <b class="chrome">250 CG</b> e um Descanso Longo numa clínica. As formas não podem ser arremessadas,
-            largadas nem desarmadas — e o dano sobe nos níveis 5 e 9.</p>
+        // Limite de formas sem gastar slot extra vem do tamanho da raça (RACAS[i].tamanho).
+        // Além dele, cada tatuagem nova também ocupa 1 slot do Limite Cibernético.
+        const limiteGratis = LIMITE_TATUAGENS[raca?.tamanho] || LIMITE_TATUAGENS["média"];
+        const precisaSlot = tatuadas.length >= limiteGratis;
+        const slotLivre = (f.implantes || []).length < k.limite;
+        return `<section class="sec"><header><span class="tag">🖋</span><h2>Cortex Central de Nano-Enxame</h2>
+          <span class="extra">${tatuadas.length} forma(s) tatuada(s) · limite sem slot: ${limiteGratis} (${esc(raca?.tamanho || "média")})</span></header>
+          <p class="regra">Cada forma tatuada custa <b class="chrome">250 CG</b> e um Descanso Longo numa clínica.
+            Até <b>${limiteGratis}</b> formas (pelo porte da raça) não ocupam slot de implante — a partir da
+            ${limiteGratis + 1}ª, cada forma extra também consome <b>1 slot</b> do Limite Cibernético.
+            As formas não podem ser arremessadas, largadas nem desarmadas — o enxame perde a conexão longe do
+            corpo e desliga — e o dano sobe nos níveis 5 e 9.</p>
           <div class="nano-grade">${formas.map((w) => {
             const tem = tatuadas.some((it) => it.nome === w.n);
-            const custo = tatuadas.length < grátis ? 0 : 250;
-            const podePagar = tem || custo === 0 || (f.creditos ?? 0) >= custo;
-            return `<button class="nano-op ${tem ? "on" : ""}" data-nano="${esc(w.n)}" ${!tem && !podePagar ? "disabled" : ""}
-              title="${esc(w.desc || "")}">
+            const custo = 250;
+            const podePagar = tem || (f.creditos ?? 0) >= custo;
+            const bloqueado = !tem && (!podePagar || (precisaSlot && !slotLivre));
+            return `<button class="nano-op ${tem ? "on" : ""}" data-nano="${esc(w.n)}" ${bloqueado ? "disabled" : ""}
+              title="${esc(w.desc || "")}${!tem && precisaSlot ? " (além do limite gratuito — consome 1 slot de implante)" : ""}">
               <b>${esc(w.n.replace("Nano-Tatuagem: ", ""))}</b>
               <span class="nano-dano">${danoArma(w, f.nivel)}</span>
               <span class="regra">${esc(w.kw)} · ${w.attr}</span>
-              <span class="nano-acao">${tem ? "✓ tatuada — remover" : custo ? `tatuar · ${custo} CG` : "tatuar (grátis)"}</span>
+              <span class="nano-acao">${tem ? "✓ tatuada — remover" : `tatuar · ${custo} CG${precisaSlot ? " + 1 slot" : ""}`}</span>
             </button>`; }).join("")}</div>
           ${tatuadas.length ? `<p class="regra">Materializar ou dissolver uma forma é <b>Ação Livre</b>, uma por vez.
             Equipe a forma que quer usar na seção Inventário para ela aparecer na mesa.</p>` : ""}
@@ -1555,17 +1561,25 @@ async function telaFicha(id) {
       const nome = b.dataset.nano;
       const ix = (f.inventario || []).findIndex((it) => it.nome === nome);
       if (ix >= 0) {                                    // remover a tatuagem
-        if (!(await confirmModal(`Remover a tatuagem "${nome.replace("Nano-Tatuagem: ", "")}"?\n\nO enxame é dissolvido. Tatuar de novo custará 250 CG.`, { okLabel: "Remover", perigo: true }))) return;
+        const usavaSlot = (f.implantes || []).includes(nome);
+        if (!(await confirmModal(`Remover a tatuagem "${nome.replace("Nano-Tatuagem: ", "")}"?\n\nO enxame é dissolvido. Tatuar de novo custará 250 CG${usavaSlot ? " + 1 slot de implante" : ""}.`, { okLabel: "Remover", perigo: true }))) return;
         f.inventario.splice(ix, 1);
-        registrar(`🖋 Tatuagem dissolvida: ${nome.replace("Nano-Tatuagem: ", "")}.`);
+        if (usavaSlot) f.implantes = f.implantes.filter((x) => x !== nome);   // libera o slot cibernético
+        registrar(`🖋 Tatuagem dissolvida: ${nome.replace("Nano-Tatuagem: ", "")}${usavaSlot ? " (libera 1 slot de implante)" : ""}.`);
       } else {
         const formas = ARMAS.filter((a2) => a2.nano);
         const tatuadas = (f.inventario || []).filter((it) => formas.some((x) => x.n === it.nome));
-        const custo = tatuadas.length < 3 ? 0 : 250;
-        if (custo && (f.creditos ?? 0) < custo) return alert(`Faltam ${custo - (f.creditos ?? 0)} CG para tatuar mais uma forma.`);
-        if (custo) f.creditos = (f.creditos ?? 0) - custo;
+        const raca2 = RACAS.find((r) => r.nome === f.raca);
+        const limiteGratis = LIMITE_TATUAGENS[raca2?.tamanho] || LIMITE_TATUAGENS["média"];
+        const precisaSlot = tatuadas.length >= limiteGratis;
+        const custo = 250;
+        if ((f.creditos ?? 0) < custo) return alert(`Faltam ${custo - (f.creditos ?? 0)} CG para tatuar mais uma forma.`);
+        if (precisaSlot && (f.implantes || []).length >= k.limite)
+          return alert(`Sem slot de implante livre para tatuar além do limite gratuito (${limiteGratis} formas para porte ${raca2?.tamanho || "média"}). Libere um slot ou remova outra tatuagem extra.`);
+        f.creditos = (f.creditos ?? 0) - custo;
         f.inventario.push({ tipo: "arma", nome, equip: false, qtd: 1 });
-        registrar(`🖋 Nova forma tatuada: ${nome.replace("Nano-Tatuagem: ", "")}${custo ? ` (−${custo} CG)` : " (inclusa no implante)"}.`);
+        if (precisaSlot) f.implantes = [...f.implantes, nome];   // além do limite gratuito: ocupa 1 slot cibernético
+        registrar(`🖋 Nova forma tatuada: ${nome.replace("Nano-Tatuagem: ", "")} (−${custo} CG${precisaSlot ? " + 1 slot de implante" : ""}).`);
       }
       autoSalvar(); render();
     });

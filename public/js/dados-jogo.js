@@ -3,6 +3,7 @@
 export const RACAS = [
  {
   "nome": "Mercusys",
+  "tamanho": "pequena",
   "vidaMod": -2,
   "dadoVida": 6,
   "vidaFixa": 3,
@@ -50,6 +51,7 @@ export const RACAS = [
  },
  {
   "nome": "Ven'y",
+  "tamanho": "média",
   "vidaMod": -1,
   "dadoVida": 8,
   "vidaFixa": 4,
@@ -98,6 +100,7 @@ export const RACAS = [
  },
  {
   "nome": "Terráqueo",
+  "tamanho": "média",
   "vidaMod": 0,
   "dadoVida": 8,
   "vidaFixa": 4,
@@ -136,6 +139,7 @@ export const RACAS = [
  },
  {
   "nome": "Marciano",
+  "tamanho": "grande",
   "vidaMod": 2,
   "dadoVida": 10,
   "vidaFixa": 5,
@@ -174,6 +178,7 @@ export const RACAS = [
  },
  {
   "nome": "Conjupitero",
+  "tamanho": "média",
   "vidaMod": -3,
   "dadoVida": 8,
   "vidaFixa": 4,
@@ -221,6 +226,7 @@ export const RACAS = [
  },
  {
   "nome": "Sata",
+  "tamanho": "pequena",
   "vidaMod": -1,
   "dadoVida": 6,
   "vidaFixa": 3,
@@ -266,6 +272,7 @@ export const RACAS = [
  },
  {
   "nome": "Urak",
+  "tamanho": "média",
   "vidaMod": -1,
   "dadoVida": 8,
   "vidaFixa": 4,
@@ -314,6 +321,7 @@ export const RACAS = [
  },
  {
   "nome": "Proturno",
+  "tamanho": "pequena",
   "vidaMod": -3,
   "dadoVida": 6,
   "vidaFixa": 3,
@@ -352,6 +360,7 @@ export const RACAS = [
  },
  {
   "nome": "Infimor",
+  "tamanho": "grande",
   "vidaMod": 3,
   "dadoVida": 10,
   "vidaFixa": 5,
@@ -857,7 +866,7 @@ export const ARMAS = [
   "per": "Armas Brancas",
   "attr": "Des",
   "kw": "Ágil",
-  "desc": "Pares de garras que brotam das falanges. O enxame recobre os dedos e afia-se em lâminas curvas. Forma do implante Tatuagens de Nano-Enxame — não pode ser arremessada, largada nem desarmada."
+  "desc": "Pares de garras que brotam das falanges. O enxame recobre os dedos e afia-se em lâminas curvas. Forma do Cortex Central de Nano-Enxame — o enxame não sustenta a conexão longe do corpo, então não pode ser arremessada, largada nem desarmada."
  },
  {
   "n": "Nano-Tatuagem: Punhal Dérmico", "preco": 0, "nano": true,
@@ -866,7 +875,7 @@ export const ARMAS = [
   "per": "Armas Brancas",
   "attr": "Des",
   "kw": "Oculta",
-  "desc": "A tatuagem no antebraço escorre para a palma e endurece num punhal de fio único. Forma do implante Tatuagens de Nano-Enxame — não pode ser arremessada, largada nem desarmada."
+  "desc": "A tatuagem no antebraço escorre para a palma e endurece num punhal de fio único. Forma do Cortex Central de Nano-Enxame — o enxame não sustenta a conexão longe do corpo, então não pode ser arremessada, largada nem desarmada."
  },
  {
   "n": "Nano-Tatuagem: Machadinha de Enxame", "preco": 0, "nano": true,
@@ -875,7 +884,7 @@ export const ARMAS = [
   "per": "Armas Brancas",
   "attr": "Des",
   "kw": "Ágil",
-  "desc": "Compacta e equilibrada, a tinta forma um cabo curto e uma cabeça pesada o suficiente para rachar visores. Forma do implante Tatuagens de Nano-Enxame — não pode ser arremessada, largada nem desarmada."
+  "desc": "Compacta e equilibrada, a tinta forma um cabo curto e uma cabeça pesada o suficiente para rachar visores. Forma do Cortex Central de Nano-Enxame — o enxame não sustenta a conexão longe do corpo, então não pode ser arremessada, largada nem desarmada."
  },
  {
   "n": "Nano-Tatuagem: Espada de Nanofio", "preco": 0, "nano": true,
@@ -884,7 +893,7 @@ export const ARMAS = [
   "per": "Armas Brancas",
   "attr": "For",
   "kw": "Confiável",
-  "desc": "Uma lâmina reta de nanofio compactado. Nunca lasca, nunca emperra — simplesmente se refaz. Forma do implante Tatuagens de Nano-Enxame — não pode ser arremessada, largada nem desarmada."
+  "desc": "Uma lâmina reta de nanofio compactado. Nunca lasca, nunca emperra — simplesmente se refaz. Forma do Cortex Central de Nano-Enxame — o enxame não sustenta a conexão longe do corpo, então não pode ser arremessada, largada nem desarmada."
  },
  {
   "n": "Nano-Tatuagem: Lâmina Serrilhada de Enxame", "preco": 0, "nano": true,
@@ -893,7 +902,7 @@ export const ARMAS = [
   "per": "Armas Brancas",
   "attr": "For",
   "kw": "Sangramento",
-  "desc": "Os nano-robôs vibram no fio da lâmina, serrando a carne em vez de cortá-la. Forma do implante Tatuagens de Nano-Enxame — não pode ser arremessada, largada nem desarmada."
+  "desc": "Os nano-robôs vibram no fio da lâmina, serrando a carne em vez de cortá-la. Forma do Cortex Central de Nano-Enxame — o enxame não sustenta a conexão longe do corpo, então não pode ser arremessada, largada nem desarmada."
  },
  {
   "n": "Nano-Tatuagem: Manopla de Impacto", "preco": 0, "nano": true,
@@ -902,7 +911,7 @@ export const ARMAS = [
   "per": "Armas Brancas",
   "attr": "For",
   "kw": "Impacto",
-  "desc": "A tinta cobre o punho numa manopla densa que descarrega a inércia acumulada no golpe. Forma do implante Tatuagens de Nano-Enxame — não pode ser arremessada, largada nem desarmada."
+  "desc": "A tinta cobre o punho numa manopla densa que descarrega a inércia acumulada no golpe. Forma do Cortex Central de Nano-Enxame — o enxame não sustenta a conexão longe do corpo, então não pode ser arremessada, largada nem desarmada."
  },
  {
   "n": "Nano-Tatuagem: Machado Pesado de Enxame", "preco": 0, "nano": true,
@@ -911,7 +920,7 @@ export const ARMAS = [
   "per": "Armas Brancas",
   "attr": "For",
   "kw": "Brutal, Perfurante Leve",
-  "desc": "O enxame inteiro migra para uma só mão e forma uma cabeça de machado brutal. Forma do implante Tatuagens de Nano-Enxame — não pode ser arremessada, largada nem desarmada."
+  "desc": "O enxame inteiro migra para uma só mão e forma uma cabeça de machado brutal. Forma do Cortex Central de Nano-Enxame — o enxame não sustenta a conexão longe do corpo, então não pode ser arremessada, largada nem desarmada."
  },
  {
   "n": "Nano-Tatuagem: Alabarda Curta de Enxame", "preco": 0, "nano": true,
@@ -920,7 +929,25 @@ export const ARMAS = [
   "per": "Armas Brancas",
   "attr": "For",
   "kw": "Alcance",
-  "desc": "O enxame estica-se num cabo de dois metros com uma ponta de lança e um gancho. Forma do implante Tatuagens de Nano-Enxame — não pode ser arremessada, largada nem desarmada."
+  "desc": "O enxame estica-se num cabo de dois metros com uma ponta de lança e um gancho. Forma do Cortex Central de Nano-Enxame — o enxame não sustenta a conexão longe do corpo, então não pode ser arremessada, largada nem desarmada."
+ },
+ {
+  "n": "Nano-Tatuagem: Lâmina-Guarda de Enxame", "preco": 0, "nano": true,
+  "dano": "1d8", "escala": { "5": "2d6", "9": "2d10" },
+  "tipo": "branca",
+  "per": "Armas Brancas",
+  "attr": "For",
+  "kw": "Aparar",
+  "desc": "O enxame se molda numa lâmina de gume largo e guarda reforçada, pronta pra desviar o golpe do inimigo. Forma do Cortex Central de Nano-Enxame — o enxame não sustenta a conexão longe do corpo, então não pode ser arremessada, largada nem desarmada."
+ },
+ {
+  "n": "Nano-Tatuagem: Estilete Perfurante de Enxame", "preco": 0, "nano": true,
+  "dano": "1d6", "escala": { "5": "2d6", "9": "2d8" },
+  "tipo": "branca",
+  "per": "Armas Brancas",
+  "attr": "Des",
+  "kw": "Perfurante",
+  "desc": "Um espeto fino como agulha, rígido o bastante para achar a brecha entre as placas de qualquer blindagem. Forma do Cortex Central de Nano-Enxame — o enxame não sustenta a conexão longe do corpo, então não pode ser arremessada, largada nem desarmada."
  }
 ];
 
@@ -1069,8 +1096,13 @@ export const IMPLANTES = [
   efeitos:[{tipo:"multiplicar_dano",fator:2,quando:"desprevenido",momento:"ao_atacar"}]},
  {n:"Pernas Pneumáticas",p:1500,e:"Dobra deslocamento, ignora quedas 15m",g:"Membros",efeitos:[{tipo:"deslocamento",modo:"dobra"},{tipo:"imunidade",a:"dano de queda até 15m"}]},
  {n:"Âncoras Magnéticas (Pés)",p:700,e:"Imune a derrubar; anda no teto em Grav. Zero",g:"Membros",efeitos:[{tipo:"imunidade",a:"ser derrubado"}]},
- {n:"Tatuagens de Nano-Enxame",p:2200,e:"Materializa armas brancas na mão; dano escala por nível",g:"Torso"},
+ {n:"Cortex Central de Nano-Enxame",p:2200,e:"Materializa armas brancas na mão; dano escala por nível",g:"Torso"},
 ];
+
+// Limite de formas de Nano-Tatuagem que o Cortex Central sustenta sem gastar
+// slot de implante extra, por tamanho de raça (RACAS[i].tamanho). Além desse
+// limite, cada forma tatuada a mais passa a ocupar 1 slot do Limite Cibernético.
+export const LIMITE_TATUAGENS = { "pequena": 3, "média": 5, "grande": 8 };
 
 export const SCRIPTS = [
  {n:"Ping",c:0,a:"Ação Livre",d:"Pacote de dados a 10m: apaga luzes, liga rádios, abre portas não blindadas.",lore:"O equivalente digital a um estalar de dedos. O Tecnomante envia um pacote de dados simples que interage com qualquer eletrônico até 10m. Serve para apagar as luzes de um corredor, ligar um rádio no volume máximo para distrair guardas ou abrir portas não blindadas."},
@@ -1364,7 +1396,7 @@ export const CONSUMIVEIS = [
   { n: "Bateria Fantasma", p: 30, ic: "◈", efeito: "ram", valor: 1, acao: "Ação Livre",
     d: "Recupera 1 Slot de RAM. Só funciona em Tecnomantes." },
   { n: "Granada EMP", p: 120, ic: "⚡", efeito: "condicao", cond: "Silenciado", turnos: 2, area: true, raio: 2, acao: "Ação Principal",
-    d: "Pulso eletromagnético em área 3×3m: implantes, escudos e Tecnomancia ficam inertes por 2 turnos. Devasta sintéticos e apaga Tatuagens de Nano-Enxame ativas." },
+    d: "Pulso eletromagnético em área 3×3m: implantes, escudos e Tecnomancia ficam inertes por 2 turnos. Devasta sintéticos e apaga formas de Nano-Tatuagem ativas." },
   { n: "Granada Paralisante", p: 130, ic: "🧊", efeito: "condicao", cond: "Paralisado", turnos: 1, area: true, raio: 2, cd: 13, atributo: "Con", acao: "Ação Principal",
     d: "Descarga neural em área 3×3m. Cada alvo testa Constituição (CD 13) ou fica Paralisado por 1 turno." },
   { n: "Granada Incendiária", p: 95, ic: "🔥", efeito: "condicao", cond: "Em chamas", turnos: 3, area: true, raio: 2, dano: "2d6", tipoDano: "térmico", cd: 14, pericia: "Acrobacia", acao: "Ação Principal",

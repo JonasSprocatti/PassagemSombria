@@ -1229,7 +1229,7 @@ body.a11y-reduzir .fac-card.sobe,body.a11y-reduzir .fac-card.desce{animation:non
   border:1px solid var(--line);border-radius:3px;padding:1px 7px}
 .inv-item .filtros{margin-top:10px;padding-top:8px;border-top:1px solid var(--line)}
 
-/* Tatuagens de Nano-Enxame — escolha das formas */
+/* Cortex Central de Nano-Enxame — escolha das formas de Nano-Tatuagem */
 .nano-grade{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px}
 .nano-op{text-align:left;background:var(--panel2);border:1px solid var(--line);border-radius:9px;
   padding:9px 11px;cursor:pointer;color:var(--ink);display:flex;flex-direction:column;gap:2px;
