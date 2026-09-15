@@ -908,6 +908,16 @@ body.a11y-reduzir .nv-ganhos li,body.a11y-reduzir .nv-linha,body.a11y-reduzir .m
   50%{filter:drop-shadow(0 0 30px rgba(89,227,200,.55))}}
 .login-caixa h1{text-align:center;font-size:26px;margin:0 0 2px;letter-spacing:.04em}
 .login-caixa .sub{text-align:center;color:var(--dim);font-size:12.5px;margin:0 0 22px;font-style:italic}
+/* Logo/título/subtítulo já eram centralizados — o resto do card (botão do
+   Google, divisor "ou", linha de e-mail, aviso final) ficava largado à
+   esquerda, do tamanho do próprio conteúdo, quebrando a simetria visual do
+   card inteiro. Aqui tudo passa a ocupar a largura cheia do card ou fica
+   centralizado, igual ao topo. */
+.login-caixa .btn-primario{width:100%;text-align:center}
+.login-caixa .ou{text-align:center;font-size:11px;color:var(--dim);margin:18px 0 10px}
+.login-caixa .linha-email{width:100%}
+.login-caixa .linha-email input{flex:1;min-width:0}
+.login-caixa .regra{text-align:center;margin-top:18px}
 
 /* Hangar: os personagens são o conteúdo, não linhas de uma lista */
 .grid-fichas{display:grid;grid-template-columns:repeat(auto-fill,minmax(215px,1fr));gap:14px}
