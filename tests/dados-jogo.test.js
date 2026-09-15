@@ -2,8 +2,9 @@
 // Roda com: node --test tests/
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { chavesDaArma, propsArma, ARMAS, KEYWORDS, IMPLANTES } from "../public/js/dados-jogo.js";
+import { chavesDaArma, propsArma, ARMAS, KEYWORDS, IMPLANTES, PALAVRAS_CHAVE } from "../public/js/dados-jogo.js";
 import { parseDice } from "../public/js/regras.js";
+import { FichaEfeitos, Portador } from "../public/js/efeitos.js";
 
 describe("chavesDaArma", () => {
   test("separa uma arma com várias palavras-chave, uma por uma", () => {
@@ -86,6 +87,74 @@ describe("conteúdo das armas: toda arma com kw reconhece sua(s) palavra(s)-chav
       assert.notEqual(efeito, arma.kw, `descrição de "${arma.n}" saiu igual ao texto cru do kw`);
     });
   }
+});
+
+// Regressão: `chavesDaArma` só casa por EXATO ou por PREFIXO quando o kw não tem
+// vírgula/·. Um nome composto (ex. "Pesada / Queimadura") sem entrada própria em
+// PALAVRAS_CHAVE cai no prefixo mais curto que bater ("Pesada"), perdendo a outra
+// metade do efeito silenciosamente. Toda arma cadastrada precisa ter uma chave
+// EXATA no dicionário — nenhuma pode depender do fallback fuzzy.
+describe("conteúdo das armas: toda arma tem uma chave EXATA em PALAVRAS_CHAVE (sem depender do fuzzy-match)", () => {
+  for (const arma of ARMAS) {
+    if (!arma.kw) continue;
+    test(`"${arma.n}" (kw: "${arma.kw}")`, () => {
+      assert.ok(PALAVRAS_CHAVE[arma.kw], `"${arma.kw}" não é uma chave exata de PALAVRAS_CHAVE — vai cair no fuzzy-match`);
+    });
+  }
+});
+
+// Regressão: 4 palavras-chave existiam só como `{ props: {} }` — nenhum campo,
+// nenhum efeito, apesar do texto em KEYWORDS prometer uma mecânica. Confere que
+// toda entrada do dicionário tem PELO MENOS um jeito de fazer alguma coisa:
+// ignoraArmadura, aoAcertar, efeitos, ou um prop reconhecido fora do baseline
+// puramente descritivo (agil/oculta/brutal/area/alcance são consumidos em algum
+// lugar do app; um objeto `props` totalmente vazio é sempre inerte).
+describe("PALAVRAS_CHAVE: nenhuma entrada é totalmente inerte", () => {
+  for (const [nome, def] of Object.entries(PALAVRAS_CHAVE)) {
+    test(`"${nome}" faz alguma coisa`, () => {
+      const props = def.props || {};
+      const temProp = Object.keys(props).length > 0;
+      const fazAlgo = temProp || def.ignoraArmadura || (def.aoAcertar && Object.keys(def.aoAcertar).length)
+        || (def.efeitos && def.efeitos.length);
+      assert.ok(fazAlgo, `"${nome}" não declara props, ignoraArmadura, aoAcertar nem efeitos — é inerte`);
+    });
+  }
+});
+
+// Palavras de Área precisam de `raio` pra `[data-atq]` conseguir montar o
+// seletor de epicentro — sem isso, a "Área" nunca atinge mais de um alvo.
+describe("PALAVRAS_CHAVE: toda palavra de Área declara um raio", () => {
+  for (const [nome, def] of Object.entries(PALAVRAS_CHAVE)) {
+    if (!def.props?.area) continue;
+    test(`"${nome}" tem props.raio numérico`, () => {
+      assert.equal(typeof def.props.raio, "number");
+      assert.ok(def.props.raio > 0);
+    });
+  }
+});
+
+// Regressão do bug de verdade: Anti-Sintético/Ferramenta declaravam
+// `{tipo:"dano",valor:2,contra:"robos"}`, mas `combina("robos")` depende do
+// `alvo` passado a `modificarAtaque()` — que `[data-atq]` nunca preenchia. Este
+// teste cobre o MOTOR (efeitos.js), que é a parte testável fora do navegador:
+// confirma que o efeito dispara quando o alvo bate com o padrão de "robô" e
+// fica de fora quando não bate — a parte que faltava era só ligar o fio em
+// app.js (`alvo: alvoParaEfeitos`), já corrigida.
+describe("dano contra 'robos' (Anti-Sintético) dispara só com o alvo certo", () => {
+  const fe = new FichaEfeitos([new Portador("Rifle Anti-Sintético",
+    { efeitos: [{ tipo: "dano", valor: 2, contra: "robos", momento: "ao_atacar" }] })]);
+  test("alvo com nome de sintético: +2 de dano", () => {
+    const ctx = fe.modificarAtaque({ acerto: 0, dano: 0, arma: { tipo: "fogo" }, alvo: { nome: "Drone Sentinela" } });
+    assert.equal(ctx.dano, 2);
+  });
+  test("alvo orgânico comum: sem bônus", () => {
+    const ctx = fe.modificarAtaque({ acerto: 0, dano: 0, arma: { tipo: "fogo" }, alvo: { nome: "Bandido de Rua" } });
+    assert.equal(ctx.dano, 0);
+  });
+  test("sem alvo nenhum (como era o bug): sem bônus, não quebra", () => {
+    const ctx = fe.modificarAtaque({ acerto: 0, dano: 0, arma: { tipo: "fogo" } });
+    assert.equal(ctx.dano, 0);
+  });
 });
 
 // Implantes com `ataque` declarado (ex. Lâmina Oculta Retrátil) agem como uma

@@ -1177,7 +1177,7 @@ export const KEYWORDS = {
   "Impacto": "Ao acertar, pode empurrar o alvo 2m para trás.",
   "Puxão": "Ao acertar, pode puxar o alvo 2m em sua direção.",
   "Derrubar": "Ao acertar, pode derrubar o alvo (fica Caído).",
-  "Investida": "Bônus ao atacar após se mover em linha reta contra o alvo.",
+  "Investida": "+2 no acerto — golpe de carga, feito após avançar contra o alvo.",
   "Perfurante": "Ignora parte da armadura do alvo.",
   "Perfurante Leve": "Ignora uma pequena parte da armadura.",
   "Sangramento": "Ao acertar, o alvo sofre dano de sangramento nos turnos seguintes.",
@@ -1185,31 +1185,31 @@ export const KEYWORDS = {
   "Tóxica": "Injeta toxina; o alvo testa Constituição ou sofre veneno.",
   "Silenciosa": "Disparo sem ruído — não denuncia sua posição.",
   "Silenciosa / Toxina Lenta": "Silenciosa; injeta toxina de ação lenta.",
-  "Rajada": "Gasta o dobro de munição (conta como 2 turnos de disparo).",
-  "Rajada Silenciosa": "Rajada sem ruído; gasta munição em dobro.",
-  "Anti-Sintético": "Dano extra contra androides, drones e sintéticos.",
+  "Rajada": "Gasta o dobro de munição; área de 2m de raio ao redor de quem você mirar.",
+  "Rajada Silenciosa": "Rajada (área 2m, dobro de munição) e sem ruído — Oculta.",
+  "Anti-Sintético": "+2 de dano contra androides, drones e sintéticos (identificados pelo nome).",
   "Marcador Térmico": "Marca o alvo; aliados o veem através de fumaça/paredes finas.",
-  "Mira Telescópica": "Longo alcance; gaste a ação para mirar e ganhar bônus.",
-  "Cone de Repulsão": "Empurra todos num cone à frente.",
-  "Área 3x3m": "Atinge todos numa área de 3×3 metros.",
-  "Explosão em Área 3x3": "Explode numa área de 3×3m; alvos testam para reduzir o dano.",
-  "Sobreaquecimento": "Pode superaquecer se disparada em excesso.",
-  "Curto Alcance": "Só é eficaz a curta distância.",
-  "Curto Alcance / Descarregar": "Curto alcance; pode descarregar toda a carga de uma vez.",
-  "Pesada": "Pesada — pode exigir preparação/apoio para disparar.",
-  "Pesada / Queimadura": "Pesada; causa queimadura contínua.",
-  "Pesada / Fogo de Supressão": "Pesada; suprime uma área (inimigos acovardados).",
-  "Artilharia": "Arma de artilharia — dano massivo em área.",
-  "Atravessa Paredes": "O disparo atravessa coberturas e paredes finas.",
-  "Inesquivável / Contínuo": "Difícil de esquivar; dano contínuo.",
-  "Despedaçador": "Dano brutal contra estruturas e armaduras.",
-  "Destruidora": "Devastadora — dano muito alto.",
+  "Mira Telescópica": "Longo alcance de verdade — mesmo efeito de Telescópica.",
+  "Cone de Repulsão": "Área de 2m de raio; todos atingidos são empurrados 3m para longe de quem atirou.",
+  "Área 3x3m": "Atinge todos num raio de 1,5m ao redor de quem você mirar.",
+  "Explosão em Área 3x3": "Atinge todos num raio de 1,5m; cada alvo rola a própria Defesa contra a explosão.",
+  "Sobreaquecimento": "Num 1 natural, a arma superaquece e causa 1d4 de dano térmico em quem atira.",
+  "Curto Alcance": "+1 no acerto de perto; não estende o alcance de fogo.",
+  "Curto Alcance / Descarregar": "Curto alcance; marque \"Descarregar\" pra esvaziar o pente inteiro num tiro só, com dado de dano extra por bala gasta.",
+  "Pesada": "−2 no acerto ao disparar (Soldado com Memória Muscular ignora a penalidade).",
+  "Pesada / Queimadura": "Pesada (−2 acerto); ao acertar, o alvo pega fogo (Em chamas, Constituição CD 13 evita).",
+  "Pesada / Fogo de Supressão": "Pesada (−2 acerto); ao acertar, suprime o alvo (Acovardado, Constituição CD 13 evita).",
+  "Artilharia": "Área de 5m de raio ao redor de quem você mirar; gasta o dobro de munição.",
+  "Atravessa Paredes": "Área de 3m de raio; ignora cobertura de qualquer alvo atingido.",
+  "Inesquivável / Contínuo": "Ignora cobertura; ao acertar, sangramento contínuo garantido (sem teste de resistência).",
+  "Despedaçador": "Rola o dano com Vantagem e ignora 1 de armadura do alvo.",
+  "Destruidora": "Rola o dano E o acerto com Vantagem — devastadora, difícil de errar e de aguentar.",
   "Brutal": "Rola o dado de dano com Vantagem (o maior de dois).",
   "Defensiva": "Concede bônus defensivo enquanto empunhada.",
   "Aparar": "Pode gastar a Reação para aparar um ataque corpo a corpo.",
-  "Confiável": "Nunca falha por defeito; dano mínimo garantido.",
+  "Confiável": "Nenhum dado de dano rola abaixo da metade da face (arredondado pra cima).",
   "Saque Rápido": "Pode ser sacada como Ação Livre.",
-  "Ferramenta": "Também funciona como ferramenta utilitária.",
+  "Ferramenta": "+1 em Mecânica — também serve como ferramenta utilitária.",
 };
 // Deriva propriedades mecânicas a partir da palavra-chave da arma.
 // ---------------------------------------------------------------------------
@@ -1229,40 +1229,83 @@ export const PALAVRAS_CHAVE = {
   "Oculta":            { props: { oculta: true } },
   "Ultra-Oculta / Surpresa": { props: { oculta: true }, efeitos: [{ tipo: "acerto", valor: 2, momento: "ao_atacar" }] },
   "Silenciosa":        { props: { oculta: true } },
+  // Brutal = base (Vantagem no dano). As outras 3 eram reskins puros do mesmo
+  // efeito — cada uma ganhou um adicional que combina com o próprio nome/flavor,
+  // em vez de ser só um sinônimo de Brutal.
   "Brutal":            { props: { brutal: true } },
-  "Despedaçador":      { props: { brutal: true } },
-  "Destruidora":       { props: { brutal: true } },
+  "Despedaçador":      { props: { brutal: true }, ignoraArmadura: 1 },              // "brutal contra armaduras"
+  "Destruidora":       { props: { brutal: true }, efeitos: [{ tipo: "vantagem", em: "ataque", momento: "ao_atacar" }] }, // devastadora: também Vantagem no ACERTO
+  "Investida":         { efeitos: [{ tipo: "acerto", valor: 2, momento: "ao_atacar" }] },  // golpe de carga: +2 no acerto, não é mais um clone de Brutal
   "Alcance":           { props: { alcance: true, alcanceTxt: "3m (corpo a corpo)" } },
   "Alcance Maior":     { props: { alcance: true, alcanceTxt: "estendido" } },
   "Telescópica":       { props: { alcance: true, alcanceTxt: "longo (mirar)" } },
+  "Mira Telescópica":  { props: { alcance: true, alcanceTxt: "longo (mirar)" } },   // sinônimo de Telescópica — antes não tinha entrada própria e caía sem efeito
+  // Curto alcance é só o padrão de arma de fogo sem Alcance Maior/Telescópica —
+  // sozinha essa restrição não fazia NADA (nem penalidade, nem compensação).
+  // +1 no acerto: mais fácil de acertar de perto, compensa o alcance curto.
+  // (Não usar `tipo:"dano"` sem `contra` aqui: um efeito de dano de arma
+  // equipada é lido duas vezes — direto em `pr.efeitos` (modKw) e de novo via
+  // `chavesDeArmasEquipadas`/`modificarAtaque()` — dobraria o bônus. `acerto`
+  // só é lido pelo segundo caminho, então é seguro.)
+  "Curto Alcance":     { efeitos: [{ tipo: "acerto", valor: 1, momento: "ao_atacar" }] },
   "Marcador Térmico":  { props: { alcance: true }, aoAcertar: { cond: "Marcado", turnos: 2 } },
-  "Área":              { props: { area: true, areaTxt: "área" } },
-  "Rajada":            { props: { area: true, areaTxt: "área/linha" } },
-  "Cone de Repulsão":  { props: { area: true, areaTxt: "cone frontal" } },
-  "Artilharia":        { props: { area: true, areaTxt: "área" } },
-  "Atravessa Paredes": { props: { area: true, areaTxt: "linha" } },
+  // Palavras de Área: `raio` (metros) faz `[data-atq]` abrir um seletor de EPICENTRO
+  // de verdade (como o `aplicarEmAlvos` de scripts/granadas) e atingir todo mundo
+  // dentro do raio — antes só mostrava o texto "◎ Área", sem afetar mais de 1 alvo.
+  "Área":              { props: { area: true, areaTxt: "raio de 2m", raio: 2 } },
+  "Área 3x3m":         { props: { area: true, areaTxt: "raio de 1,5m", raio: 1.5 } },
+  "Explosão em Área 3x3": { props: { area: true, areaTxt: "raio de 1,5m", raio: 1.5 } },
+  "Rajada":            { props: { area: true, areaTxt: "raio de 2m", raio: 2 } },
+  "Rajada Silenciosa": { props: { area: true, areaTxt: "raio de 2m", raio: 2, oculta: true } },
+  "Cone de Repulsão":  { props: { area: true, areaTxt: "raio de 2m, empurra 3m", raio: 2, empurrao: 3 } },
+  "Artilharia":        { props: { area: true, areaTxt: "raio de 5m", raio: 5 } },
+  "Atravessa Paredes": { props: { area: true, areaTxt: "raio de 3m, ignora cobertura", raio: 3, ignoraCobertura: true } },
   "Sangramento":       { aoAcertar: { cond: "Sangrando", turnos: 3 } },
-  "Sangramento em Área": { props: { area: true, areaTxt: "área" }, aoAcertar: { cond: "Sangrando", turnos: 3 } },
+  "Sangramento em Área": { props: { area: true, areaTxt: "raio de 2m", raio: 2 }, aoAcertar: { cond: "Sangrando", turnos: 3 } },
   "Tóxica":            { aoAcertar: { cond: "Envenenado", turnos: 3, cd: 13 } },
   "Toxina Lenta":      { props: { oculta: true }, aoAcertar: { cond: "Envenenado", turnos: 3, cd: 13 } },
+  "Silenciosa / Toxina Lenta": { props: { oculta: true }, aoAcertar: { cond: "Envenenado", turnos: 3, cd: 13 } },
   "Atordoante":        { aoAcertar: { cond: "Atordoado", turnos: 1, cd: 13 } },
   "Concussão":         { aoAcertar: { cond: "Atordoado", turnos: 1, cd: 13 } },
   "Derrubar":          { aoAcertar: { cond: "Caído", turnos: 2 } },
   "Impacto":           { aoAcertar: { cond: "Caído", turnos: 2, cd: 13 } },
+  "Puxão":             { aoAcertar: { cond: "Caído", turnos: 2, cd: 13 } },
+  // Anti-Sintético/Ferramenta eram idênticas (mesmo +2 contra robôs) e o efeito
+  // nem funcionava de verdade — `contra:"robos"` depende do alvo já mirado, e
+  // `modificarAtaque()` nunca recebia o alvo em `[data-atq]` (corrigido agora,
+  // ver app.js). Diferenciadas: Anti-Sintético é a de combate de verdade;
+  // Ferramenta volta a ser o que o próprio nome diz (multitool utilitário).
   "Anti-Sintético":    { efeitos: [{ tipo: "dano", valor: 2, contra: "robos", momento: "ao_atacar" }] },
-  "Ferramenta":        { efeitos: [{ tipo: "dano", valor: 2, contra: "robos", momento: "ao_atacar" }] },
+  "Ferramenta":        { efeitos: [{ tipo: "pericia", pericia: "Mecânica", valor: 1 }] },
   "Perfurante":        { ignoraArmadura: 2 },
   "Perfurante Leve":   { ignoraArmadura: 1 },
   "Derretimento":      { ignoraArmadura: 2 },
-  "Confiável":         { props: {} },
+  // Confiável: nenhum dado de dano rola abaixo da metade da face (arredondado
+  // pra cima) — checado em `[data-atq]` via `pr.confiavel`. Antes `{props:{}}`,
+  // zero efeito apesar do texto prometer "dano mínimo garantido".
+  "Confiável":         { props: { confiavel: true } },
   "Defensiva":         { efeitos: [{ tipo: "defesa", valor: 1 }] },
   "Aparar":            { efeitos: [{ tipo: "defesa", valor: 1 }] },
   "Aderência":         { efeitos: [{ tipo: "vantagem", em: "pericia", pericia: "Atletismo" }] },
-  "Investida":         { props: { brutal: true } },
-  "Puxão":             { aoAcertar: { cond: "Caído", turnos: 2, cd: 13 } },
-  "Pesada":            { props: {} },
-  "Sobreaquecimento":  { props: {} },
-  "Inesquivável / Contínuo": { props: {} },
+  // Pesada: −2 no acerto de verdade agora (checado em `[data-atq]` via `pr.pesada`,
+  // negado por `k.efeitos.imunidades()` conter "penalidade de -2 com armas Pesadas"
+  // — a passiva "Memória Muscular" do Soldado já dizia isso, mas nada aplicava a
+  // penalidade que ela prometia anular; achado ao mecanizar isto).
+  "Pesada":            { props: { pesada: true } },
+  "Pesada / Queimadura": { props: { pesada: true }, aoAcertar: { cond: "Em chamas", turnos: 3, cd: 13 } },
+  "Pesada / Fogo de Supressão": { props: { pesada: true }, aoAcertar: { cond: "Acovardado", turnos: 2, cd: 13 } },
+  // Sobreaquecimento: num natural 1, a arma superaquece e queima quem atira
+  // (1d4 térmico) — checado em `[data-atq]` via `pr.sobreaquece`.
+  "Sobreaquecimento":  { props: { sobreaquece: true } },
+  // Descarregar: checkbox próprio (🔫) ao lado de Furtivo — esvazia o pente
+  // carregado inteiro num só disparo, some dados extras de dano proporcionais
+  // às balas gastas além do custo normal. Ver `[data-atq]`/`#atq-descarregar`.
+  "Curto Alcance / Descarregar": { props: { descarrega: true } },
+  // Inesquivável: ignora cobertura (não dá pra se esconder de um tiro assim).
+  // Contínuo: sangramento GARANTIDO ao acertar, sem teste de resistência (ao
+  // contrário de "Sangramento" comum, que também não tem CD — aqui o diferencial
+  // é "inesquivável" = ignora cobertura, junto do dano contínuo).
+  "Inesquivável / Contínuo": { props: { ignoraCobertura: true }, aoAcertar: { cond: "Sangrando", turnos: 3 } },
 };
 
 // Lê a lista de palavras-chave de uma arma (o campo `kw` pode ter várias, separadas por vírgula).
