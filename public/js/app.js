@@ -19,6 +19,7 @@ import {
   CONDICOES_INFO, CONDICOES, infoCond, aplicarCond,
   CAMPO_LARGURA, CAMPO_PISTAS, PISTA_M, CAMPO_JANELA, ALCANCE_CAC, ALCANCE_ARMA, distCombate, posInicial, empurrarDe,
   TIPOS_DANO, semAcento, tipoDanoArma, tipoDanoAtaque, imuneAoDano, alcanceDaArma,
+  capacidadeArma, municaoDe, descontarMunicao, recarregarArma,
 } from "./regras.js";
 
 export const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -367,16 +368,18 @@ export function danoNave(alvo, valor) {
   return r;
 }
 export const rolarAvaria = () => AVARIAS[d(6) - 1];
-// Ataques de uma nave: os "Canhões" (o `dano` padrão do modelo) + o que estiver em
-// `ataques` (torpedos, laser ponto-a-ponto…, cadastrados pelo admin no editor de
-// nave). Com só uma opção, devolve ela direto — quem só tem canhão não vê pergunta
-// nenhuma a mais. `bonus` de cada ataque, se não declarado, cai no +4 padrão de nave.
+// Ataques de uma nave: `nave.armas` (novo esquema — cada uma com `tipo` energia/
+// balistica/missil e seu próprio `dano`) se existir; senão cai no esquema antigo
+// (Canhões = `dano` do modelo + `ataques` cadastrados no admin), pra não quebrar
+// nave customizada sem o campo novo. Com só uma opção, devolve ela direto — quem só
+// tem canhão não vê pergunta nenhuma a mais. `bonus`/`acerto`, se omitido, +4 padrão.
 export async function ataqueDaNave(nave, origemTxt = "") {
-  const pool = [{ n: "Canhões", dano: nave?.dano || "1d6" }, ...(nave?.ataques || [])];
+  const pool = nave?.armas?.length ? nave.armas : [{ n: "Canhões", dano: nave?.dano || "1d6" }, ...(nave?.ataques || [])];
   if (pool.length === 1) return pool[0];
   const r = await modalForm({ titulo: `⚔ ${origemTxt || nave?.nome || nave?.nome_batismo || nave?.modelo || "Nave"} — qual arma?`,
     campos: [{ k: "atk", label: "Ataque", tipo: "select",
-      opcoes: pool.map((a, i) => ({ v: String(i), l: `${a.n || "Canhões"}${a.dano ? ` — ${a.dano}` : ""}${a.extra ? ` (${a.extra})` : ""}` })) }],
+      opcoes: pool.map((a, i) => { const cap = capacidadeArma(a); const mun = cap == null ? "" : ` (${municaoDe(nave, a)}/${cap})`;
+        return { v: String(i), l: `${a.n || "Canhões"}${a.dano ? ` — ${a.dano}` : ""}${a.extra ? ` (${a.extra})` : ""}${mun}` }; }) }],
     okLabel: "Disparar" });
   if (!r?.atk) return null;   // cancelou
   return pool[+r.atk];
@@ -419,8 +422,8 @@ export const naveTaticaVazia = () => ({ evasiva: null, evasivaDe: null, alinhado
 // Um participante pode ser pessoa/criatura (hp) ou nave (casco). Estes helpers unificam os dois.
 export const ehNave = (c) => c?.tipo === "nave";
 export const foraDeCombate = (c) => ehNave(c) ? (c.casco || 0) <= 0 : (c.hp || 0) <= 0;
-const vidaAtual = (c) => ehNave(c) ? c.casco : c.hp;
-const vidaMax = (c) => ehNave(c) ? c.casco_max : c.hp_max;
+export const vidaAtual = (c) => ehNave(c) ? c.casco : c.hp;
+export const vidaMax = (c) => ehNave(c) ? c.casco_max : c.hp_max;
 const ordenarCombate = (cb) => { cb.ordem.sort((a, b) => (b.ini - a.ini) || a.nome.localeCompare(b.nome)); return cb; };
 // Avança para o próximo combatente vivo; vira a rodada ao dar a volta.
 const proximoTurno = (cb) => {
@@ -2137,7 +2140,7 @@ async function telaMesa(id) {
     const vistaLarg = vistaCampo.fim - vistaCampo.ini;
     const pctX = (x) => ((x - vistaCampo.ini) / vistaLarg) * 100;
     const tokenSelObj = camp.combate.ordem.find((c) => c.id === ui.tokenSel && !ehNave(c)) || null;
-    const ctxNave = { id, camp, pers, membros, ui, f, k, nave, cbn, meuPosto, enviar, salvarCamp, salvarCbn, render, defesaNaveParty, bonusDefVeiculo };
+    const ctxNave = { id, camp, pers, membros, ui, f, k, nave, cbn, meuPosto, enviar, salvarCamp, salvarCbn, render, defesaNaveParty, bonusDefVeiculo, aplicarDanoAlvo, snapshot };
     shell("mesa", `
       <nav class="topo"><a class="btn-ghost" href="#/campanhas">← CAMPANHAS</a>
         <div class="topo-status">${esc(camp.nome)} · código <b class="chrome">${camp.codigo}</b></div><span style="display:flex;gap:6px"><button id="atalhos" class="btn-ghost so-desktop" title="Atalhos de teclado (?)">⌨</button><button id="abrir-diario" class="btn-ghost" title="Diário da campanha">📔 DIÁRIO</button>${ehMestreReal ? `<button id="modo-jogador" class="btn-ghost ${ui.modoJogador ? "on" : ""}" title="${ui.modoJogador ? "Você está jogando como tripulante. Clique para voltar a ser Mestre." : "Testar/jogar como um tripulante comum — some as ferramentas e os privilégios de Mestre."}">${ui.modoJogador ? "🎭 MODO JOGADOR" : "👑 MESTRE"}</button>` : ""}${ui.souMestre ? `<button id="abrir-mestre" class="btn-ghost" title="Tela do Mestre">🎛 MESTRE</button>` : ""}<a href="#/biblioteca/regras" target="_blank" rel="noopener" class="btn-ghost" title="Manual de regras — abre numa aba nova, a mesa continua aberta aqui">📖 REGRAS</a><button id="abrir-mapa" class="btn-ghost" title="Mapa do sistema (compartilhado)">🗺 MAPA</button></span></nav>
@@ -2908,40 +2911,47 @@ async function telaMesa(id) {
     app.querySelectorAll("[data-cb-nave]").forEach((b) => b.onclick = async () => {
       const atc = camp.combate.ordem.find((x) => x.id === b.dataset.cbNave); if (!atc) return;
       const atk = await ataqueDaNave(atc); if (!atk) return;   // cancelou a escolha de arma
+      if (municaoDe(atc, atk) <= 0) return alert(`${atk.n} está sem munição — sem como disparar.`);
       const bonusAtk = atk.bonus ?? 4;
-      // Sem a nave da tripulação em cena, a nave inimiga atira em quem está no chão.
-      if (!camp.nave || !camp.combate.naveEmCena) {
-        const alvos = camp.combate.ordem.filter((x) => !ehNave(x) && !foraDeCombate(x));
-        if (!alvos.length) return alert("Não há alvos em campo.");
-        const r0 = await modalForm({ titulo: `🚀 ${atc.nome} dispara`, descricao: "A nossa nave não está em cena — escolha quem leva o tiro.",
-          campos: [{ k: "alvo", label: "Alvo", tipo: "select", opcoes: alvos.map((x) => ({ v: x.id, l: `${x.nome} (${x.hp}/${x.hp_max})` })) }], okLabel: "Disparar" });
-        if (!r0?.alvo) return;
-        const alvoP = camp.combate.ordem.find((x) => x.id === r0.alvo);
-        snapshot("disparo de nave em pessoa");
-        const natP = d(20), totalP = natP + bonusAtk;
-        if (natP === 1 || totalP < (alvoP.cd || 10)) return enviar("rolagem", null, { titulo: `🚀 ${atc.nome} dispara ${atk.n} em ${alvoP.nome}`, detalhe: `d20 [${natP}] ${sign(bonusAtk)} vs CD ${alvoP.cd || 10}`, total: totalP, fumble: natP === 1, extra: "Errou." });
-        const pdP = parseDice(atk.dano); const ddP = rollNd(pdP.n, pdP.f);
-        const brutoP = ddP.reduce((x, y) => x + y, 0);
-        const antesP = alvoP.hp;
-        alvoP.hp = Math.max(0, alvoP.hp - brutoP);
-        await sincronizarFicha(alvoP, alvoP.hp - antesP);
-        await salvarCombate();
-        return enviar("rolagem", null, { titulo: `🚀 ${atc.nome} dispara ${atk.n} em ${alvoP.nome}`, detalhe: `d20 [${natP}] ${sign(bonusAtk)} · ${atk.dano} [${ddP.join(", ")}]`, total: totalP, extra: `${alvoP.nome}: ${antesP} → ${alvoP.hp} PV.${alvoP.hp <= 0 ? " 💀 CAIU!" : ""}` });
-      }
-      const alvo = { nome: camp.nave.nome_batismo || camp.nave.modelo, casco: camp.nave.casco, casco_max: camp.nave.casco_max, escudos: camp.nave.escudos, escudos_max: camp.nave.escudos_max, manobra: camp.nave.manobra, nave_party: true };
-      snapshot("disparo de nave inimiga");
+      // Alvo: qualquer um vivo no rastreador (pessoa/criatura/NPC) — nunca a própria
+      // atacante nem outra nave inimiga (isso é combate nave-a-nave de verdade, fora
+      // de escopo aqui). A nave da party não é uma linha do rastreador (o HUD lê
+      // direto de camp.nave), então entra como candidato sintético quando em cena.
+      const naveParty = (camp.nave && camp.combate.naveEmCena)
+        ? { id: "__nave_party__", nome: camp.nave.nome_batismo || camp.nave.modelo, tipo: "nave",
+            casco: camp.nave.casco, casco_max: camp.nave.casco_max, escudos: camp.nave.escudos, escudos_max: camp.nave.escudos_max,
+            manobra: camp.nave.manobra, nave_party: true }
+        : null;
+      const candidatos = [...camp.combate.ordem.filter((x) => x.id !== atc.id && !foraDeCombate(x) && !ehNave(x)), ...(naveParty ? [naveParty] : [])];
+      if (!candidatos.length) return alert("Não há alvos em campo.");
+      const r0 = await modalForm({ titulo: `🚀 ${atc.nome} dispara ${atk.n}`, campos: [
+        { k: "alvo", label: "Alvo", tipo: "select", opcoes: candidatos.map((x) => ({ v: x.id, l: `${ehNave(x) ? "🚀 " : ""}${x.nome} — ${vidaAtual(x)}/${vidaMax(x)}${ehNave(x) ? "" : ` PV, Def ${x.cd ?? 10}`}` })) }], okLabel: "Disparar" });
+      if (!r0?.alvo) return;
+      const alvo = candidatos.find((x) => x.id === r0.alvo);
+      snapshot("disparo de nave");
+      descontarMunicao(atc, atk);
       const ntx = camp.combate.nave || naveTaticaVazia();
-      const nat = d(20), total = nat + bonusAtk, def = ntx.evasiva != null ? ntx.evasiva : 10 + (alvo.manobra || 0);
-      if (nat === 1 || total < def) return enviar("rolagem", null, { titulo: `🚀 ${atc.nome} dispara ${atk.n}`, detalhe: `d20 [${nat}] ${sign(bonusAtk)} vs Defesa ${def}`, total, fumble: nat === 1, extra: "Errou." });
+      const def = ehNave(alvo) ? (ntx.evasiva != null ? ntx.evasiva : defesaNave(alvo)) : (alvo.cd || 10);
+      const nat = d(20), total = nat + bonusAtk;
+      if (nat === 1 || total < def) {
+        await salvarCombate();
+        return enviar("rolagem", null, { titulo: `🚀 ${atc.nome} dispara ${atk.n} em ${alvo.nome}`, detalhe: `d20 [${nat}] ${sign(bonusAtk)} vs Defesa ${def}`, total, fumble: nat === 1, extra: "Errou." });
+      }
       const pd = parseDice(atk.dano); const dd = rollNd(pd.n, pd.f);
       const bruto = danoCritico(dd.reduce((x, y) => x + y, 0), pd.mod, nat === 20 ? 2 : 1);
-      const r = danoNave(alvo, bruto);
-      let extra = `Escudos −${r.escudos}, Casco −${r.casco}. ${alvo.nome}: ${alvo.casco}/${alvo.casco_max}`;
-      if ((nat === 20 || r.critico) && r.casco > 0) { const av = rolarAvaria(); (camp.combate.avarias = camp.combate.avarias || []).push(av); extra += `  ⚠ ${av.n}: ${av.e}`; }
-      if (alvo.casco <= 0) extra += "  💀 Casco a zero!";
-      if (alvo.nave_party && camp.nave) { camp.nave.casco = alvo.casco; camp.nave.escudos = alvo.escudos; }
+      let extra;
+      if (ehNave(alvo)) {
+        const r = danoNave(alvo, bruto);
+        extra = `Escudos −${r.escudos}, Casco −${r.casco}. ${alvo.nome}: ${alvo.casco}/${alvo.casco_max}`;
+        if ((nat === 20 || r.critico) && r.casco > 0) { const av = rolarAvaria(); (camp.combate.avarias = camp.combate.avarias || []).push(av); extra += `  ⚠ ${av.n}: ${av.e}`; }
+        if (alvo.casco <= 0) extra += "  💀 Casco a zero!";
+        if (alvo.nave_party && camp.nave) { camp.nave.casco = alvo.casco; camp.nave.escudos = alvo.escudos; }
+      } else {
+        const rd = await aplicarDanoAlvo(alvo, bruto, "físico");
+        extra = `${rd.msg}${alvo.hp <= 0 ? "  💀 CAIU!" : ""}`;
+      }
       await salvarCamp({ combate: camp.combate, ...(alvo.nave_party && camp.nave ? { nave: camp.nave } : {}) }, "salvar o disparo");
-      await enviar("rolagem", null, { titulo: `🚀 ${atc.nome} dispara ${atk.n}`, detalhe: `d20 [${nat}] ${sign(bonusAtk)} vs Def ${def} · dano ${atk.dano} [${dd.join(", ")}]${nat === 20 ? " ×2" : ""}`, total, crit: nat === 20, extra });
+      await enviar("rolagem", null, { titulo: `🚀 ${atc.nome} dispara ${atk.n} em ${alvo.nome}`, detalhe: `d20 [${nat}] ${sign(bonusAtk)} vs Def ${def} · dano ${atk.dano} [${dd.join(", ")}]${nat === 20 ? " ×2" : ""}`, total, crit: nat === 20, extra });
       render();
     });
     app.querySelectorAll("[data-av-fix2]").forEach((b) => b.onclick = async () => {
@@ -3189,7 +3199,7 @@ async function telaMesa(id) {
         camp.combate.ordem.push({ id: cbId(), tipo: "nave", lado: "inimiga", modelo: base.n,
           nome: iguais ? `${base.n} #${iguais + 1}` : base.n, ini: d(20) + (base.manobra || 0),
           casco: base.casco, casco_max: base.casco, escudos: base.escudos, escudos_max: base.escudos,
-          manobra: base.manobra, dano: base.dano, ataques: base.ataques || [] });
+          manobra: base.manobra, dano: base.dano, ataques: base.ataques || [], armas: base.armas || [] });
       } else { const b = v.startsWith("c:") ? camp.bestiario[+v.slice(2)] : todasCriaturas()[+v.slice(2)]; if (!b) return;
         // Lacaios entram em bando: uma linha só, com quantidade. O dano transborda de um para o próximo.
         const rq = await modalForm({ titulo: `🎲 ${b.n}`,

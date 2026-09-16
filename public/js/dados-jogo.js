@@ -954,6 +954,7 @@ export const ARMAS = [
 export const NAVES = [
  {
   "n": "Caça Ligeiro (O Zangão do Vácuo)",
+  "armas": [{ "n": "Canhões Gêmeos", "tipo": "balistica", "dano": "3d6", "pente": 6 }, { "n": "Mísseis Leves", "tipo": "missil", "dano": "4d6", "unidades": 2 }],
   "casco": 30,
   "escudos": 10,
   "manobra": 4,
@@ -963,6 +964,7 @@ export const NAVES = [
  },
  {
   "n": "Interceptador Furtivo (O Fantasma Magnético)",
+  "armas": [{ "n": "Lança Magnética", "tipo": "energia", "dano": "2d10" }, { "n": "Torpedo Silencioso", "tipo": "missil", "dano": "3d10", "unidades": 2 }],
   "casco": 40,
   "escudos": 15,
   "manobra": 3,
@@ -972,6 +974,7 @@ export const NAVES = [
  },
  {
   "n": "Veleiro Solar Sata (A Lâmina de Luz)",
+  "armas": [{ "n": "Feixe Solar", "tipo": "energia", "dano": "3d8" }, { "n": "Dardos de Grafeno", "tipo": "balistica", "dano": "2d8", "pente": 8 }],
   "casco": 40,
   "escudos": 25,
   "manobra": 5,
@@ -981,6 +984,7 @@ export const NAVES = [
  },
  {
   "n": "Cargueiro Modificado (A Casa Longe de Casa)",
+  "armas": [{ "n": "Canhões de Flanco", "tipo": "balistica", "dano": "3d8", "pente": 8 }, { "n": "Torreta Ponto-a-Ponto", "tipo": "energia", "dano": "1d8", "acerto": 2 }],
   "casco": 60,
   "escudos": 30,
   "manobra": 1,
@@ -990,6 +994,7 @@ export const NAVES = [
  },
  {
   "n": "Nave de Prospecção Conjupitera (A Fera Industrial)",
+  "armas": [{ "n": "Laser de Mineração", "tipo": "energia", "dano": "4d8" }, { "n": "Cargas de Demolição", "tipo": "missil", "dano": "6d8", "unidades": 3 }],
   "casco": 80,
   "escudos": 20,
   "manobra": -1,
@@ -999,15 +1004,17 @@ export const NAVES = [
  },
  {
   "n": "Cruzador de Interdição Proturno (O Olho de Netuno)",
+  "armas": [{ "n": "Feixe de Interdição", "tipo": "energia", "dano": "6d10" }, { "n": "Torpedos de Supressão", "tipo": "missil", "dano": "8d10", "unidades": 4 }],
   "casco": 70,
   "escudos": 80,
   "manobra": 0,
-  "dano": "8d10",
+  "dano": "6d10",
   "trip": "4 a 6 (Exige um Tático de elite nos Sensores).",
   "desc": "A ferramenta de Netuno para impor embargos e ditar a lei no sistema externo. Este Cruzador não foi desenhado para destruir, mas para subjugar. O seu formato é esférico e polido. Quando um \"Olho de Netuno\" entra num setor, os radares de todas as naves próximas começam a falhar e as comunicações são i"
  },
  {
   "n": "Corveta Militar (A Lança da Confederação)",
+  "armas": [{ "n": "Baterias Principais", "tipo": "balistica", "dano": "6d10", "pente": 6 }, { "n": "Mísseis de Cruzeiro", "tipo": "missil", "dano": "8d10", "unidades": 4 }],
   "casco": 100,
   "escudos": 50,
   "manobra": -1,
@@ -1017,24 +1024,27 @@ export const NAVES = [
  },
  {
   "n": "Bombardeiro de Cerco Urak (O Quebra-Gelo)",
+  "armas": [{ "n": "Canhão Criogênico", "tipo": "energia", "dano": "5d12" }, { "n": "Bombas de Cerco", "tipo": "missil", "dano": "8d12", "unidades": 3 }],
   "casco": 120,
   "escudos": 30,
   "manobra": -3,
-  "dano": "8d12",
+  "dano": "5d12",
   "trip": "3 a 5 (Foco no Engenheiro e no Artilheiro).",
   "desc": "Os Urak's de Urano são mestres em arquitetura pesada e isolamento. O \"Quebra-Gelo\" foi inicialmente desenhado para implodir asteroides maciços, mas foi adaptado para a guerra de cerco corporativo. É um retângulo feio, brutal e lento, com blindagem sobreposta e motores que cospem radiação escura. Enf"
  },
  {
   "n": "Fragata de Assalto Marciana (A Lâmina Bruta de Deimos)",
+  "armas": [{ "n": "Canhões Rotativos", "tipo": "balistica", "dano": "7d12", "pente": 8 }, { "n": "Torpedos de Abordagem", "tipo": "missil", "dano": "9d12", "unidades": 2 }],
   "casco": 150,
   "escudos": 40,
   "manobra": -2,
-  "dano": "5d12",
+  "dano": "7d12",
   "trip": "Dezenas de legionários.",
   "desc": "Uma nave de combate brutal e sem refinamentos estéticos, pintada com as cores da ferrugem marciana. A estratégia destas naves não é atirar de longe, mas acelerar diretamente contra a nave inimiga. Disparam os arpéus magnéticos, puxam a presa para perto e abrem as eclusas laterais para que os Soldado"
  },
  {
   "n": "Encouraçado (Dreadnought)",
+  "armas": [{ "n": "Bateria Principal", "tipo": "balistica", "dano": "10d20", "pente": 4 }, { "n": "Lasers de Defesa", "tipo": "energia", "dano": "4d10" }, { "n": "Torpedos Pesados", "tipo": "missil", "dano": "12d20", "unidades": 6 }],
   "casco": 300,
   "escudos": 150,
   "manobra": -4,
@@ -1165,8 +1175,9 @@ export const ESTACOES = {
   {n:"Alinhamento de Rota",rola:["Des","Pilotagem"],d:"Contra a Defesa inimiga: sucesso dá Vantagem ao próximo ataque do Artilheiro."},
   {n:"Fuga de Dobra",rola:null,d:"2 turnos consecutivos sem sofrer Crítico para saltar e fugir."}]},
  artilharia:{n:"Artilharia",acoes:[
-  {n:"Fogo Concentrado",rola:["Des","Armas de Fogo"],danoNave:true,d:"Contra a Defesa da nave inimiga; acertou → rola o dano da arma da nave."},
-  {n:"Tiro de Precisão",rola:["Des","Armas de Fogo"],danoNave:true,d:"Com Desvantagem; dano no Casco desativa um subsistema 1d4 turnos."}]},
+  {n:"Fogo Concentrado",rola:["Des","Armas de Fogo"],danoNave:true,d:"Escolhe arma e alvo (nave, jogador, criatura ou NPC); acertou → rola o dano contra a Defesa de quem for."},
+  {n:"Tiro de Precisão",rola:["Des","Armas de Fogo"],danoNave:true,d:"Com Desvantagem; dano no Casco de nave inimiga desativa um subsistema 1d4 turnos."},
+  {n:"Recarregar",rola:null,d:"Sem rolagem: reabastece o pente de uma arma balística da nave (não vale para mísseis nem energia)."}]},
  engenharia:{n:"Engenharia",acoes:[
   {n:"Redirecionar Energia",rola:["Int","Tecnomancia"],cura:"escudos",dado:"1d8",d:"CD 12: a nave recupera 1d8 + Nível em Escudos."},
   {n:"Reparos de Emergência",rola:["Int","Tecnomancia"],cura:"casco",dado:"1d4",d:"Sucesso: a nave recupera 1d4 de Casco."},

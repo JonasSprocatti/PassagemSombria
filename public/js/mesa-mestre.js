@@ -399,7 +399,7 @@ export async function abrirMestre(ctx) {
         if (it.tipo === "nave") {
           const base = NAVES.find((n2) => n2.n === it.nome); if (!base) continue;
           if (camp.nave && !(await confirmModal(`A party já tem a nave "${camp.nave.nome_batismo || camp.nave.modelo}". Substituir por "${it.nome}" (recompensa do contrato)?`, { okLabel: "Substituir", perigo: true }))) continue;
-          camp.nave = { modelo: base.n, nome_batismo: base.n, casco: base.casco, casco_max: base.casco, escudos: base.escudos, escudos_max: base.escudos, manobra: base.manobra, dano: base.dano, ataques: base.ataques || [] };
+          camp.nave = { modelo: base.n, nome_batismo: base.n, casco: base.casco, casco_max: base.casco, escudos: base.escudos, escudos_max: base.escudos, manobra: base.manobra, dano: base.dano, ataques: base.ataques || [], armas: base.armas || [] };
           await salvarCamp({ nave: camp.nave }, "salvar a nave de recompensa");
           await enviar("sistema", `🚀 Recompensa de "${c.titulo}": a party recebe a nave ${it.nome}.`);
           continue;

@@ -7,6 +7,7 @@ import {
   aplicarCond, infoCond, distCombate, posInicial, empurrarDe,
   tipoDanoArma, tipoDanoAtaque, imuneAoDano, alcanceDaArma,
   ALCANCE_CAC, ALCANCE_ARMA, PISTA_M, CAMPO_LARGURA, CONDICOES_INFO,
+  capacidadeArma, municaoDe, descontarMunicao, recarregarArma,
 } from "../public/js/regras.js";
 
 describe("danoCritico", () => {
@@ -319,5 +320,56 @@ describe("parseDice", () => {
   });
   test("texto que não é um dado devolve null", () => {
     assert.equal(parseDice("abacate"), null);
+  });
+});
+
+describe("munição de arma de nave (capacidadeArma/municaoDe/descontarMunicao/recarregarArma)", () => {
+  const energia = { n: "Laser", tipo: "energia", dano: "3d8" };
+  const balistica = { n: "Canhões", tipo: "balistica", dano: "3d6", pente: 6 };
+  const missil = { n: "Torpedo", tipo: "missil", dano: "4d6", unidades: 2 };
+
+  test("energia não tem teto — capacidadeArma null, municaoDe infinita", () => {
+    assert.equal(capacidadeArma(energia), null);
+    assert.equal(municaoDe({}, energia), Infinity);
+  });
+
+  test("balística e míssil usam pente/unidades como teto", () => {
+    assert.equal(capacidadeArma(balistica), 6);
+    assert.equal(capacidadeArma(missil), 2);
+  });
+
+  test("sem municao[] gravado ainda, municaoDe cai no teto do catálogo", () => {
+    assert.equal(municaoDe({}, balistica), 6);
+    assert.equal(municaoDe({}, missil), 2);
+  });
+
+  test("descontarMunicao reduz 1 e nunca passa de 0", () => {
+    const nave = {};
+    descontarMunicao(nave, balistica);
+    assert.equal(municaoDe(nave, balistica), 5);
+    for (let i = 0; i < 10; i++) descontarMunicao(nave, missil);
+    assert.equal(municaoDe(nave, missil), 0);   // não fica negativo
+  });
+
+  test("descontarMunicao não faz nada em arma de energia (infinita continua infinita)", () => {
+    const nave = {};
+    descontarMunicao(nave, energia);
+    assert.equal(municaoDe(nave, energia), Infinity);
+    assert.deepEqual(nave.municao ?? {}, {});   // não cria entrada à toa
+  });
+
+  test("recarregarArma restaura o teto", () => {
+    const nave = { municao: { [balistica.n]: 0 } };
+    recarregarArma(nave, balistica);
+    assert.equal(municaoDe(nave, balistica), 6);
+  });
+
+  test("recarregarArma em míssil/energia não faz nada (sem recarga em combate)", () => {
+    const naveM = {};
+    recarregarArma(naveM, missil);
+    assert.equal(municaoDe(naveM, missil), 2);   // continua o teto do catálogo, não "recarregou"
+    const naveE = {};
+    recarregarArma(naveE, energia);
+    assert.deepEqual(naveE.municao ?? {}, {});
   });
 });

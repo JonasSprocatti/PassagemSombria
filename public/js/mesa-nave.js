@@ -11,12 +11,15 @@
 //  imports, mesmo padrão de biblioteca.js/admin.js/mesa-mestre.js.
 // ============================================================================
 import { NAVES, ESTACOES, REGRAS_NAVE, UPGRADES_NAVE } from "./dados-jogo.js";
-import { d, sign, parseDice, rollNd, danoCritico, novaFichaDados, aplicarCond } from "./regras.js";
+import {
+  d, sign, parseDice, rollNd, danoCritico, novaFichaDados, aplicarCond,
+  capacidadeArma, municaoDe, descontarMunicao, recarregarArma,
+} from "./regras.js";
 import { modalForm, confirmModal } from "./ui.js";
 import {
   sb, esc, usuario, POSTOS_ORDEM,
   ehNave, foraDeCombate, defesaNave, danoNave, rolarAvaria, ataqueDaNave, combateNaveVazio, naveTaticaVazia,
-  salvarFicha,
+  salvarFicha, vidaAtual, vidaMax,
 } from "./app.js";
 
 const $ = (s) => document.querySelector(s);
@@ -32,7 +35,9 @@ export function renderNave(ctx) {
                 <div class="barra"><span>Casco ${nave.casco}/${nave.casco_max}</span><div><i style="width:${(100 * nave.casco / nave.casco_max) | 0}%;background:var(--chrome)"></i></div></div>
                 <div class="barra"><span>Escudos ${nave.escudos}/${nave.escudos_max}</span><div><i style="width:${nave.escudos_max ? (100 * nave.escudos / nave.escudos_max) | 0 : 0}%;background:var(--tech)"></i></div></div>
               </div>
-              <p class="regra">Defesa ${defesaNaveParty()}${bonusDefVeiculo() ? ` (10 + Manobra + ${bonusDefVeiculo()} do Piloto)` : ""} · Dano ${esc(nave.dano)} · ${esc(REGRAS_NAVE.defesa)}</p>
+              <p class="regra">Defesa ${defesaNaveParty()}${bonusDefVeiculo() ? ` (10 + Manobra + ${bonusDefVeiculo()} do Piloto)` : ""} · ${esc(REGRAS_NAVE.defesa)}</p>
+              ${nave.armas?.length ? `<p class="regra">${nave.armas.map((a) => { const cap = capacidadeArma(a);
+                return `<b class="chrome">${esc(a.n)}</b> ${esc(a.dano)}${cap == null ? " (energia)" : ` — ${municaoDe(nave, a)}/${cap} ${a.tipo === "missil" ? "unid." : "tiros"}`}`; }).join(" · ")}</p>` : ""}
               <label>Meu posto<select id="sel-posto"><option value="">— fora da nave —</option>
                 ${Object.entries(ESTACOES).map(([pk, e]) => `<option value="${pk}" ${meuPosto === pk ? "selected" : ""}>${e.n}</option>`).join("")}</select></label>
               ${meuPosto && f ? `<div class="acoes-mesa">${ESTACOES[meuPosto].acoes.map((a, i) => `<button class="mini" data-est="${i}" title="${esc(a.d)}">${esc(a.n)}</button>`).join("")}</div>` : ""}
@@ -60,7 +65,7 @@ export function renderNave(ctx) {
 }
 
 export function wireNave(ctx) {
-  const { id, camp, pers, ui, f, k, meuPosto, enviar, salvarCamp, salvarCbn, render, defesaNaveParty } = ctx;
+  const { id, camp, pers, ui, f, k, meuPosto, enviar, salvarCamp, salvarCbn, render, defesaNaveParty, aplicarDanoAlvo, snapshot } = ctx;
   // A nave da party também aparece como linha no rastreador (`nave_party`), com
   // cópia própria de casco/escudos — o HUD de combate lê de lá. Toda mudança em
   // camp.nave precisa ser espelhada, senão uma aba mostra um número e a outra outro.
@@ -72,7 +77,7 @@ export function wireNave(ctx) {
 
   $("#def-nave")?.addEventListener("click", async () => {
     const n = NAVES.find((x) => x.n === $("#sel-nave").value);
-    const nave = { modelo: n.n, nome_batismo: $("#nave-nome").value.trim() || n.n, casco: n.casco, casco_max: n.casco, escudos: n.escudos, escudos_max: n.escudos, manobra: n.manobra, dano: n.dano, ataques: n.ataques || [] };
+    const nave = { modelo: n.n, nome_batismo: $("#nave-nome").value.trim() || n.n, casco: n.casco, casco_max: n.casco, escudos: n.escudos, escudos_max: n.escudos, manobra: n.manobra, dano: n.dano, ataques: n.ataques || [], armas: n.armas || [] };
     if (!(await salvarCamp({ nave }, "registrar a nave"))) return;
     camp.nave = nave;
     await enviar("nave", `A nave ${nave.nome_batismo} (${n.n}) entrou em serviço. Casco ${n.casco}, Escudos ${n.escudos}, Defesa ${10 + n.manobra}.`);
@@ -111,7 +116,7 @@ export function wireNave(ctx) {
     camp.combate_nave.inimigas.push({ id: "s" + Math.random().toString(36).slice(2, 8),
       nome: r.nome?.trim() || (iguais ? `${base.n} #${iguais + 1}` : base.n), modelo: base.n,
       casco: base.casco, casco_max: base.casco, escudos: base.escudos, escudos_max: base.escudos,
-      manobra: base.manobra, dano: base.dano, ataques: base.ataques || [] });
+      manobra: base.manobra, dano: base.dano, ataques: base.ataques || [], armas: base.armas || [] });
     await salvarCbn(); await enviar("sistema", `🚀 Contato hostil: ${camp.combate_nave.inimigas.slice(-1)[0].nome} entrou em alcance.`); render();
   });
   document.querySelectorAll("[data-cbn-rm]").forEach((b) => b.onclick = async () => {
@@ -121,10 +126,13 @@ export function wireNave(ctx) {
   document.querySelectorAll("[data-cbn-atk]").forEach((b) => b.onclick = async () => {
     const x = camp.combate_nave.inimigas[+b.dataset.cbnAtk]; if (!x || !camp.nave) return;
     const atk = await ataqueDaNave(x); if (!atk) return;
+    if (municaoDe(x, atk) <= 0) return alert(`${atk.n} está sem munição — sem como disparar.`);
     const bonusAtk = atk.bonus ?? 4;
     const nat = d(20), total = nat + bonusAtk;
     const def = defesaNave(camp.nave);
+    descontarMunicao(x, atk);
     if (nat === 1 || total < def) {
+      await salvarCbn();
       return enviar("rolagem", null, { titulo: `🚀 ${x.nome} dispara ${atk.n}`, detalhe: `d20 [${nat}] ${sign(bonusAtk)} vs Defesa ${def}`, total, fumble: nat === 1, extra: "Errou — o disparo passa de raspão." });
     }
     const pd = parseDice(atk.dano); const dados = rollNd(pd.n, pd.f);
@@ -136,7 +144,9 @@ export function wireNave(ctx) {
       extra += `  ⚠ FALHA CRÍTICA — ${av.n}: ${av.e}`;
     }
     if (camp.nave.casco <= 0) extra += "  💀 CASCO A ZERO: a nave está destruída ou à deriva.";
-    await salvarCamp({ nave: camp.nave }, "salvar o disparo inimigo");
+    sincronizarLinhaNave();
+    const linhaNave = camp.combate?.ordem?.some((y) => y.nave_party);
+    await salvarCamp({ nave: camp.nave, ...(linhaNave ? { combate: camp.combate } : {}) }, "salvar o disparo inimigo");
     await salvarCbn();
     await enviar("rolagem", null, { titulo: `🚀 ${x.nome} dispara ${atk.n}`, detalhe: `d20 [${nat}] ${sign(bonusAtk)} vs Defesa ${def} · dano ${atk.dano} [${dados.join(", ")}]${nat === 20 ? " ×2" : ""}`, total, crit: nat === 20, extra });
     render();
@@ -226,6 +236,19 @@ export function wireNave(ctx) {
         await enviar("nave", `⚙ ${ui.meuPers.nome} sobrecarrega os propulsores: +2 de Manobrabilidade por 1 turno (Defesa da nave ${defesaNaveParty()}). O engenheiro sofre ${choque} de dano de choque.`);
         return render();
       }
+      if (/recarregar/i.test(acao.n) && camp.nave) {
+        const balisticas = (camp.nave.armas || []).filter((a) => a.tipo === "balistica");
+        if (!balisticas.length) return alert(`${camp.nave.nome_batismo || camp.nave.modelo} não tem arma balística — só energia (infinita) e mísseis (sem recarga em combate).`);
+        const arma = balisticas.length === 1 ? balisticas[0] : (await modalForm({ titulo: "🔩 Recarregar", campos: [
+          { k: "arma", label: "Qual arma", tipo: "select", opcoes: balisticas.map((a) => ({ v: a.n, l: `${a.n} (${municaoDe(camp.nave, a)}/${a.pente})` })) }], okLabel: "Recarregar" }))?.arma;
+        const armaObj = typeof arma === "string" ? balisticas.find((a) => a.n === arma) : arma;
+        if (!armaObj) return;
+        recarregarArma(camp.nave, armaObj);
+        camp.combate.agiram = [...new Set([...(camp.combate.agiram || []), meuPosto])];
+        await salvarCamp({ combate: camp.combate, nave: camp.nave }, "salvar a recarga");
+        await enviar("nave", `🔩 ${ui.meuPers.nome} recarrega ${armaObj.n} (${armaObj.pente}/${armaObj.pente}). A rodada se vai nisso.`);
+        return render();
+      }
       if (/fuga de dobra/i.test(acao.n) && camp.nave) {
         const dob = nt.dobra || { cargas: 0, cascoRef: camp.nave.casco };
         const levouDano = camp.nave.casco < dob.cascoRef;
@@ -296,42 +319,47 @@ export function wireNave(ctx) {
       extra = `+${val} de ${acao.cura}! (${n[acao.cura]}/${n[acao.cura + "_max"]})`;
       mexeuNaTatica = true;   // força o render() no fim, pra barra subir na hora
     }
-    // Artilharia: se há combate espacial ativo, resolve contra uma nave inimiga
-    if (acao.danoNave && camp.combate?.ativo && camp.combate.ordem.some((x) => ehNave(x) && x.lado === "inimiga" && !foraDeCombate(x))) {
-      const vivas = camp.combate.ordem.filter((x) => ehNave(x) && x.lado === "inimiga" && !foraDeCombate(x));
-      const esc1 = vivas.length === 1 ? vivas[0] : (await modalForm({ titulo: `⚔ ${acao.n} — escolher alvo`, campos: [
-        { k: "alvo", label: "Nave inimiga", tipo: "select", opcoes: vivas.map((x) => ({ v: x.id, l: `${x.nome} — casco ${x.casco}/${x.casco_max}, Def ${10 + (x.manobra || 0)}` })) }], okLabel: "Disparar" }))?.alvo;
-      const alvo = typeof esc1 === "string" ? vivas.find((x) => x.id === esc1) : esc1;
-      if (alvo) {
-        const def = defesaNave(alvo);
-        // Escolhe a arma só se a nave tem mais de uma cadastrada — sem isso, zero
-        // pergunta nova pra quem só tem os canhões padrão (comportamento de sempre).
-        const atkNave = camp.nave?.ataques?.length
-          ? (await ataqueDaNave(camp.nave, acao.n)) || { n: "Canhões", dano: camp.nave?.dano || "1d6" }
-          : { n: "Canhões", dano: camp.nave?.dano || "1d6" };
-        // Alinhamento de Rota concede Vantagem: rola um segundo d20 e fica com o melhor
-        let natUsado = nat, totalUsado = total, marcas = [];
-        if (nt.alinhado) { const n2 = d(20); if (n2 > nat) { natUsado = n2; totalUsado = n2 + mod; }
-          marcas.push(`🎯 Vantagem por alinhamento [${nat}/${n2}]`); nt.alinhado = false; mexeuNaTatica = true; }
-        if (totalUsado >= def && natUsado !== 1) {
-          const pdn = parseDice(atkNave.dano || "1d6");
-          // Crítico: soma dados + bônus primeiro, só depois multiplica por 2 — não dobra
-          // a quantidade de dados rolados (já foi bug real em 3 outros lugares de nave).
-          const dd = rollNd(pdn.n, pdn.f);
-          let bruto = danoCritico(dd.reduce((x2, y2) => x2 + y2, 0), pdn.mod, natUsado === 20 ? 2 : 1);
-          if (nt.fraqueza) { const bonus = d(6); bruto += bonus; marcas.push(`🔎 fraqueza +${bonus}`); nt.fraqueza = false; mexeuNaTatica = true; }
-          const r2 = danoNave(alvo, bruto);
-          extra = `Acertou (Def ${def})! ${atkNave.n} ${atkNave.dano}${natUsado === 20 ? " ×2" : ""} [${dd.join(", ")}] → escudos −${r2.escudos}, casco −${r2.casco}. ${alvo.nome}: ${alvo.casco}/${alvo.casco_max}`;
+    // Artilharia: alvo pode ser nave inimiga, jogador, criatura ou NPC — nunca
+    // aliado nem a própria nave da party (fogo amigo por engano).
+    const inimigosVivos = camp.combate?.ativo ? camp.combate.ordem.filter((x) => (x.tipo === "inimigo" || x.lado === "inimiga") && !foraDeCombate(x)) : [];
+    if (acao.danoNave && inimigosVivos.length && camp.nave) {
+      const atkNave = await ataqueDaNave(camp.nave, acao.n);
+      if (!atkNave) return;   // cancelou a escolha de arma — não gasta a vez
+      if (municaoDe(camp.nave, atkNave) <= 0) return alert(`${atkNave.n} está sem munição. Use "Recarregar" antes de disparar de novo.`);
+      const alvo = inimigosVivos.length === 1 ? inimigosVivos[0] : (await modalForm({ titulo: `⚔ ${acao.n} — escolher alvo`, campos: [
+        { k: "alvo", label: "Alvo", tipo: "select", opcoes: inimigosVivos.map((x) => ({ v: x.id, l: `${ehNave(x) ? "🚀 " : ""}${x.nome} — ${vidaAtual(x)}/${vidaMax(x)}${ehNave(x) ? "" : ` PV, Def ${x.cd ?? 10}`}` })) }], okLabel: "Disparar" }))?.alvo;
+      const alvoObj = typeof alvo === "string" ? inimigosVivos.find((x) => x.id === alvo) : alvo;
+      if (!alvoObj) return;   // fechou o seletor sem escolher — não gasta a vez
+      snapshot(`${acao.n} contra ${alvoObj.nome}`);
+      descontarMunicao(camp.nave, atkNave);
+      const def = ehNave(alvoObj) ? defesaNave(alvoObj) : (alvoObj.cd ?? 10);
+      // Alinhamento de Rota concede Vantagem: rola um segundo d20 e fica com o melhor
+      let natUsado = nat, totalUsado = total, marcas = [];
+      if (nt.alinhado) { const n2 = d(20); if (n2 > nat) { natUsado = n2; totalUsado = n2 + mod; }
+        marcas.push(`🎯 Vantagem por alinhamento [${nat}/${n2}]`); nt.alinhado = false; mexeuNaTatica = true; }
+      if (totalUsado >= def && natUsado !== 1) {
+        const pdn = parseDice(atkNave.dano || "1d6");
+        // Crítico: soma dados + bônus primeiro, só depois multiplica por 2 — não dobra
+        // a quantidade de dados rolados (já foi bug real em 3 outros lugares de nave).
+        const dd = rollNd(pdn.n, pdn.f);
+        let bruto = danoCritico(dd.reduce((x2, y2) => x2 + y2, 0), pdn.mod, natUsado === 20 ? 2 : 1);
+        if (nt.fraqueza) { const bonus = d(6); bruto += bonus; marcas.push(`🔎 fraqueza +${bonus}`); nt.fraqueza = false; mexeuNaTatica = true; }
+        if (ehNave(alvoObj)) {
+          const r2 = danoNave(alvoObj, bruto);
+          extra = `Acertou (Def ${def})! ${atkNave.n} ${atkNave.dano}${natUsado === 20 ? " ×2" : ""} [${dd.join(", ")}] → escudos −${r2.escudos}, casco −${r2.casco}. ${alvoObj.nome}: ${alvoObj.casco}/${alvoObj.casco_max}`;
           // Tiro de Precisão: dano no casco desativa um subsistema por 1d4 turnos.
           if (comDesv && r2.casco > 0) { const t4 = d(4);
-            aplicarCond(alvo, "Subsistema off", t4);
-            marcas.push(`🎯 subsistema de ${alvo.nome} desativado por ${t4} turno(s)`); }
-          if (marcas.length) extra += `  ·  ${marcas.join(" · ")}`;
-          if (alvo.casco <= 0) extra += "  💥 NAVE ABATIDA!";
-        } else extra = `Errou — Defesa ${def} da ${alvo.nome}.${marcas.length ? "  ·  " + marcas.join(" · ") : ""}`;
-        camp.combate.agiram = [...new Set([...(camp.combate.agiram || []), meuPosto])];
-        await salvarCamp({ combate: camp.combate }, "salvar a ação do posto");
-      }
+            aplicarCond(alvoObj, "Subsistema off", t4);
+            marcas.push(`🎯 subsistema de ${alvoObj.nome} desativado por ${t4} turno(s)`); }
+          if (alvoObj.casco <= 0) extra += "  💥 NAVE ABATIDA!";
+        } else {
+          const rd = await aplicarDanoAlvo(alvoObj, bruto, "físico");
+          extra = `Acertou (Def ${def})! ${atkNave.n} ${atkNave.dano}${natUsado === 20 ? " ×2" : ""} [${dd.join(", ")}] → ${rd.msg}${alvoObj.hp <= 0 ? "  💀 CAIU!" : ""}`;
+        }
+        if (marcas.length) extra += `  ·  ${marcas.join(" · ")}`;
+      } else extra = `Errou — Defesa ${def} da ${alvoObj.nome}.${marcas.length ? "  ·  " + marcas.join(" · ") : ""}`;
+      camp.combate.agiram = [...new Set([...(camp.combate.agiram || []), meuPosto])];
+      await salvarCamp({ combate: camp.combate, nave: camp.nave }, "salvar a ação do posto");
     } else if (camp.combate?.ativo) {
       camp.combate.agiram = [...new Set([...(camp.combate.agiram || []), meuPosto])];
       await salvarCamp({ combate: camp.combate }, "salvar a ação do posto");

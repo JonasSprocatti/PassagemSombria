@@ -16,6 +16,20 @@ import {
 } from "./dados-jogo.js";
 import { FichaEfeitos } from "./efeitos.js";
 
+// ---------------- NAVES: munição por arma (Cap. 12) -------------------------
+// `arma.pente` (balística) ou `arma.unidades` (míssil) é o TETO vindo do
+// catálogo (NAVES[i].armas); o que resta de verdade mora em
+// `nave.municao[nomeDaArma]`, criado preguiçosamente — sem isso, toda
+// instância de nave em jogo (camp.nave, linha do rastreador, inimiga do
+// combate_nave clássico) precisaria ser migrada na criação. Energia não tem
+// teto: `capacidadeArma` devolve null e `municaoDe` devolve Infinity.
+export const capacidadeArma = (arma) => arma?.tipo === "balistica" ? arma.pente : arma?.tipo === "missil" ? arma.unidades : null;
+export const municaoDe = (nave, arma) => { const cap = capacidadeArma(arma); return cap == null ? Infinity : ((nave?.municao || {})[arma.n] ?? cap); };
+export const descontarMunicao = (nave, arma) => { const cap = capacidadeArma(arma); if (cap == null) return;
+  nave.municao = nave.municao || {}; nave.municao[arma.n] = Math.max(0, municaoDe(nave, arma) - 1); };
+export const recarregarArma = (nave, arma) => { const cap = capacidadeArma(arma); if (cap == null) return;
+  nave.municao = nave.municao || {}; nave.municao[arma.n] = cap; };
+
 // ---------------- DADOS (d20, Nd, expressões de dano) ----------------------
 export const sign = (n) => (n >= 0 ? `+${n}` : `${n}`);
 export const d = (f) => 1 + Math.floor(Math.random() * f);

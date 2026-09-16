@@ -2,7 +2,7 @@
 // Roda com: node --test tests/
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { chavesDaArma, propsArma, ARMAS, KEYWORDS, IMPLANTES, PALAVRAS_CHAVE, MODS_ARMA } from "../public/js/dados-jogo.js";
+import { chavesDaArma, propsArma, ARMAS, KEYWORDS, IMPLANTES, PALAVRAS_CHAVE, MODS_ARMA, NAVES } from "../public/js/dados-jogo.js";
 import { parseDice } from "../public/js/regras.js";
 import { FichaEfeitos, Portador } from "../public/js/efeitos.js";
 
@@ -225,5 +225,24 @@ describe("conteúdo dos implantes: todo `ataque` declarado tem dado válido e kw
       assert.ok(["branca", "fogo"].includes(imp.ataque.tipo || "branca"), `tipo de ataque inválido em "${imp.n}"`);
       if (imp.ataque.kw) assert.ok(chavesDaArma(imp.ataque).length > 0, `kw "${imp.ataque.kw}" não reconhecido`);
     });
+  }
+});
+
+// Armamento de nave (NAVES[i].armas) — cada arma tem tipo válido, munição
+// coerente com o tipo e dado que parseia. Regressão: energia (infinita) não
+// pode ter pente/unidades, e balística/míssil precisam do teto declarado,
+// senão `capacidadeArma`/`municaoDe` (regras.js) trabalham com `undefined`.
+describe("conteúdo das naves: toda arma declarada tem tipo, munição e dado válidos", () => {
+  for (const nave of NAVES) {
+    if (!nave.armas?.length) continue;
+    for (const arma of nave.armas) {
+      test(`"${nave.n}" — "${arma.n}" (${arma.tipo})`, () => {
+        assert.ok(parseDice(arma.dano), `dado de dano "${arma.dano}" não parseia`);
+        assert.ok(["energia", "balistica", "missil"].includes(arma.tipo), `tipo "${arma.tipo}" inválido`);
+        if (arma.tipo === "balistica") assert.ok(arma.pente > 0, `arma balística "${arma.n}" sem pente`);
+        if (arma.tipo === "missil") assert.ok(arma.unidades > 0, `míssil "${arma.n}" sem unidades`);
+        if (arma.tipo === "energia") assert.ok(arma.pente == null && arma.unidades == null, `arma de energia "${arma.n}" não devia ter pente/unidades`);
+      });
+    }
   }
 });
