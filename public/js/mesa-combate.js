@@ -13,11 +13,11 @@
 //  apesar do prefixo `cb-`/mexerem em `camp.combate`, são ações da aba "Meu
 //  personagem" (destino: mesa-ficha.js, ainda não extraído).
 // ============================================================================
-import { NAVES, ESTACOES } from "./dados-jogo.js";
+import { NAVES, ESTACOES, propsArma } from "./dados-jogo.js";
 import { NIVEIS_AMEACA } from "./dados-bestiario.js";
 import {
   d, sign, parseDice, rollNd, danoCritico, aplicarCond, novaFichaDados, calc,
-  CONDICOES_INFO, infoCond, distCombate, posInicial, tipoDanoAtaque, alcanceDaArma, propsArma,
+  CONDICOES_INFO, infoCond, distCombate, posInicial, tipoDanoAtaque, alcanceDaArma,
   CAMPO_LARGURA, CAMPO_PISTAS, PISTA_M, ALCANCE_CAC, municaoDe, descontarMunicao,
 } from "./regras.js";
 import { modalForm, somDado } from "./ui.js";
