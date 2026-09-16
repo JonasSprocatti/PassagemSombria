@@ -35,6 +35,7 @@ Não há lint. Há um início de testes automatizados em `tests/` (ver seção *
 | `public/js/dados-npcs.js` | `NPCS`, `PAPEIS`. |
 | `public/js/dados-mestre.js` | `FACCOES`, `NIVEIS_REPUTACAO`, `TABELAS` (rolagem aleatória do Mestre), `REFERENCIA`. |
 | `public/js/mapa-sistema.js` | **VTT ativo** (mapa compartilhado do Mestre): `abrirMapa({ mapa, combate, souMestre, salvar, aoFechar })`, `POI_TIPOS`. Import dinâmico. |
+| `public/js/mesa-mestre.js` | **`abrirMestre(ctx)`** — o overlay "🎛 Tela do Mestre" inteiro (descansos, recompensas, imagem pra mesa, backup, referência, tabelas, orçamento de encontro, facções, contratos, linha do tempo, anotações do Mestre), extraído de `telaMesa` em `app.js` — 1ª fatia da modularização em andamento (ver "Modularização de `telaMesa`" no mapa interno de `app.js`, abaixo). Import dinâmico a partir do clique em `#abrir-mestre`. `ctx` recebido é `{ id, camp, pers, enviar, salvarCamp, render }`. Importa de volta de `app.js`: `sb`, `esc`, `combateVazio`, `naveTaticaVazia`, `rolarTabela`, `orcamentoEncontro`, `sugerirEncontro`, `PESO_AMEACA` (todos ganharam `export` especificamente pra isso). |
 | `public/js/sistema-solar.js` | Seletor 3D de planeta/raça (Three.js sob demanda): `abrirSeletorPlanetas(RACAS, onSelect)`. Import dinâmico. |
 | `public/js/criacao.js` | Assistente de criação de personagem: `abrirCriacao({ onCriar, onCancelar, abrirSistemaSolar })`. Import dinâmico. |
 | `public/sw.js` | Service worker PWA. `CACHE = "ps-shell-vNN"` — **incrementar a cada deploy relevante**. HTML: network-first; estáticos: stale-while-revalidate; Supabase/esm.sh: rede direta. |
@@ -61,11 +62,20 @@ Seções demarcadas por comentários `// ---------------- NOME ----------------`
 | 860–935 | `avisar` (toast com desfazer), atalhos de teclado. |
 | 935–1030 | `estadoArma`, `normalizaPentes`, animações (`contarAte`, `cenaNivel`, `animarBarras`), `iniciar()` (bootstrap). |
 | 1046–1120 | `telaLogin`, `telaHangar` (lista de personagens). |
-| 1122–1646 | **`telaFicha(id)`** — edição completa, level up, loja, inventário, equipar, bancada, nano-tatuagens. |
-| 1647–1682 | `telaCampanhas` (criar / entrar por código). |
-| 1683–3614 | **`telaMesa(id)`** — a maior. Chat + rolagens + dano/cura + combate pessoal + combate espacial + nave + postos + mapa + diário + estatísticas. Realtime via `sb.channel('mesa-<id>')`. Sub-blocos: painel de combate (~1790), aba "Meu personagem" (~1846), munição/pentes (~1849), ações de mesa e **handler `[data-atq]`** de ataque de arma (~2967), habilidades ativas (~3168), scripts/conjuração (~3390), postos de nave (~3410), estaleiro/upgrades (~3490). |
+| 1062–1601 | **`telaFicha(id)`** — edição completa, level up, loja, inventário, equipar, bancada, nano-tatuagens (agora "Cortex Central de Nano-Enxame"). |
+| 1602–1637 | `telaCampanhas` (criar / entrar por código). |
+| 1638–4458 (EOF) | **`telaMesa(id)`** — a maior. Chat + rolagens + dano/cura + combate pessoal + combate espacial + nave + postos + mapa + diário + estatísticas. Realtime via `sb.channel('mesa-<id>')`. Sub-blocos: painel de combate (~1790), aba "Meu personagem" (~1846), munição/pentes (~1849), **handler `[data-atq]`** de ataque de arma (~3433), habilidades ativas (~3862), scripts/conjuração (~4112), postos de nave (~4409). `#abrir-mestre` (🎛 Tela do Mestre) virou um dynamic import de 3 linhas — a implementação real mora em `mesa-mestre.js` (ver linha da tabela de arquivos acima e a modularização em andamento, abaixo). |
 | — | `telaBiblioteca` (raças, classes, armas… somente leitura) + a aba **Regras** (`aba === "regras"`) — o manual de bolso do jogador, **gerado a partir das próprias constantes** (`CONDICOES_INFO`, `TIPOS_DANO`, `ALCANCE_*`, `CAMPO_LARGURA`, `TIROS_POR_PENTE`, `PERICIAS`). Regra que muda no código muda o texto junto; nunca escrever número à mão ali se existir constante. Atalho `📖 REGRAS` no topo da mesa abre em aba nova (`target="_blank"`), pra não fechar a sessão. **Mora em `public/js/biblioteca.js` agora**, não em `app.js` — ver a linha da tabela de arquivos acima. |
-| 3703–4270 | **`painelAdmin`** — CRUD do conteúdo global (tabela `conteudo`), ajustes e imagens. |
+
+`painelAdmin` **não mora mais em `app.js`** — foi extraído há mais tempo para `public/js/admin.js` (ver a tabela de arquivos). Se algum texto antigo ainda citar uma faixa de linhas de `app.js` para ele, está desatualizado.
+
+### Modularização de `telaMesa` (em andamento)
+
+`telaMesa` era ~3200 linhas, a maior e mais frágil função do app (chat + ficha do jogador + combate pessoal + campo tático + combate espacial + ferramentas do Mestre, tudo numa closure só, com um `render()` que desenha todas as abas de uma vez). Sendo dividida em arquivos por fatia de funcionalidade, seguindo um plano registrado (histórico da sessão que fez o Passo 0 e a 1ª extração):
+
+- **Passo 0 (concluído)**: promoveu 14 `let`s soltos da closure (`souMestre`, `modoJogador`, `meuPers`, `tokenSel`, `campoZoom`, `pintarMsg`, `mapaCtrl`, `abaMesa`, `timerInt`, `vantagem`, `privada`, `asCegas`, `recapFeita`, `gravandoAte`) para um único objeto `ui`, criado uma vez por chamada de `telaMesa(id)` — necessário porque closures não atravessam módulos, então estado mutável compartilhado entre fatias precisa viver numa referência estável.
+- **`mesa-mestre.js` (concluído)**: exporta `abrirMestre(ctx)` — o overlay inteiro do `#abrir-mestre` (🎛 Tela do Mestre: Mesa/Referência/Tabelas/Encontros/Facções/Contratos/Linha do tempo/Anotações), incluindo `fazerBackup`/`restaurarBackup` que só eram usados ali. `ctx` hoje é só `{ id, camp, pers, enviar, salvarCamp, render }` — o subconjunto do objeto `ctx` completo (ver histórico) que esta fatia realmente usa; não precisou de `ui` nem de `k`/`f`. `app.js` ganhou `export` em `esc` (já tinha), `combateVazio`, `naveTaticaVazia`, `rolarTabela`, `orcamentoEncontro`, `sugerirEncontro`, `PESO_AMEACA` especificamente para isso, mesmo padrão de `biblioteca.js`/`admin.js` (corpo copiado tal e qual, só os identificadores livres viraram imports).
+- **`mesa-nave.js` / `mesa-combate.js` / `mesa-ficha.js`**: ainda não extraídos. Ordem planejada: nave → combate → ficha (a ficha por último porque contém `[data-atq]`, o handler mais complexo do app). Dependências cruzadas já mapeadas entre essas três fatias (ex.: `camp.combate.nave` é lido tanto pelo posto `[data-est]` quanto pelo HUD de combate) — cuidado extra ao extrair.
 
 ## Modelo de dados
 
