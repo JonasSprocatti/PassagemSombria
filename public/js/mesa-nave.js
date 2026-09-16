@@ -61,12 +61,22 @@ export function renderNave(ctx) {
 
 export function wireNave(ctx) {
   const { id, camp, pers, ui, f, k, meuPosto, enviar, salvarCamp, salvarCbn, render, defesaNaveParty } = ctx;
+  // A nave da party também aparece como linha no rastreador (`nave_party`), com
+  // cópia própria de casco/escudos — o HUD de combate lê de lá. Toda mudança em
+  // camp.nave precisa ser espelhada, senão uma aba mostra um número e a outra outro.
+  const sincronizarLinhaNave = () => {
+    const linha = camp.combate?.ordem?.find((x) => x.nave_party);
+    if (linha && camp.nave) { linha.casco = camp.nave.casco; linha.escudos = camp.nave.escudos; }
+    return linha;
+  };
 
   $("#def-nave")?.addEventListener("click", async () => {
     const n = NAVES.find((x) => x.n === $("#sel-nave").value);
     const nave = { modelo: n.n, nome_batismo: $("#nave-nome").value.trim() || n.n, casco: n.casco, casco_max: n.casco, escudos: n.escudos, escudos_max: n.escudos, manobra: n.manobra, dano: n.dano, ataques: n.ataques || [] };
-    await salvarCamp({ nave }, "registrar a nave");
-    enviar("nave", `A nave ${nave.nome_batismo} (${n.n}) entrou em serviço. Casco ${n.casco}, Escudos ${n.escudos}, Defesa ${10 + n.manobra}.`);
+    if (!(await salvarCamp({ nave }, "registrar a nave"))) return;
+    camp.nave = nave;
+    await enviar("nave", `A nave ${nave.nome_batismo} (${n.n}) entrou em serviço. Casco ${n.casco}, Escudos ${n.escudos}, Defesa ${10 + n.manobra}.`);
+    render();
   });
   $("#sel-posto")?.addEventListener("change", async (e) => {
     await sb.from("campanha_membros").update({ posto: e.target.value || null }).eq("campanha_id", id).eq("perfil_id", usuario.id);
@@ -190,10 +200,14 @@ export function wireNave(ctx) {
   });
   $("#nave-hit")?.addEventListener("click", async () => {
     const v = +$("#nave-dano").value; if (!v || !camp.nave) return;
-    const n = { ...camp.nave };
+    // Muta a nave em memória (não uma cópia): gravar só a cópia deixava a tela
+    // velha até o F5 e fazia a próxima ação partir do estado antigo.
+    const n = camp.nave;
     const abs = Math.min(n.escudos, v); n.escudos -= abs; n.casco = Math.max(0, n.casco - (v - abs));
-    await salvarCamp({ nave: n }, "salvar o dano na nave");
-    enviar("nave", `A nave sofreu ${v} de dano (${abs} nos escudos). Casco ${n.casco}/${n.casco_max}, Escudos ${n.escudos}/${n.escudos_max}.${n.casco === 0 ? " ⚠ CASCO ZERO — À DERIVA!" : ""}`);
+    const linhaNave = sincronizarLinhaNave();
+    await salvarCamp({ nave: n, ...(linhaNave ? { combate: camp.combate } : {}) }, "salvar o dano na nave");
+    await enviar("nave", `A nave sofreu ${v} de dano (${abs} nos escudos). Casco ${n.casco}/${n.casco_max}, Escudos ${n.escudos}/${n.escudos_max}.${n.casco === 0 ? " ⚠ CASCO ZERO — À DERIVA!" : ""}`);
+    render();
   });
   if (meuPosto && f) document.querySelectorAll("[data-est]").forEach((b) => b.onclick = async () => {
     const acao = ESTACOES[meuPosto].acoes[+b.dataset.est];
@@ -275,10 +289,12 @@ export function wireNave(ctx) {
     }
     if (acao.cura && camp.nave && total >= 12) {
       const pd = parseDice(acao.dado); const val = rollNd(pd.n, pd.f).reduce((a, b) => a + b, 0) + (acao.cura === "escudos" ? f.nivel : 0);
-      const n = { ...camp.nave };
+      const n = camp.nave;
       n[acao.cura] = Math.min(n[acao.cura + "_max"], n[acao.cura] + val);
-      await salvarCamp({ nave: n }, "salvar a cura");
+      const linhaNave = sincronizarLinhaNave();
+      await salvarCamp({ nave: n, ...(linhaNave ? { combate: camp.combate } : {}) }, "salvar a cura");
       extra = `+${val} de ${acao.cura}! (${n[acao.cura]}/${n[acao.cura + "_max"]})`;
+      mexeuNaTatica = true;   // força o render() no fim, pra barra subir na hora
     }
     // Artilharia: se há combate espacial ativo, resolve contra uma nave inimiga
     if (acao.danoNave && camp.combate?.ativo && camp.combate.ordem.some((x) => ehNave(x) && x.lado === "inimiga" && !foraDeCombate(x))) {
