@@ -351,12 +351,12 @@ function danoArma(cat, nivel) {
 }
 
 // ---------------- COMBATE ESPACIAL ----------------
-const POSTOS_ORDEM = ["leme", "artilharia", "engenharia", "sensores"];
-const combateNaveVazio = () => ({ ativo: false, rodada: 1, turno: 0, inimigas: [], avarias: [], agiram: [] });
+export const POSTOS_ORDEM = ["leme", "artilharia", "engenharia", "sensores"];
+export const combateNaveVazio = () => ({ ativo: false, rodada: 1, turno: 0, inimigas: [], avarias: [], agiram: [] });
 // Defesa da nave = 10 + Manobrabilidade (Cap. 12)
-const defesaNave = (n) => 10 + (n?.manobra || 0);
+export const defesaNave = (n) => 10 + (n?.manobra || 0);
 // Aplica dano respeitando Escudos antes do Casco; devolve o detalhamento.
-function danoNave(alvo, valor) {
+export function danoNave(alvo, valor) {
   const r = { escudos: 0, casco: 0, critico: false };
   let restante = valor;
   // Guerra Eletrônica desliga os escudos: enquanto `escudosOff` durar, nada absorve.
@@ -366,12 +366,12 @@ function danoNave(alvo, valor) {
   if (r.casco > 15) r.critico = true;   // dano massivo dispara Falha Crítica
   return r;
 }
-const rolarAvaria = () => AVARIAS[d(6) - 1];
+export const rolarAvaria = () => AVARIAS[d(6) - 1];
 // Ataques de uma nave: os "Canhões" (o `dano` padrão do modelo) + o que estiver em
 // `ataques` (torpedos, laser ponto-a-ponto…, cadastrados pelo admin no editor de
 // nave). Com só uma opção, devolve ela direto — quem só tem canhão não vê pergunta
 // nenhuma a mais. `bonus` de cada ataque, se não declarado, cai no +4 padrão de nave.
-async function ataqueDaNave(nave, origemTxt = "") {
+export async function ataqueDaNave(nave, origemTxt = "") {
   const pool = [{ n: "Canhões", dano: nave?.dano || "1d6" }, ...(nave?.ataques || [])];
   if (pool.length === 1) return pool[0];
   const r = await modalForm({ titulo: `⚔ ${origemTxt || nave?.nome || nave?.nome_batismo || nave?.modelo || "Nave"} — qual arma?`,
@@ -417,8 +417,8 @@ export const combateVazio = () => ({ ativo: false, rodada: 1, turno: 0, ordem: [
 // A nave NÃO tem turno: ela é o cenário. Quem age são os tripulantes, nos seus postos.
 export const naveTaticaVazia = () => ({ evasiva: null, evasivaDe: null, alinhado: false, fraqueza: false, bloqueados: [] });
 // Um participante pode ser pessoa/criatura (hp) ou nave (casco). Estes helpers unificam os dois.
-const ehNave = (c) => c?.tipo === "nave";
-const foraDeCombate = (c) => ehNave(c) ? (c.casco || 0) <= 0 : (c.hp || 0) <= 0;
+export const ehNave = (c) => c?.tipo === "nave";
+export const foraDeCombate = (c) => ehNave(c) ? (c.casco || 0) <= 0 : (c.hp || 0) <= 0;
 const vidaAtual = (c) => ehNave(c) ? c.casco : c.hp;
 const vidaMax = (c) => ehNave(c) ? c.casco_max : c.hp_max;
 const ordenarCombate = (cb) => { cb.ordem.sort((a, b) => (b.ini - a.ini) || a.nome.localeCompare(b.nome)); return cb; };
@@ -791,7 +791,7 @@ export const todasCriaturas = () => [...ajustar(BESTIARIO, "criatura"), ...extra
 // porque telaFicha e telaMesa (dano, cura, RAM, level up, inventário…) precisam dela
 // igual. Sem isto, uma falha silenciosa deixava a mudança só na tela: o app já tinha
 // renderizado como se tivesse dado certo, e o PV/RAM/item "voltava" sozinho ao recarregar.
-async function salvarFicha(personagemId, dados, rotulo = "salvar a ficha") {
+export async function salvarFicha(personagemId, dados, rotulo = "salvar a ficha") {
   const { error } = await sb.from("personagens").update({ dados }).eq("id", personagemId);
   if (error) alert(`Não consegui ${rotulo}: ${error.message}`);
   return !error;
@@ -1715,6 +1715,7 @@ async function telaMesa(id) {
   for (const c of camp.combate.ordem || []) if (!ehNave(c) && !c.pos) c.pos = posInicial(camp.combate.ordem, c.tipo);
   const snapshot = (rotulo) => { pilhaUndo.push({ rotulo, combate: JSON.parse(JSON.stringify(camp.combate || {})), nave: JSON.parse(JSON.stringify(camp.nave || null)), combate_nave: JSON.parse(JSON.stringify(camp.combate_nave || {})) }); if (pilhaUndo.length > 10) pilhaUndo.shift(); };
   const salvarCombate = async () => { await salvarCamp({ combate: camp.combate }, "salvar o combate"); };
+  const salvarCbn = async () => { await salvarCamp({ combate_nave: camp.combate_nave }, "salvar o combate espacial"); };
   // A Defesa (`c.cd`) de um jogador no rastreador é uma FOTO tirada ao entrar em
   // combate (#cb-iniciar) — não recalcula sozinha. Sem isto, ativar um modo que
   // mexe na CD (Criogénese: Escudo de gelo, Placas, Defensiva/Aparar) em pleno
@@ -2102,7 +2103,11 @@ async function telaMesa(id) {
   const catDoAtaque = (nome) => todasArmas().find((x) => x.n === nome) || implanteComoArma(nome);
 
   const render = async () => {
+    // Fatias já extraídas do monólito (ver "Modularização de telaMesa" em
+    // CLAUDE.md) — import() dinâmico é gratuito depois da 1ª vez (módulo já
+    // fica em cache do navegador), então não precisa de flag de "já carregou".
     if (canalMesa) { sb.removeChannel(canalMesa); canalMesa = null; }
+    const { renderNave, wireNave } = await import("./mesa-nave.js");
     const f = ui.meuPers ? { ...novaFichaDados(), ...ui.meuPers.dados } : null;
     // Dentro de uma Zona Morta (aura que anula "implantes"), a ficha é recalculada
     // como se a pessoa não tivesse cibernética nenhuma: some o +2 de RAM do Chip,
@@ -2132,6 +2137,7 @@ async function telaMesa(id) {
     const vistaLarg = vistaCampo.fim - vistaCampo.ini;
     const pctX = (x) => ((x - vistaCampo.ini) / vistaLarg) * 100;
     const tokenSelObj = camp.combate.ordem.find((c) => c.id === ui.tokenSel && !ehNave(c)) || null;
+    const ctxNave = { id, camp, pers, membros, ui, f, k, nave, cbn, meuPosto, enviar, salvarCamp, salvarCbn, render, defesaNaveParty, bonusDefVeiculo };
     shell("mesa", `
       <nav class="topo"><a class="btn-ghost" href="#/campanhas">← CAMPANHAS</a>
         <div class="topo-status">${esc(camp.nome)} · código <b class="chrome">${camp.codigo}</b></div><span style="display:flex;gap:6px"><button id="atalhos" class="btn-ghost so-desktop" title="Atalhos de teclado (?)">⌨</button><button id="abrir-diario" class="btn-ghost" title="Diário da campanha">📔 DIÁRIO</button>${ehMestreReal ? `<button id="modo-jogador" class="btn-ghost ${ui.modoJogador ? "on" : ""}" title="${ui.modoJogador ? "Você está jogando como tripulante. Clique para voltar a ser Mestre." : "Testar/jogar como um tripulante comum — some as ferramentas e os privilégios de Mestre."}">${ui.modoJogador ? "🎭 MODO JOGADOR" : "👑 MESTRE"}</button>` : ""}${ui.souMestre ? `<button id="abrir-mestre" class="btn-ghost" title="Tela do Mestre">🎛 MESTRE</button>` : ""}<a href="#/biblioteca/regras" target="_blank" rel="noopener" class="btn-ghost" title="Manual de regras — abre numa aba nova, a mesa continua aberta aqui">📖 REGRAS</a><button id="abrir-mapa" class="btn-ghost" title="Mapa do sistema (compartilhado)">🗺 MAPA</button></span></nav>
@@ -2320,39 +2326,7 @@ async function telaMesa(id) {
               <button id="enviar-dano" class="mini dano">💥 DANO</button><button id="enviar-cura" class="mini eq">✚ CURA</button></div>` : `<p class="regra">Vincule um personagem para rolar pela mesa.</p>`}
           </section>
           </div>
-          <div class="mesa-painel" ${ui.abaMesa === "nave" ? "" : "hidden"}>
-          <section class="sec"><header><span class="tag">🚀</span><h2>Nave da campanha</h2></header>
-            ${nave ? `
-              <p><b>${esc(nave.nome_batismo || nave.modelo)}</b> <small>(${esc(nave.modelo)})</small></p>
-              <div class="barras">
-                <div class="barra"><span>Casco ${nave.casco}/${nave.casco_max}</span><div><i style="width:${(100 * nave.casco / nave.casco_max) | 0}%;background:var(--chrome)"></i></div></div>
-                <div class="barra"><span>Escudos ${nave.escudos}/${nave.escudos_max}</span><div><i style="width:${nave.escudos_max ? (100 * nave.escudos / nave.escudos_max) | 0 : 0}%;background:var(--tech)"></i></div></div>
-              </div>
-              <p class="regra">Defesa ${defesaNaveParty()}${bonusDefVeiculo() ? ` (10 + Manobra + ${bonusDefVeiculo()} do Piloto)` : ""} · Dano ${esc(nave.dano)} · ${esc(REGRAS_NAVE.defesa)}</p>
-              <label>Meu posto<select id="sel-posto"><option value="">— fora da nave —</option>
-                ${Object.entries(ESTACOES).map(([pk, e]) => `<option value="${pk}" ${meuPosto === pk ? "selected" : ""}>${e.n}</option>`).join("")}</select></label>
-              ${meuPosto && f ? `<div class="acoes-mesa">${ESTACOES[meuPosto].acoes.map((a, i) => `<button class="mini" data-est="${i}" title="${esc(a.d)}">${esc(a.n)}</button>`).join("")}</div>` : ""}
-              ${(cbn.avarias || []).length ? `<div class="avarias">${cbn.avarias.map((av, ai) => `<div class="avaria"><b>⚠ ${esc(av.n)}</b> <span class="regra">${esc(av.e)}</span>${ui.souMestre ? `<button class="mini rm" data-av-fix="${ai}" title="Consertar">✔</button>` : ""}</div>`).join("")}</div>` : ""}
-              ${ui.souMestre ? `<div class="acoes-mesa"><input id="nave-dano" type="number" placeholder="dano" style="width:70px"/><button id="nave-hit" class="mini dano">💥 NAVE SOFRE</button><button id="nave-upg" class="mini">🔧 Upgrades</button><button id="nave-repar" class="mini eq">🛠 Estaleiro</button></div>` : ""}
-              ${(cbn.ativo && !camp.combate.ordem.some((x) => ehNave(x))) ? `
-                <div class="cbn-box">
-                  <div class="cbn-cab"><b>🚀 COMBATE ESPACIAL</b><span class="regra">Rodada ${cbn.rodada}</span></div>
-                  ${(cbn.inimigas || []).map((x, xi) => `<div class="cb-linha ${x.casco <= 0 ? "cb-morto" : ""}">
-                    <span class="cb-nome"><b>${esc(x.nome)}</b> <span class="dim">Def ${10 + (x.manobra || 0)} · ${esc(x.dano)}</span></span>
-                    <span class="cb-hp" title="Casco"><span class="cb-hp-barra" style="width:${x.casco_max ? Math.max(0, 100 * x.casco / x.casco_max) : 0}%;background:var(--chrome)"></span><b>${x.casco}/${x.casco_max}</b></span>
-                    <span class="cb-hp" title="Escudos"><span class="cb-hp-barra" style="width:${x.escudos_max ? Math.max(0, 100 * x.escudos / x.escudos_max) : 0}%;background:var(--tech)"></span><b>${x.escudos}/${x.escudos_max}</b></span>
-                    ${ui.souMestre ? `<span class="cb-acoes"><button class="cbn-atk" data-cbn-atk="${xi}" title="Esta nave dispara contra a tripulação">⚔</button><button class="cb-rm" data-cbn-rm="${xi}">✕</button></span>` : ""}
-                  </div>`).join("") || `<p class="regra">Nenhuma nave inimiga em campo.</p>`}
-                  <p class="regra cbn-postos">Postos: ${POSTOS_ORDEM.map((pk) => { const quem = (membros || []).find((m) => m.posto === pk); const agiu = (cbn.agiram || []).includes(pk);
-                    return `<span class="cbn-posto ${agiu ? "ok" : ""} ${quem ? "" : "vazio"}" title="${quem ? esc(quem.perfis?.apelido || "") : "vago"}">${esc(ESTACOES[pk].n.split(" ")[0])}${agiu ? " ✓" : ""}</span>`; }).join(" ")}</p>
-                  ${ui.souMestre ? `<div class="filtros"><button id="cbn-add" class="mini">➕ Nave inimiga</button><button id="cbn-prox" class="mini eq">▶ Próxima rodada</button><button id="cbn-fim" class="mini rm">⏹ Encerrar</button></div>` : ""}
-                </div>` : (ui.souMestre ? `<p class="regra" style="margin-top:8px">⚔ Para uma batalha espacial, abra a aba <b>Combate</b> e adicione a nossa nave e as inimigas ao rastreador — a iniciativa é a mesma do combate pessoal.</p>` : "")}
-            ` : ui.souMestre ? `
-              <select id="sel-nave">${NAVES.map((n) => `<option>${esc(n.n)}</option>`).join("")}</select>
-              <input id="nave-nome" placeholder="Nome de batismo"/>
-              <button id="def-nave" class="btn-primario" style="margin-top:8px">DEFINIR NAVE</button>` : `<p class="regra">O Mestre ainda não definiu a nave.</p>`}
-          </section>
-          </div>
+          ${renderNave(ctxNave)}
           <div class="mesa-painel" ${ui.abaMesa === "mesa" ? "" : "hidden"}>
           ${(camp.contratos?.length || Object.keys(camp.faccoes || {}).length) ? `<section class="sec"><header><span class="tag">📋</span><h2>Contratos & Reputação</h2></header>
             ${(camp.contratos || []).filter((c) => c.status !== "concluido").map((c) => `<div class="inv"><span><b>${esc(c.titulo)}</b> <span class="best-tag">${esc(c.status)}</span><br><span class="regra">${esc(c.recompensa)}${c.faccao ? ` · ${esc(c.faccao)}` : ""}</span></span></div>`).join("") || `<p class="regra">Nenhum contrato aberto.</p>`}
@@ -4271,269 +4245,7 @@ async function telaMesa(id) {
         const alvo = pers.find((x) => x.id === $("#sel-alvo").value);
         enviar("cura", null, { alvo_id: alvo.id, alvo_nome: alvo.nome, valor: v, origem: `de ${ui.meuPers.nome}`, aplicado: false }); };
     }
-    // nave binds
-    $("#def-nave")?.addEventListener("click", async () => {
-      const n = NAVES.find((x) => x.n === $("#sel-nave").value);
-      const nave = { modelo: n.n, nome_batismo: $("#nave-nome").value.trim() || n.n, casco: n.casco, casco_max: n.casco, escudos: n.escudos, escudos_max: n.escudos, manobra: n.manobra, dano: n.dano, ataques: n.ataques || [] };
-      await salvarCamp({ nave }, "registrar a nave");
-      enviar("nave", `A nave ${nave.nome_batismo} (${n.n}) entrou em serviço. Casco ${n.casco}, Escudos ${n.escudos}, Defesa ${10 + n.manobra}.`);
-    });
-    $("#sel-posto")?.addEventListener("change", async (e) => {
-      await sb.from("campanha_membros").update({ posto: e.target.value || null }).eq("campanha_id", id).eq("perfil_id", usuario.id);
-      location.reload();
-    });
-    const salvarCbn = async () => { await salvarCamp({ combate_nave: camp.combate_nave }, "salvar o combate espacial"); };
-    $("#cbn-iniciar")?.addEventListener("click", async () => {
-      camp.combate_nave = { ...combateNaveVazio(), ativo: true };
-      await salvarCbn(); await enviar("sistema", "🚀 Alerta vermelho: combate espacial iniciado. Todos aos postos!"); render();
-    });
-    $("#cbn-fim")?.addEventListener("click", async () => {
-      if (!(await confirmModal("Encerrar o combate espacial? As naves inimigas e as avarias em campo serão limpas.", { okLabel: "Encerrar", perigo: true }))) return;
-      camp.combate_nave = combateNaveVazio(); await salvarCbn(); await enviar("sistema", "🚀 Combate espacial encerrado."); render();
-    });
-    $("#cbn-prox")?.addEventListener("click", async () => {
-      const cb = camp.combate_nave; cb.rodada++; cb.agiram = [];
-      // Núcleo de Reparo Automático
-      if ((camp.nave?.upgrades || []).some((u) => u === "Núcleo de Reparo Automático") && camp.nave.casco < camp.nave.casco_max) {
-        const rep = d(6); camp.nave.casco = Math.min(camp.nave.casco_max, camp.nave.casco + rep);
-        await salvarCamp({ nave: camp.nave }, "salvar o reparo automático");
-        await enviar("sistema", `🔧 Núcleo de Reparo: +${rep} de Casco (${camp.nave.casco}/${camp.nave.casco_max}).`);
-      }
-      await salvarCbn(); await enviar("sistema", `🚀 Rodada ${cb.rodada}. Postos liberados para agir.`); render();
-    });
-    $("#cbn-add")?.addEventListener("click", async () => {
-      const r = await modalForm({ titulo: "➕ Nave inimiga", campos: [
-        { k: "modelo", label: "Modelo", tipo: "select", opcoes: NAVES.map((n) => n.n) },
-        { k: "nome", label: "Nome (opcional)", tipo: "texto" },
-      ], okLabel: "Lançar" });
-      if (!r) return;
-      const base = NAVES.find((n) => n.n === r.modelo); if (!base) return;
-      const iguais = camp.combate_nave.inimigas.filter((x) => x.modelo === base.n).length;
-      camp.combate_nave.inimigas.push({ id: "s" + Math.random().toString(36).slice(2, 8),
-        nome: r.nome?.trim() || (iguais ? `${base.n} #${iguais + 1}` : base.n), modelo: base.n,
-        casco: base.casco, casco_max: base.casco, escudos: base.escudos, escudos_max: base.escudos,
-        manobra: base.manobra, dano: base.dano, ataques: base.ataques || [] });
-      await salvarCbn(); await enviar("sistema", `🚀 Contato hostil: ${camp.combate_nave.inimigas.slice(-1)[0].nome} entrou em alcance.`); render();
-    });
-    app.querySelectorAll("[data-cbn-rm]").forEach((b) => b.onclick = async () => {
-      camp.combate_nave.inimigas.splice(+b.dataset.cbnRm, 1); await salvarCbn(); render();
-    });
-    // Nave inimiga dispara contra a tripulação
-    app.querySelectorAll("[data-cbn-atk]").forEach((b) => b.onclick = async () => {
-      const x = camp.combate_nave.inimigas[+b.dataset.cbnAtk]; if (!x || !camp.nave) return;
-      const atk = await ataqueDaNave(x); if (!atk) return;
-      const bonusAtk = atk.bonus ?? 4;
-      const nat = d(20), total = nat + bonusAtk;
-      const def = defesaNave(camp.nave);
-      if (nat === 1 || total < def) {
-        return enviar("rolagem", null, { titulo: `🚀 ${x.nome} dispara ${atk.n}`, detalhe: `d20 [${nat}] ${sign(bonusAtk)} vs Defesa ${def}`, total, fumble: nat === 1, extra: "Errou — o disparo passa de raspão." });
-      }
-      const pd = parseDice(atk.dano); const dados = rollNd(pd.n, pd.f);
-      const bruto = danoCritico(dados.reduce((a2, b2) => a2 + b2, 0), pd.mod, nat === 20 ? 2 : 1);
-      const r = danoNave(camp.nave, bruto);
-      let extra = `Escudos absorveram ${r.escudos}; Casco sofreu ${r.casco}. Nave: ${camp.nave.casco}/${camp.nave.casco_max} casco · ${camp.nave.escudos}/${camp.nave.escudos_max} escudos.`;
-      if ((nat === 20 || r.critico) && r.casco > 0) {
-        const av = rolarAvaria(); camp.combate_nave.avarias.push(av);
-        extra += `  ⚠ FALHA CRÍTICA — ${av.n}: ${av.e}`;
-      }
-      if (camp.nave.casco <= 0) extra += "  💀 CASCO A ZERO: a nave está destruída ou à deriva.";
-      await salvarCamp({ nave: camp.nave }, "salvar o disparo inimigo");
-      await salvarCbn();
-      await enviar("rolagem", null, { titulo: `🚀 ${x.nome} dispara ${atk.n}`, detalhe: `d20 [${nat}] ${sign(bonusAtk)} vs Defesa ${def} · dano ${atk.dano} [${dados.join(", ")}]${nat === 20 ? " ×2" : ""}`, total, crit: nat === 20, extra });
-      render();
-    });
-    app.querySelectorAll("[data-av-fix]").forEach((b) => b.onclick = async () => {
-      const av = camp.combate_nave.avarias.splice(+b.dataset.avFix, 1)[0];
-      await salvarCbn(); await enviar("sistema", `🔧 Avaria reparada: ${av?.n}.`); render();
-    });
-    // Upgrades da nave (ficha evolutiva)
-    // Reparo fora de combate: no estaleiro, pagando em créditos da tripulação.
-    $("#nave-repar")?.addEventListener("click", async () => {
-      if (!camp.nave) return;
-      const faltaCasco = camp.nave.casco_max - camp.nave.casco;
-      const faltaEsc = camp.nave.escudos_max - camp.nave.escudos;
-      const avarias = (camp.combate?.avarias || []).length;
-      if (!faltaCasco && !faltaEsc && !avarias) return alert("A nave está inteira: casco cheio, escudos cheios e sem avarias.");
-      // 8 CG por ponto de casco; escudos recalibram de graça; avaria custa 150 CG cada
-      const custoCasco = faltaCasco * 8, custoAvarias = avarias * 150;
-      const r = await modalForm({ titulo: "🛠 Estaleiro",
-        descricao: `Reparo completo fora de combate. Casco: ${camp.nave.casco}/${camp.nave.casco_max} · Escudos: ${camp.nave.escudos}/${camp.nave.escudos_max}${avarias ? ` · ${avarias} avaria(s)` : ""}.`,
-        campos: [
-          { k: "i", label: `Custo: ${custoCasco} CG pelo casco (${faltaCasco} pontos × 8)${custoAvarias ? ` + ${custoAvarias} CG pelas avarias` : ""}${faltaEsc ? " · recalibrar escudos é grátis" : ""}. Total: ${custoCasco + custoAvarias} CG.`, tipo: "info" },
-          { k: "quem", label: "Quem paga a conta?", tipo: "select", opcoes: [{ v: "", l: "— ninguém (cortesia do Mestre) —" }, ...(pers || []).map((p2) => ({ v: p2.id, l: `${p2.nome} (${p2.dados?.creditos ?? 0} CG)` }))] },
-        ], okLabel: "Reparar" });
-      if (!r) return;
-      const total = custoCasco + custoAvarias;
-      if (r.quem) {
-        const pagador = (pers || []).find((p2) => p2.id === r.quem);
-        const saldo = pagador?.dados?.creditos ?? 0;
-        if (saldo < total) return alert(`${pagador.nome} tem ${saldo} CG — faltam ${total - saldo} CG para o reparo.`);
-        const dd = { ...novaFichaDados(), ...pagador.dados, creditos: saldo - total };
-        dd.log = [{ q: new Date().toISOString(), t: `🛠 Pagou ${total} CG pelo reparo da nave.` }, ...(dd.log || [])].slice(0, 60);
-        await salvarFicha(pagador.id, dd); pagador.dados = dd;
-      }
-      camp.nave.casco = camp.nave.casco_max; camp.nave.escudos = camp.nave.escudos_max;
-      const cbn2 = camp.combate?.ordem?.find((x) => x.nave_party);
-      if (cbn2) { cbn2.casco = camp.nave.casco; cbn2.escudos = camp.nave.escudos; }
-      if (camp.combate) camp.combate.avarias = [];
-      await salvarCamp({ nave: camp.nave, ...(camp.combate ? { combate: camp.combate } : {}) }, "salvar o reparo do estaleiro");
-      await enviar("sistema", `🛠 ${camp.nave.nome_batismo || camp.nave.modelo} sai do estaleiro: casco e escudos no máximo${avarias ? `, ${avarias} avaria(s) reparada(s)` : ""}${total ? ` — ${total} CG` : ""}.`);
-      render();
-    });
-    $("#nave-upg")?.addEventListener("click", async () => {
-      if (!camp.nave) return;
-      camp.nave.upgrades = camp.nave.upgrades || [];
-      const r = await modalForm({ titulo: "🔧 Melhorias da nave", campos: [
-        { k: "i", label: `Instaladas: ${camp.nave.upgrades.length ? camp.nave.upgrades.join(", ") : "nenhuma"}. Escolha uma melhoria para instalar.`, tipo: "info" },
-        { k: "up", label: "Melhoria", tipo: "select", opcoes: UPGRADES_NAVE.filter((u) => !camp.nave.upgrades.includes(u.n)).map((u) => ({ v: u.n, l: `${u.n} — ${u.p} CG · ${u.e}` })) },
-      ], okLabel: "Instalar" });
-      if (!r || !r.up) return;
-      const u = UPGRADES_NAVE.find((x) => x.n === r.up); if (!u) return;
-      camp.nave.upgrades.push(u.n);
-      if (u.campo === "casco_max") { camp.nave.casco_max += u.v; camp.nave.casco += u.v; }
-      if (u.campo === "escudos_max") { camp.nave.escudos_max += u.v; camp.nave.escudos += u.v; }
-      if (u.campo === "manobra") camp.nave.manobra = (camp.nave.manobra || 0) + u.v;
-      if (u.penal?.manobra) camp.nave.manobra = (camp.nave.manobra || 0) + u.penal.manobra;
-      if (u.campo === "dano_bonus") { const pd = parseDice(camp.nave.dano); if (pd) camp.nave.dano = `${pd.n + 1}d${pd.f}${pd.mod ? sign(pd.mod) : ""}`; }
-      await salvarCamp({ nave: camp.nave }, "salvar a melhoria");
-      await enviar("sistema", `🔧 ${camp.nave.nome_batismo || camp.nave.modelo} recebeu uma melhoria: ${u.n}. ${u.e}`);
-      render();
-    });
-    $("#nave-hit")?.addEventListener("click", async () => {
-      const v = +$("#nave-dano").value; if (!v || !camp.nave) return;
-      const n = { ...camp.nave };
-      const abs = Math.min(n.escudos, v); n.escudos -= abs; n.casco = Math.max(0, n.casco - (v - abs));
-      await salvarCamp({ nave: n }, "salvar o dano na nave");
-      enviar("nave", `A nave sofreu ${v} de dano (${abs} nos escudos). Casco ${n.casco}/${n.casco_max}, Escudos ${n.escudos}/${n.escudos_max}.${n.casco === 0 ? " ⚠ CASCO ZERO — À DERIVA!" : ""}`);
-    });
-    if (meuPosto && f) app.querySelectorAll("[data-est]").forEach((b) => b.onclick = async () => {
-      const acao = ESTACOES[meuPosto].acoes[+b.dataset.est];
-      const nt = (camp.combate.nave = camp.combate.nave || naveTaticaVazia());
-      let mexeuNaTatica = false;
-      let extra = acao.d;
-
-      // ---- Ações sem rolagem (Fuga de Dobra, Sobrecarga de Propulsores) ----
-      if (!acao.rola) {
-        if (/sobrecarga de propulsores/i.test(acao.n) && camp.nave) {
-          const choque = d(4);
-          ui.meuPers.dados = { ...ui.meuPers.dados, pvAtual: Math.max(0, (ui.meuPers.dados.pvAtual || 0) - choque) };
-          await salvarFicha(ui.meuPers.id, ui.meuPers.dados);
-          nt.manobraExtra = 2; nt.manobraAte = 1;   // vale até a próxima rodada
-          await salvarCamp({ combate: camp.combate }, "salvar a sobrecarga");
-          await enviar("nave", `⚙ ${ui.meuPers.nome} sobrecarrega os propulsores: +2 de Manobrabilidade por 1 turno (Defesa da nave ${defesaNaveParty()}). O engenheiro sofre ${choque} de dano de choque.`);
-          return render();
-        }
-        if (/fuga de dobra/i.test(acao.n) && camp.nave) {
-          const dob = nt.dobra || { cargas: 0, cascoRef: camp.nave.casco };
-          const levouDano = camp.nave.casco < dob.cascoRef;
-          const cargas = levouDano ? 1 : (dob.cargas || 0) + 1;
-          nt.dobra = { cargas, cascoRef: camp.nave.casco };
-          if (cargas >= 2) {
-            nt.dobra = null; camp.combate.naveEmCena = false;
-            await salvarCamp({ combate: camp.combate }, "salvar o salto de dobra");
-            await enviar("nave", `🌀 Salto de dobra concluído — ${camp.nave.nome_batismo || camp.nave.modelo} desaparece do combate. A tripulação escapa.`);
-          } else {
-            await salvarCamp({ combate: camp.combate }, "salvar a carga de dobra");
-            await enviar("nave", `🌀 ${ui.meuPers.nome} carrega o motor de dobra (${cargas}/2).${levouDano ? " O casco foi atingido e a carga reiniciou." : " Mais um turno sem dano no casco e a nave salta."}`);
-          }
-          return render();
-        }
-        return enviar("nave", `${ui.meuPers.nome} executa ${acao.n}: ${acao.d}`);
-      }
-
-      // ---- Ações com rolagem ----
-      const [at, pn] = acao.rola; const mod = k.attr[at] + k.per[pn];
-      const comDesv = /tiro de precis/i.test(acao.n);   // Tiro de Precisão sai com Desvantagem
-      let nat;
-      if (comDesv) { const r1 = d(20), r2 = d(20); nat = Math.min(r1, r2); extra = `[desvantagem ${r1}/${r2}] ${extra}`; }
-      else nat = d(20);
-      const total = nat + mod;
-      // Efeitos que persistem até serem consumidos (Cap. 12)
-      if (/manobra evasiva/i.test(acao.n) && camp.nave) {
-        const defBase = defesaNaveParty();
-        if (total > defBase) { nt.evasiva = total; nt.evasivaDe = ui.meuPers.id; extra = `Defesa da nave passa a ${total} até o seu próximo turno (base ${defBase}).`; }
-        else extra = `Resultado ${total} não supera a Defesa base ${defBase} — a manobra não melhora nada.`;
-        mexeuNaTatica = true;
-      }
-      if (/alinhamento de rota/i.test(acao.n)) {
-        const alvo = camp.combate.ordem.find((x) => ehNave(x) && x.lado === "inimiga" && !foraDeCombate(x));
-        const cd = alvo ? 10 + (alvo.manobra || 0) : 12;
-        if (total >= cd) { nt.alinhado = true; extra = `Alinhado (CD ${cd}): o próximo Fogo Concentrado sai com Vantagem.`; }
-        else extra = `Falhou em alinhar (CD ${cd}).`;
-        mexeuNaTatica = true;
-      }
-      if (/rastreio de fraqueza/i.test(acao.n)) {
-        if (total >= 13) { nt.fraqueza = true; extra = "Fraqueza localizada: o próximo acerto da nave causa +1d6 de dano."; }
-        else extra = "Os sensores não encontram brecha no casco inimigo (CD 13).";
-        mexeuNaTatica = true;
-      }
-      // Sensores: desliga os escudos da nave inimiga por 1 turno (ou impõe Desvantagem).
-      if (/guerra eletr/i.test(acao.n)) {
-        const vivas = camp.combate.ordem.filter((x) => ehNave(x) && x.lado === "inimiga" && !foraDeCombate(x));
-        if (!vivas.length) extra = "Nenhuma nave inimiga em campo para invadir.";
-        else {
-          const esc1 = vivas.length === 1 ? vivas[0].id : (await modalForm({ titulo: `📡 ${acao.n} — alvo`, campos: [
-            { k: "alvo", label: "Nave inimiga", tipo: "select", opcoes: vivas.map((x) => ({ v: x.id, l: `${x.nome} — escudos ${x.escudos}/${x.escudos_max}, Def ${defesaNave(x)}` })) }], okLabel: "Invadir" }))?.alvo;
-          const alvo = vivas.find((x) => x.id === esc1);
-          if (alvo) {
-            const cd = defesaNave(alvo);
-            if (total >= cd) { alvo.escudosOff = 2;   // vale até o próximo turno dela
-              extra = `Invadiu (CD ${cd}): os escudos de ${alvo.nome} ficam inertes — nada absorve dano até o próximo turno dela.`; }
-            else extra = `A contramedida de ${alvo.nome} segura a invasão (CD ${cd}).`;
-            mexeuNaTatica = true;
-          }
-        }
-      }
-      if (acao.cura && camp.nave && total >= 12) {
-        const pd = parseDice(acao.dado); const val = rollNd(pd.n, pd.f).reduce((a, b) => a + b, 0) + (acao.cura === "escudos" ? f.nivel : 0);
-        const n = { ...camp.nave };
-        n[acao.cura] = Math.min(n[acao.cura + "_max"], n[acao.cura] + val);
-        await salvarCamp({ nave: n }, "salvar a cura");
-        extra = `+${val} de ${acao.cura}! (${n[acao.cura]}/${n[acao.cura + "_max"]})`;
-      }
-      // Artilharia: se há combate espacial ativo, resolve contra uma nave inimiga
-      if (acao.danoNave && camp.combate?.ativo && camp.combate.ordem.some((x) => ehNave(x) && x.lado === "inimiga" && !foraDeCombate(x))) {
-        const vivas = camp.combate.ordem.filter((x) => ehNave(x) && x.lado === "inimiga" && !foraDeCombate(x));
-        const esc1 = vivas.length === 1 ? vivas[0] : (await modalForm({ titulo: `⚔ ${acao.n} — escolher alvo`, campos: [
-          { k: "alvo", label: "Nave inimiga", tipo: "select", opcoes: vivas.map((x) => ({ v: x.id, l: `${x.nome} — casco ${x.casco}/${x.casco_max}, Def ${10 + (x.manobra || 0)}` })) }], okLabel: "Disparar" }))?.alvo;
-        const alvo = typeof esc1 === "string" ? vivas.find((x) => x.id === esc1) : esc1;
-        if (alvo) {
-          const def = defesaNave(alvo);
-          // Escolhe a arma só se a nave tem mais de uma cadastrada — sem isso, zero
-          // pergunta nova pra quem só tem os canhões padrão (comportamento de sempre).
-          const atkNave = camp.nave?.ataques?.length
-            ? (await ataqueDaNave(camp.nave, acao.n)) || { n: "Canhões", dano: camp.nave?.dano || "1d6" }
-            : { n: "Canhões", dano: camp.nave?.dano || "1d6" };
-          // Alinhamento de Rota concede Vantagem: rola um segundo d20 e fica com o melhor
-          let natUsado = nat, totalUsado = total, marcas = [];
-          if (nt.alinhado) { const n2 = d(20); if (n2 > nat) { natUsado = n2; totalUsado = n2 + mod; }
-            marcas.push(`🎯 Vantagem por alinhamento [${nat}/${n2}]`); nt.alinhado = false; mexeuNaTatica = true; }
-          if (totalUsado >= def && natUsado !== 1) {
-            const pdn = parseDice(atkNave.dano || "1d6");
-            // Crítico: soma dados + bônus primeiro, só depois multiplica por 2 — não dobra
-            // a quantidade de dados rolados (já foi bug real em 3 outros lugares de nave).
-            const dd = rollNd(pdn.n, pdn.f);
-            let bruto = danoCritico(dd.reduce((x2, y2) => x2 + y2, 0), pdn.mod, natUsado === 20 ? 2 : 1);
-            if (nt.fraqueza) { const bonus = d(6); bruto += bonus; marcas.push(`🔎 fraqueza +${bonus}`); nt.fraqueza = false; mexeuNaTatica = true; }
-            const r2 = danoNave(alvo, bruto);
-            extra = `Acertou (Def ${def})! ${atkNave.n} ${atkNave.dano}${natUsado === 20 ? " ×2" : ""} [${dd.join(", ")}] → escudos −${r2.escudos}, casco −${r2.casco}. ${alvo.nome}: ${alvo.casco}/${alvo.casco_max}`;
-            // Tiro de Precisão: dano no casco desativa um subsistema por 1d4 turnos.
-            if (comDesv && r2.casco > 0) { const t4 = d(4);
-              aplicarCond(alvo, "Subsistema off", t4);
-              marcas.push(`🎯 subsistema de ${alvo.nome} desativado por ${t4} turno(s)`); }
-            if (marcas.length) extra += `  ·  ${marcas.join(" · ")}`;
-            if (alvo.casco <= 0) extra += "  💥 NAVE ABATIDA!";
-          } else extra = `Errou — Defesa ${def} da ${alvo.nome}.${marcas.length ? "  ·  " + marcas.join(" · ") : ""}`;
-          camp.combate.agiram = [...new Set([...(camp.combate.agiram || []), meuPosto])];
-          await salvarCamp({ combate: camp.combate }, "salvar a ação do posto");
-        }
-      } else if (camp.combate?.ativo) {
-        camp.combate.agiram = [...new Set([...(camp.combate.agiram || []), meuPosto])];
-        await salvarCamp({ combate: camp.combate }, "salvar a ação do posto");
-      }
-      if (mexeuNaTatica) { await salvarCamp({ combate: camp.combate }, "salvar o estado tático"); render(); }
-      enviar("rolagem", null, { titulo: `${ESTACOES[meuPosto].n} — ${acao.n}`, detalhe: `d20 [${nat}] ${sign(mod)} (${at}+${pn})`, total, crit: nat === 20, fumble: nat === 1, extra });
-    });
+    wireNave(ctxNave);
   };
   render();
 }

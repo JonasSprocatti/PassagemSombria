@@ -354,11 +354,11 @@ input:focus,select:focus,button:focus-visible{outline:2px solid var(--tech);outl
 .cb-ini{font-family:'IBM Plex Mono',monospace;font-weight:700;color:var(--chrome);min-width:20px;text-align:center}
 .cb-nome{flex:1 1 calc(100% - 34px);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .cb-hp{flex:1 1 0}
-.cb-acoes{flex:0 0 auto;margin-left:auto}
+.cb-acoes{flex:0 0 auto;margin-left:auto;max-width:100%}
 .cb-hp{position:relative;min-width:80px;height:16px;background:#1a1e2e;border-radius:3px;overflow:hidden;flex-shrink:1}
 .cb-hp-barra{position:absolute;left:0;top:0;height:100%;opacity:.55}
 .cb-hp b{position:relative;font-size:10px;line-height:16px;display:block;text-align:center;font-family:'IBM Plex Mono',monospace}
-.cb-acoes{display:flex;gap:2px;align-items:center}
+.cb-acoes{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:2px;align-items:center}
 .cb-acoes button{background:var(--panel);border:1px solid var(--line);color:var(--ink);cursor:pointer;font-size:10px;padding:1px 5px;border-radius:3px}
 .cb-acoes .cb-rm:hover{color:var(--perigo);border-color:var(--perigo)}
 .cb-add,.cb-ctrl{display:flex;gap:5px;margin-top:6px}
