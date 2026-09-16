@@ -416,8 +416,15 @@ export async function abrirMestre(ctx) {
       ov.querySelector("#not-st").textContent = error ? "erro: " + error.message : "salvo ✓";
     });
   };
-  const fechar = () => { document.body.style.overflow = ""; ov.remove(); };
+  // Esc precisa ir no document, não no ov: um <div> sem tabindex nunca recebe
+  // foco sozinho, então um keydown ligado nele só dispara se algum campo dentro
+  // do painel já estiver focado — na prática, quase nunca. Era bug real: Esc
+  // não fechava o painel do Mestre (nem os overlays irmãos que usam o mesmo
+  // padrão em app.js — bancada, inspetor, diário, estatísticas — mas aqui só
+  // corrigimos este, que é o que foi extraído).
+  const onEsc = (e) => { if (e.key === "Escape") fechar(); };
+  const fechar = () => { document.body.style.overflow = ""; document.removeEventListener("keydown", onEsc); ov.remove(); };
   document.body.appendChild(ov); document.body.style.overflow = "hidden";
   pintar();
-  ov.addEventListener("keydown", (e) => { if (e.key === "Escape") fechar(); });
+  document.addEventListener("keydown", onEsc);
 }
