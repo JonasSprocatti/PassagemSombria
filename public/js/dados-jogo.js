@@ -197,11 +197,11 @@ export const RACAS = [
   "habilidades": [
    {
     "n": "Física de Motor",
-    "d": "Devido à densidade de seus corpos, eles recebem +2 de bônus natural em sua Classe de Defesa (CD) contra tentativas de empurrões ou arremessos, e podem carregar o triplo do peso que o seu atributo de Força normalmente permitiria."
+    "d": "Devido à densidade de seus corpos, eles recebem +2 de bônus permanente na Classe de Defesa (CD). Narrativamente, também carregam bem mais peso do que o esperado para o seu tamanho (a critério do Mestre — o jogo não rastreia peso de inventário)."
    ,
     "tipo": "Passiva",
     "freq": "passiva",
-    "efeitos": [{"tipo":"dano","valor":2,"contra":"branca","momento":"ao_atacar"}]
+    "efeitos": [{"tipo":"defesa","valor":2}]
    },
    {
     "n": "Engenharia de Bordo",
@@ -1063,7 +1063,7 @@ export const CLASSES = {
  "Starlord":{pv:8,pericias:{"Lábia / Persuasão":5,"Armas de Fogo":2,"Tecnomancia":2,"Pilotagem":2,"Furtividade":1},hab:[{n:"Charme Malandro",tipo:"Passiva",freq:"combate",d:"1x/encontro social: re-rola um teste de Lábia / Persuasão falhado.",efeitos:[{tipo:"recurso",n:"Re-rolar Lábia/Persuasão",freq:"sessao"}]},{n:"\u201cDeixem isto comigo!\u201d",tipo:"Ativa",freq:"livre",d:"Ação Livre: o próximo aliado a atacar ganha Vantagem. (NV5: os dois próximos.)"}],vet:{n:"Palavra de Capitão",freq:"longo",d:"1x/desc. longo: cede o turno para dar um turno completo extra a um aliado."}},
  "Franco-atirador":{pv:6,pericias:{"Armas de Fogo":5,"Sobrevivência":3,"Furtividade":2,"Investigação":2},hab:[{n:"Foco à Distância",tipo:"Ativa",freq:"livre",d:"Analisa 1 turno; no próximo, acerto E dano com Vantagem. (NV5: Ação de Movimento.)"},{n:"Tiro Incapacitante",tipo:"Passiva",freq:"livre",d:"Mira num membro: metade do dano, alvo com deslocamento 0 (ou derruba a arma) por 1 turno.",efeitos:[{tipo:"recurso",n:"Tiro que imobiliza",freq:"curto"}]}],vet:{n:"Geometria da Morte",freq:"combate",d:"1x/combate: um disparo ignora completamente qualquer cobertura."}},
  "Músico":{pv:4,pericias:{"Tecnomancia":5,"Performance / Arte":4,"Lábia / Persuasão":2,"Armas Brancas":1},hab:[{n:"Ouvido Absoluto",tipo:"Passiva",freq:"passiva",d:"+1 na CD (resistência a controle mental, ilusões e dano sônico).",efeitos:[{tipo:"defesa",valor:1}]},{n:"Frequência de Inspiração/Ressonância",tipo:"Ativa",freq:"livre",d:"Aura 10m: aliados +2 acerto OU inimigos −2 CD. Dura enquanto não sofrer dano (NV5: Performance CD12 sustenta)."}],vet:{n:"Maestro de Guerra — Acorde Duplo",freq:"combate",d:"1x/combate: os DOIS efeitos simultâneos por 2 turnos."}},
- "Espião":{pv:4,pericias:{"Enganação":4,"Lábia / Persuasão":4,"Furtividade":2,"Acrobacia":1,"Intimidação":1},hab:[{n:"Rosto na Multidão",tipo:"Passiva",freq:"passiva",d:"Vantagem absoluta em Persuasão/Enganação quando disfarçado de uma facção.",efeitos:[{tipo:"vantagem",em:"pericia",pericia:"Lábia / Persuasão"}]},{n:"Ponto Cego",tipo:"Ativa",freq:"livre",d:"Ação de Mov.: mistura-se; inimigos o ignoram até você atacar. (NV5: persiste 1 turno após atacar.)"}],vet:{n:"Identidade Profunda",freq:"passiva",d:"Terceira identidade blindada — resiste a verificações formais da Confederação."}},
+ "Espião":{pv:4,pericias:{"Enganação":4,"Lábia / Persuasão":4,"Furtividade":2,"Acrobacia":1,"Intimidação":1},hab:[{n:"Rosto na Multidão",tipo:"Passiva",freq:"passiva",d:"Vantagem absoluta em Lábia / Persuasão quando disfarçado de uma facção.",efeitos:[{tipo:"vantagem",em:"pericia",pericia:"Lábia / Persuasão"}]},{n:"Ponto Cego",tipo:"Ativa",freq:"livre",d:"Ação de Mov.: mistura-se; inimigos o ignoram até você atacar. (NV5: persiste 1 turno após atacar.)"}],vet:{n:"Identidade Profunda",freq:"passiva",d:"Terceira identidade blindada — resiste a verificações formais da Confederação."}},
  "Catador":{pv:6,pericias:{"Lábia / Persuasão":3,"Investigação":2,"Sobrevivência":2,"Mecânica":2,"Pilotagem":2,"Armas de Fogo":1},hab:[{n:"Olho para o Ouro",tipo:"Passiva",freq:"livre",d:"Ao investigar: 1d6; com 4–6 (NV5: 3–6) acha item valioso extra.",efeitos:[{tipo:"chance_extra",dado:"1d6",minimo:4,oque:"item valioso",momento:"ao_saquear"}]},{n:"Desmanche Rápido",tipo:"Ativa",freq:"combate",d:"1x/combate: arranca placa de inimigo mecânico — 1d8 e −1 CD permanente. (NV5: rouba módulo instalado.)"}],vet:{n:"Olho Clínico",freq:"passiva",d:"Olho para o Ouro com 3–6; Desmanche rouba módulos."}},
  "Piloto":{pv:6,pericias:{"Pilotagem":5,"Mecânica":2,"Lábia / Persuasão":2,"Sobrevivência":2,"Armas de Fogo":1},hab:[{n:"Instinto Evasivo",tipo:"Passiva",freq:"passiva",d:"+2 na CD de qualquer veículo pilotado. (NV5: +4.)",efeitos:[{tipo:"defesa_veiculo",valor:2}]},{n:"Sobrecarga de Propulsores",tipo:"Ativa",freq:"livre",d:"Pilotagem com Vantagem para escapar; nave sofre 1d4. (NV5: 1x/combate sem dano.)"}],vet:{n:"Um com a Máquina",freq:"combate",d:"1x/combate espacial: Sobrecarga sem dano à estrutura."}},
  "Batedor":{pv:8,pericias:{"Sobrevivência":4,"Armas de Fogo":3,"Investigação":3,"Furtividade":1,"Explosivos":1},hab:[{n:"Sentidos Alertas",tipo:"Passiva",freq:"passiva",d:"Imune a surpresa no 1º turno; +2 Iniciativa.",efeitos:[{tipo:"iniciativa",valor:2},{tipo:"imunidade",a:"ser surpreendido no 1º turno"}]},{n:"Marca do Caçador",tipo:"Ativa",freq:"livre",d:"Marca inimigo visível: aliados sabem a posição e ignoram cobertura média. (NV5: +1d4 de dano dos aliados.)"}],vet:{n:"Predador Paciente",freq:"passiva",d:"Ataques de aliados contra o marcado: +1d4 de dano."}},
@@ -1090,7 +1090,7 @@ export const FILOSOFIAS = {
 
 export const IMPLANTES = [
  {n:"Chip de Expansão de RAM",p:1500,e:"+2 Slots de RAM",g:"Cabeça",efeitos:[{tipo:"ram",valor:2}]},
- {n:"Olho Biônico de Precisão",p:800,e:"+2 em Ataque à Distância, ignora fumo/escuro",g:"Cabeça",efeitos:[{tipo:"acerto",valor:1,contra:"fogo",momento:"ao_atacar"}]},
+ {n:"Olho Biônico de Precisão",p:800,e:"+2 em Ataque à Distância, ignora fumo/escuro",g:"Cabeça",efeitos:[{tipo:"acerto",valor:2,contra:"fogo",momento:"ao_atacar"}]},
  {n:"Interface de Navegação (Plugar)",p:1200,e:"Vantagem em manobras evasivas espaciais",g:"Cabeça"},
  {n:"Tradutor Universal Subcortical",p:600,e:"+2 Lábia / Persuasão, tradução em tempo real",g:"Cabeça"},
  {n:"Módulo de Mira Preditiva",p:950,e:"Reduz penalidade de precisão de perto",g:"Cabeça"},
@@ -1149,6 +1149,7 @@ export const SCRIPTS = [
 
 export const ARMADURAS = [
  {n:"Roupas Civis / Traje de Estação",preco:20,t:"leve",cd:0,e:"",desc:"Casacos de couro sintético, sobretudos de mercenário ou os macacões confortáveis usados nas estações comerciais da Terra e de Ceres. Não oferecem proteção balística, mas também não atrapalham os movimentos. O conforto ideal para negociações em bares esfumaçados."},
+ {n:"Roupas Civis de Alto Luxo",preco:80,t:"leve",cd:0,e:"Status social elevado",desc:"Tecidos importados, cortes impecáveis, joias discretas. Não para nenhuma bala, mas abre portas que dinheiro sozinho não abre — o tipo de traje que faz um segurança corporativo hesitar antes de barrar a entrada."},
  {n:"Traje Furtivo de Nanofibra",preco:250,t:"leve",cd:1,e:"+2 em Furtividade",desc:"Um tecido negro e colante que absorve a luz e abafa as assinaturas térmicas do corpo. Usado pelos espiões corporativos e pelas guildas de assassinos. Ao toque, parece água fria; no escuro, torna o utilizador praticamente invisível."},
  {n:"Escudo de Energia Pessoal",preco:800,t:"leve",cd:0,absorve:10,e:"Escudo de 10: enquanto tiver carga, bloqueia o golpe inteiro (mesmo que estoure); recarrega em descanso",desc:"Um gerador do tamanho de um punho, preso ao cinto, que projeta uma bolha de \"luz dura\" à volta do utilizador. Não atrapalha o movimento e salva vidas, sendo o luxo preferido de Estudiosos e Cinéticos ricos que desprezam o peso do metal."},
  {n:"Colete Tático Padrão",preco:150,t:"media",cd:2,e:"Sacar itens é Ação Livre",desc:"A espinha dorsal da infantaria leve e das forças de segurança. Feito de placas de cerâmica leve sobrepostas, aguenta alguns tiros de plasma antes de derreter. É o equipamento de confiança de Starlords e Pilotos que precisam das mãos livres rapidamente."},
@@ -1210,7 +1211,7 @@ export const KEYWORDS = {
   "Ultra-Oculta / Surpresa": "Quase indetectável; +2 no acerto em surpresa/furtivo.",
   "Ágil": "Pode usar Destreza no lugar de Força no acerto e no dano.",
   "Híbrida de Atributo": "Usa o melhor entre Força e Destreza.",
-  "Aderência": "Vantagem em Acrobacia para escalar; +2 de dano fixo atacando de um ponto elevado.",
+  "Aderência": "Vantagem em Atletismo para escalar.",
   "Derretimento": "Ignora qualquer bônus de armadura metálica do alvo.",
   "Concussão": "Acerto Crítico (20 natural) deixa o alvo Atordoado por 1 turno.",
   "Atordoante": "Dano máximo no dado faz o alvo perder a Ação de Movimento no próximo turno.",
@@ -1424,6 +1425,32 @@ export const CONSUMIVEIS = [
     d: "Avisa sobre venenos e radiação no ambiente." },
   { n: "Binóculos Termais", p: 80, ic: "🔭", efeito: "nenhum", acao: "Ação de Movimento",
     d: "Detecta assinaturas de calor à distância." },
+  { n: "Tubo de Rações (3 dias)", p: 15, ic: "🥫", efeito: "nenhum", acao: "Ação Livre",
+    d: "Alimenta um tripulante por três dias." },
+  { n: "Luzes Químicas (Bastões)", p: 5, ic: "🕯", efeito: "nenhum", acao: "Ação Livre",
+    d: "Iluminação de emergência descartável, sem bateria." },
+  { n: "Comunicador de Pulso", p: 25, ic: "📻", efeito: "nenhum", acao: "Ação Livre",
+    d: "Comunicação de curto alcance padrão entre tripulantes." },
+  { n: "Caixa de Ferramentas Mecânicas", p: 45, ic: "🧰", efeito: "nenhum", acao: "Ação de Movimento",
+    d: "Necessária para reparos e modificações de campo." },
+  { n: "Rolo de Fita Isolante Espacial", p: 5, ic: "🧵", efeito: "nenhum", acao: "Ação Livre",
+    d: "A verdadeira salvadora de cascos de nave e trajes furados." },
+  { n: "Datapad de Pesquisa Avançado", p: 120, ic: "📓", efeito: "nenhum", acao: "Ação de Movimento",
+    d: "Equipamento essencial para Estudiosos — acesso a bases de dados e referências técnicas." },
+  { n: "Datapad Corporativo", p: 80, ic: "💼", efeito: "nenhum", acao: "Ação de Movimento",
+    d: "Focado em logística e mercado — cotações, contratos, rotas comerciais." },
+  { n: "Contratos em Branco e Caneta Digital", p: 15, ic: "📝", efeito: "nenhum", acao: "Ação Livre",
+    d: "Ferramenta de Prospectores — formaliza acordos na hora, com validade legal na Confederação." },
+  { n: "Identidades Falsas / Credenciais", p: 150, ic: "🪪", efeito: "nenhum", acao: "Ação Livre",
+    d: "Kit de infiltração para Espiões — um jogo de identidades credenciadas da Confederação." },
+  { n: "Instrumento Musical Digital", p: 100, ic: "🎵", efeito: "nenhum", acao: "Ação de Movimento",
+    d: "Funciona como Deck de Tecnomancia para a classe Músico." },
+  { n: "Deck Digital de Pulso", p: 100, ic: "💾", efeito: "nenhum", acao: "Ação de Movimento",
+    d: "Interface padrão para Scripts de Tecnomancia." },
+  { n: "Módulo de Som Portátil", p: 25, ic: "🔊", efeito: "nenhum", acao: "Ação Livre",
+    d: "Equipamento lúdico para Starlords — música, discursos, distração." },
+  { n: "Garrafa de Bebida Contrabandeada", p: 40, ic: "🍾", efeito: "nenhum", acao: "Ação Livre",
+    d: "Alta qualidade, de origem duvidosa — útil para subornos ou pra erguer o moral da tripulação." },
 ];
 export const ehConsumivel = (nome) => CONSUMIVEIS.find((c) => c.n === nome);
 
@@ -1517,6 +1544,8 @@ export const MODS_ARMA = [
     d: "Disparo silencioso: não denuncia a sua posição.", kw: "Silenciosa" },
   { n: "Acelerador Magnético", slot: "cano", p: 2400, ic: "⚡", turnos: 3,
     d: "Perfura blindagem: ignora 2 de armadura do alvo.", kw: "Perfurante" },
+  { n: "Cano Serrado / Dispersor Alargado", slot: "cano", p: 500, ic: "💨", turnos: 1,
+    d: "Requisito: rifles ou escopetas. Melhor de perto, pior de longe.", kw: "Curto Alcance" },
 
   // --- CORONHA / EMPUNHADURA ---
   { n: "Coronha Estabilizada", slot: "coronha", p: 350, ic: "🪝", turnos: 1,
@@ -1527,12 +1556,16 @@ export const MODS_ARMA = [
   { n: "Contrapeso de Combate", slot: "empunhadura", p: 500, ic: "⚖", turnos: 2,
     d: "+1 de dano em armas brancas.",
     efeitos: [{ tipo: "dano", valor: 1, contra: "branca", momento: "ao_atacar" }] },
+  { n: "Haste Telescópica", slot: "empunhadura", p: 350, ic: "📏", turnos: 1,
+    d: "Requisito: lâminas, facas ou martelos. Estende a arma: ataca a até 3m sem precisar colar no adversário.", kw: "Alcance" },
 
   // --- CARREGADOR (fogo) ---
   { n: "Pente Estendido", slot: "carregador", p: 450, ic: "▮", turnos: 1,
     d: "O pente passa a levar 5 tiros em vez de 3.", tirosExtra: 2 },
   { n: "Alimentador Duplo", slot: "carregador", p: 1300, ic: "▮", turnos: 2,
     d: "Pente de 4 tiros e a troca vira Ação Livre.", tirosExtra: 1, trocaLivre: true },
+  { n: "Lança-Granadas Acoplado", slot: "carregador", p: 700, ic: "💣", turnos: 2,
+    d: "Requisito: só rifles e carabinas. Cano inferior que dispara granadas do seu inventário — na hora de atacar, escolha se usa a munição normal ou uma granada. Só a narrativa por enquanto — o seletor de ataque ainda não oferece essa opção sozinho." },
 
   // --- FIO / NÚCLEO (branca) ---
   { n: "Fio Monomolecular", slot: "fio", p: 1800, ic: "🗡", turnos: 2,
@@ -1545,6 +1578,12 @@ export const MODS_ARMA = [
     d: "Reservatório na guarda: aplica Envenenado ao acertar.", kw: "Tóxica" },
   { n: "Descarga de Choque", slot: "nucleo", p: 2800, ic: "💫", turnos: 2,
     d: "Capacitor no punho: pode Atordoar o alvo ao acertar.", kw: "Atordoante" },
+  { n: "Motor Cinético de Retorno", slot: "nucleo", p: 900, ic: "🌀", turnos: 2,
+    d: "Requisito: armas contundentes (martelos, bastões, socos ingleses). Micro-foguete no impacto: ao acertar, pode derrubar o alvo.", kw: "Impacto" },
+  { n: "Matriz Desestabilizadora de Escudos", slot: "nucleo", p: 1200, ic: "🌐", turnos: 3,
+    d: "Sintonizado pra rasgar luz: o dobro de dano contra os PV de um Escudo de Energia Pessoal. Só a narrativa por enquanto — a mesa ainda não calcula esse dobro automaticamente ao aplicar dano." },
+  { n: "Cristal de Ressonância Sata", slot: "revestimento", p: 1400, ic: "💠", turnos: 3,
+    d: "Requisito: só instalável por Estudiosos, Cinéticos ou médicos da raça Sata (não checado automaticamente pela bancada — combine com o Mestre). Artefato biológico: a cada Crítico com esta arma, cura 1d4 PV do usuário. Só a narrativa por enquanto — a mesa ainda não aplica essa cura sozinha." },
 
   // --- REVESTIMENTO (ambos) ---
   { n: "Revestimento Anti-Sintético", slot: "revestimento", p: 1500, ic: "🤖", turnos: 2,
@@ -1553,6 +1592,8 @@ export const MODS_ARMA = [
     d: "Absorve luz e sinais: a arma passa por revistas comuns.", kw: "Oculta" },
   { n: "Placas de Aparo", slot: "revestimento", p: 1600, ic: "🛡", turnos: 2,
     d: "Guarda reforçada: +1 de Defesa enquanto empunhada.", kw: "Aparar" },
+  { n: "Trava Biométrica de Segurança", slot: "revestimento", p: 300, ic: "🔒", turnos: 1,
+    d: "A arma lê o seu DNA. Se for roubada ou saqueada, recusa-se a atirar para qualquer outra pessoa — quem tentar forçar o gatilho leva 1 de dano da trava. Regra de mesa, o Mestre adjudica." },
 ];
 
 export const modsDoSlot = (slot, tipoArma) => MODS_ARMA.filter((m) =>

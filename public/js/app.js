@@ -1939,6 +1939,30 @@ async function telaMesa(id) {
         if (alvo.qtd > 0) alvo.hp = alvo.hp_max; else { alvo.hp = 0; break; }
       }
     }
+    // Limiar de PV (ex. Titã Esquecido "Crescimento do Desclassificado, Fase 2" a
+    // 75 PV): dispara 1x só, na primeira vez que o dano cruza o limiar pra baixo —
+    // fica marcado em `alvo._limiarFeito` pra não repetir a cada novo golpe abaixo
+    // dele. Fica dentro de aplicarDanoAlvo (não em cada handler que causa dano)
+    // porque este é o único ponto por onde passa TODO dano rolado contra uma
+    // criatura, seja de jogador, de Mestre ou de área — os botões ±PV livres do
+    // Mestre continuam sem passar por aqui, de propósito (ajuste sem gatilho).
+    if (alvo.hp > 0 && !(alvo.qtd > 1)) {
+      const habsLimiar = habsDoCombatente(alvo).filter((h) => h.efeito && h.gatilho === "limiar_pv" && h.limiar != null && alvo.hp <= h.limiar);
+      for (const h of habsLimiar) {
+        alvo._limiarFeito = alvo._limiarFeito || {};
+        if (alvo._limiarFeito[h.n]) continue;
+        alvo._limiarFeito[h.n] = true;
+        try {
+          const M = await criaturaMod();
+          const rolarLocal = (expr) => { const pd = parseDice(String(expr)); return pd ? rollNd(pd.n, pd.f).reduce((x, y) => x + y, 0) + pd.mod : (+expr || 0); };
+          const cr = M.criar({ ...alvo, habs: [h] }, rolarLocal);
+          for (const r of cr.disparar(M.GATILHOS.LIMIAR_PV)) {
+            if (r.tipo === "cura") alvo.hp = Math.min(alvo.hp_max, alvo.hp + r.valor);
+            await enviar("sistema", `⚠ ${alvo.nome} — ${h.n}: ${h.d || r.texto}`);
+          }
+        } catch (eLimiar) { console.error("limiar_pv:", eLimiar); }
+      }
+    }
     return { aplicado: resta, temp: noTemp, mortos,
       msg: `${msgResist}${noTemp ? `✚ PV temp absorve ${noTemp} · ` : ""}−${resta}${mortos ? ` · ${mortos} caiu${mortos > 1 ? "ram" : ""}, restam ${alvo.qtd}` : ""} (${alvo.hp}/${alvo.hp_max})` };
   };

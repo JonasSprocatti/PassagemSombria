@@ -15,3 +15,6 @@ desktop.ini
 
 # Node (se um dia adicionar dependências ou scripts de build)
 node_modules/
+
+# Anotações internas do livro de regras (auditoria livro × código) — nunca vai pro repo
+livro-interno/

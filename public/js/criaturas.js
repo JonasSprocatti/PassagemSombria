@@ -22,18 +22,25 @@ export const GATILHOS = {
   AO_MORRER: "ao_morrer",
   AURA: "aura",                     // passiva contínua enquanto viva
   AO_ENTRAR: "ao_entrar",           // ao entrar em combate
+  AO_MATAR: "ao_matar",             // quando um ataque dela reduz um alvo a 0 PV
+  LIMIAR_PV: "limiar_pv",           // quando o HP dela cruza um limiar (ver `h.limiar`) — o
+                                     // chamador decide QUANDO checar; o gatilho só resolve o efeito
 };
 
 // ---------------------------------------------------------------------------
 //  TIPOS DE EFEITO — o que um efeito faz. Cada um sabe se resolver.
 // ---------------------------------------------------------------------------
 export const EFEITOS = {
-  // Dano direto: { dano: "1d6", alvo: "atacante"|"proprio"|"todos_proximos" }
+  // Dano direto: { dano: "1d6", alvo: "atacante"|"proprio"|"todos_proximos"|"area" }
+  // `area` (com `raio` em metros, opcionalmente `cd`+`atributo` pra "metade se passar
+  // no teste") é resolvida por quem consome o disparo — hoje só o AO_MORRER em
+  // mesa-combate.js sabe achar "todo mundo num raio de X" no campo tático.
   dano: {
     rotulo: (e) => `${e.dano} de dano${e.tipoDano ? ` (${e.tipoDano})` : ""} em ${alvoTxt(e.alvo)}`,
     resolver: (e, ctx) => {
       const v = ctx.rolar(e.dano);
-      return { tipo: "dano", valor: v, alvo: e.alvo || "atacante",
+      return { tipo: "dano", valor: v, alvo: e.alvo || "atacante", raio: e.raio,
+               cd: e.cd, atributo: e.atributo || "Con", tipoDano: e.tipoDano,
                texto: `${v} de dano${e.tipoDano ? ` ${e.tipoDano}` : ""}` };
     },
   },
@@ -72,7 +79,7 @@ export const EFEITOS = {
   },
 };
 const alvoTxt = (a) => ({ atacante: "quem a atingiu", proprio: "si mesma",
-  todos_proximos: "todos por perto", alvo: "no alvo" }[a] || "no alvo");
+  todos_proximos: "todos por perto", area: "todos num raio", alvo: "no alvo" }[a] || "no alvo");
 
 // ---------------------------------------------------------------------------
 //  CRIATURA — a classe. Envolve os dados e sabe agir sozinha.

@@ -1,182 +1,119 @@
-﻿# Passagem Sombria
+# Passagem Sombria
 
-App web de mesa virtual para o RPG espacial Passagem Sombria, com gestão de fichas, campanhas, rolagens em tempo real e acompanhamento de sessão no navegador.
+Mesa virtual (VTT) para o RPG de mesa espacial **Passagem Sombria** — SPA estática em JavaScript puro (ES modules, sem build), com Supabase como backend (Auth + Postgres + Realtime + Storage) e deploy na Vercel.
 
-Este repositório contém a interface do jogo em JavaScript puro, criada como SPA estática e hospedada em Vercel, com autenticação e sincronização em tempo real via Supabase.
+O projeto cobre a jornada inteira de uma sessão: criar personagem, entrar numa campanha, jogar em tempo real numa mesa com chat/rolagens/combate tático/combate espacial, e consultar a biblioteca de regras do sistema — tudo em português.
 
 ## Visão geral
 
-O projeto funciona como um deck de campo digital + mesa de jogo:
-
-- criação e edição de fichas por jogador;
-- login com Supabase Auth;
-- campanhas com código de convite;
-- chat e rolagens de dados em tempo real;
-- combate, danos, cura, descanso e controle de nave;
-- mapa do sistema compartilhado para o mestre;
-- biblioteca de regras, raças, classes, armas, implantes e outros dados do jogo;
-- suporte a PWA e uso em navegador mobile/desktop.
+- **Fichas de personagem**: criação guiada (raça/classe/filosofia/perícias, rolagem de atributos ou pontos), inventário, implantes, munição por arma, ficha imprimível.
+- **Campanhas**: código de convite, chat em tempo real, rolagens de dados, combate pessoal e espacial, controle de dano/cura, descansos, mapa do sistema para o Mestre.
+- **Combate tático**: rastreador de iniciativa, campo tático 2D (posição, alcance, cobertura, condições), combate de nave integrado ao mesmo campo.
+- **Painel do Mestre**: tabelas de rolagem aleatória, facções e reputação, orçamento de encontro, contratos, linha do tempo, backup/restauração de campanha.
+- **Biblioteca**: raças, classes, filosofias, arsenal (armas + palavras-chave + mods de bancada), armaduras, implantes, naves, bestiário, NPCs e a aba **Regras** (manual de bolso gerado a partir das próprias constantes do sistema).
+- **Painel de administração**: CRUD do conteúdo global (criaturas, armas, armaduras, implantes, consumíveis, naves, NPCs, palavras-chave, raças, classes) direto no navegador, sem precisar mexer em código para expandir o sistema.
+- **Macros de teclado**: teclas `1`–`9` e `Shift+1`–`Shift+9` disparam ataque/teste/habilidade/item/script configuráveis por personagem; sem configurar nada, as armas equipadas já ocupam as primeiras teclas sozinhas.
+- **PWA**: funciona offline/instalado, com service worker versionado e auto-atualização de aba aberta.
 
 ## Stack
 
-- JavaScript puro com ES modules;
-- HTML/CSS customizados;
-- Supabase Auth + Postgres + Realtime;
-- Vercel para hospedagem estática;
-- Three.js carregado sob demanda no seletor 3D do sistema solar;
-- sem build system obrigatório para rodar a aplicação.
+- JavaScript puro com ES modules — sem framework, sem passo de build.
+- HTML/CSS customizados (`public/css/estilo.css`).
+- Supabase: Auth, Postgres, Realtime (chat e presença), Storage (fotos de personagem).
+- Vercel para hospedagem estática (`public/` como raiz).
+- Three.js carregado sob demanda só no seletor 3D de planeta/raça.
+- Testador embutido do Node (`node:test`) para as funções puras de regras — sem `package.json`/`node_modules`.
 
 ## Estrutura do projeto
 
 ```text
 PassagemSombria/
 ├── README.md
+├── CLAUDE.md              # mapa detalhado do código para quem desenvolve com IA
 ├── .gitignore
-├── public/
-│   ├── index.html
-│   ├── manifest.json
-│   ├── logo.svg
-│   ├── sw.js
-│   ├── css/
-│   │   └── estilo.css
-│   ├── js/
-│   │   ├── app.js
-│   │   ├── config.js
-│   │   ├── conteudo.js
-│   │   ├── criacao.js
-│   │   ├── criaturas.js
-│   │   ├── dados-bestiario.js
-│   │   ├── dados-jogo.js
-│   │   ├── dados-mestre.js
-│   │   ├── dados-npcs.js
-│   │   ├── efeitos.js
-│   │   ├── mapa-sistema.js
-│   │   ├── mapa.js
-│   │   ├── sistema-solar.js
-│   │   └── ui.js
-│   ├── apple-touch-icon.png
-│   ├── favicon-32.png
-│   ├── icon-192.png
-│   ├── icon-512.png
-│   └── icon-maskable-512.png
-└── .git/
+├── .github/workflows/testes.yml   # roda `node --test` a cada push/PR
+├── tests/                 # dados-jogo.test.js, regras.test.js, validacao.test.js
+└── public/
+    ├── index.html
+    ├── manifest.json
+    ├── sw.js               # service worker PWA — CACHE incrementado a cada deploy relevante
+    ├── css/estilo.css
+    └── js/
+        ├── app.js          # roteador, telas, chat, "cimento" da mesa (~2500 linhas)
+        ├── config.js       # credenciais Supabase (placeholders no repo, preencher localmente)
+        ├── dados-jogo.js   # raças, classes, filosofias, armas, armaduras, implantes,
+        │                   # scripts, naves, perícias, palavras-chave, mods de bancada
+        ├── dados-bestiario.js  # criaturas (Cap. 13/14 do livro)
+        ├── dados-npcs.js       # NPCs e papéis
+        ├── dados-mestre.js     # facções, reputação, tabelas aleatórias, referência rápida
+        ├── regras.js       # regras puras (ficha, dados, condições, campo tático) — testável no Node
+        ├── efeitos.js      # motor de efeitos declarados (implantes/raças/classes alteram a ficha sem código novo)
+        ├── criaturas.js    # motor de efeitos automáticos de criaturas em combate
+        ├── conteudo.js     # conteúdo global editável pelo painel admin (tabela `conteudo`)
+        ├── biblioteca.js   # a Biblioteca inteira (raças, classes, arsenal, bestiário, regras…)
+        ├── admin.js        # painel de administração de conteúdo
+        ├── mesa-mestre.js  # overlay "Tela do Mestre" (descansos, recompensas, backup, tabelas…)
+        ├── mesa-nave.js    # aba Nave da mesa (postos, munição por arma, combate espacial clássico)
+        ├── mesa-combate.js # aba Combate da mesa (rastreador, campo tático, ataques do Mestre)
+        ├── mesa-ficha.js   # aba "Meu personagem" (ataque de arma, habilidades, scripts, macros)
+        ├── mapa-sistema.js # mapa compartilhado do Mestre (pontos de interesse)
+        ├── sistema-solar.js# seletor 3D de planeta/raça (Three.js sob demanda)
+        ├── criacao.js      # assistente de criação de personagem
+        └── ui.js           # modais reutilizáveis, sons, notificações
 ```
 
-## Funcionalidades principais
-
-### Fichas de personagem
-
-- cadastro de personagem com atributos, perícias, implantes, inventário e notas;
-- suporte à rolagem de origem e atribuição por pontos;
-- cálculo automático de vida, RAM, excesso de carga, bônus e status derivados;
-- upload de foto com compressão local antes do envio;
-- exportação de ficha em HTML ou uso do painel de impressão do navegador.
-
-### Campanhas e mesas
-
-- criação de campanhas com código de convite;
-- entrada de jogadores por código;
-- chat com mensagens de mesa, rolagens e respostas;
-- movimentação de nave da campanha e gestão de combate;
-- controle de dano e cura por personagem;
-- descanso curto e longo com sincronização para a mesa;
-- mapa do sistema editável pelo mestre com pontos de interesse e posicionamento da tripulação.
-
-### Biblioteca de jogo
-
-- raças, classes, filosofias, armas, armaduras, implantes e scripts;
-- bestiário e NPCs;
-- dados do mestre, tabelas de reputação, facções e referências gerais do cenário.
-
-### Experiência do usuário
-
-- interface em português;
-- navegação por hash (`#/login`, `#/hangar`, `#/ficha/:id`, `#/campanhas`, `#/mesa/:id`, `#/biblioteca`);
-- carregamento sob demanda dos módulos pesados;
-- comportamento responsivo em navegador;
-- suporte a PWA, com manifest e service worker.
+Veja `CLAUDE.md` para o mapa linha-a-linha do código, as decisões de regra de mesa e o histórico de bugs corrigidos — é o documento vivo do projeto.
 
 ## Requisitos de configuração
 
-Antes de rodar o app, configure o arquivo `public/js/config.js` com as credenciais do projeto Supabase:
+Antes de rodar o app, preencha `public/js/config.js` com as credenciais do projeto Supabase:
 
 ```js
 export const SUPABASE_URL = "https://SEU-PROJETO.supabase.co";
 export const SUPABASE_ANON_KEY = "SUA_ANON_KEY_AQUI";
 ```
 
-Este projeto usa a `anon key` do Supabase no frontend. A segurança real fica na Row Level Security (RLS) do banco e nas políticas do projeto.
+Esse arquivo não é versionado (`.gitignore`). A segurança real fica na Row Level Security (RLS) do Supabase, não no front.
 
 ## Como rodar localmente
 
-Como a aplicação usa módulos nativos do navegador, ela deve ser servida via HTTP e não aberta diretamente com `file://`.
-
-### Opção 1: Python
+A aplicação usa ES modules nativos — precisa ser servida por HTTP, `file://` não funciona.
 
 ```bash
 cd public
 python -m http.server 3000
 ```
 
-Depois abra:
+Depois abra `http://localhost:3000`. Qualquer outro servidor estático simples também serve, desde que `public/` seja a raiz.
 
-```text
-http://localhost:3000
+## Testes automatizados
+
+```bash
+node --test
 ```
 
-### Opção 2: qualquer servidor estático
+O Node varre o projeto e roda tudo que casa com `*.test.js` (não passe um caminho — a partir do Node 22 isso quebra o runner). Cobre as funções puras de `dados-jogo.js`, `regras.js` e as validações de `criaturas.js`/`efeitos.js`. Sem Node instalado localmente, o GitHub Actions (`.github/workflows/testes.yml`) roda os mesmos testes a cada push/PR — o resultado aparece na aba **Actions** e como ✓/✗ ao lado do commit.
 
-Você pode usar um servidor estático simples em qualquer ambiente, desde que a pasta `public/` seja a raiz do site.
+Fora isso, não há suite de UI — validar mudanças de tela é manual no navegador, com um projeto Supabase configurado.
 
 ## Configuração do Supabase
 
-Crie ou use um projeto no Supabase e configure:
+1. **Autenticação** — Google OAuth e/ou magic link por e-mail.
+2. **URL de redirecionamento** — o domínio de produção e `http://localhost:3000` para dev.
+3. **Realtime** — habilite as tabelas de mensagens, campanhas e personagens.
+4. **Schema** — tabelas principais: `perfis`, `personagens` (`dados` JSONB), `campanhas` (`nave`/`mapa`/`combate`/`bestiario`/`contratos`/`faccoes`/`handout` em JSONB), `campanha_membros`, `mensagens` (`payload` JSONB), `mestre_notas`, `conteudo` (conteúdo global do painel admin). O schema SQL completo e as policies de RLS não estão versionados neste repositório — provisione conforme esse modelo.
 
-1. Autenticação
-   - Google OAuth, se quiser login social;
-   - magic link por e-mail, se quiser autenticação por e-mail.
+## Deploy (Vercel)
 
-2. URL de redirecionamento
-   - URL do deploy em produção;
-   - `http://localhost:3000` para desenvolvimento local.
+- Root Directory: vazio (raiz do repositório).
+- Output Directory: `public`.
+- Build/Install Command: vazio.
 
-3. Realtime
-   - habilite as tabelas relevantes para mensagens, campanhas e personagens no painel do Supabase;
-   - em projetos novos, as publicações e políticas precisam ser ajustadas conforme o modelo de dados do seu banco.
-
-4. Variáveis do frontend
-   - copie `SUPABASE_URL` e `SUPABASE_ANON_KEY` para `public/js/config.js`.
-
-## Deploy
-
-A aplicação é um site estático e pode ser publicada facilmente na Vercel.
-
-### Configuração recomendada na Vercel
-
-- Root Directory: vazio / raiz do repositório;
-- Output Directory: `public`;
-- Build Command: vazio ou omitido;
-- Install Command: vazio ou omitido.
-
-Se você quiser gerar o `config.js` no build, faça isso antes do deploy a partir de variáveis de ambiente, mas o fluxo mais simples é manter o arquivo localmente preenchido para a instância correta do projeto.
-
-## Observações importantes
-
-- O projeto não inclui um bundle de build obrigatório e, por isso, depende de um ambiente de execução HTTP.
-- O frontend assume a existência de um banco Supabase corretamente configurado.
-- A estrutura atual do repositório foca no frontend e na lógica do jogo; o schema de banco e policies precisam ser provisionados no Supabase conforme a arquitetura do seu projeto.
-- A aplicação usa módulos carregados sob demanda para reduzir o peso inicial, especialmente no seletor 3D e no mapa do sistema.
-
-## Próximos passos sugeridos
-
-- revisar e documentar o schema SQL do banco em um arquivo versionado;
-- padronizar o processo de deploy com geração automatizada de `config.js`;
-- fortalecer a documentação de regras do sistema e de dados por tabela;
-- melhorar a experiência de dark/light mode, acessibilidade e onboarding de jogadores.
+Depois de qualquer mudança relevante em arquivo listado no `SHELL` de `public/sw.js`, **incremente a constante `CACHE`** — senão o service worker continua servindo a versão em cache para quem já tinha o PWA instalado.
 
 ## Licença
 
-Este README e o código do projeto não incluem uma licença formal definida no repositório. Verifique com o responsável do projeto antes de distribuir ou reutilizar em ambiente comercial.
+Sem licença formal definida no repositório. Verifique com o responsável do projeto antes de distribuir ou reutilizar em ambiente comercial. O cenário/lore de "Passagem Sombria" (raças, facções, textos narrativos) é propriedade intelectual do autor do sistema de RPG.
 
 ---
 

@@ -635,8 +635,23 @@ export function wireCombate(ctx) {
         if (c2._morreu || !foraDeCombate(c2) || !habsDoCombatente(c2).some((h) => h.efeito && h.gatilho === "ao_morrer")) continue;
         c2._morreu = true;
         const M = await criaturaMod(); const cr = M.criar({ ...c2, habs: habsDoCombatente(c2) }, rolarTexto);
-        for (const r of cr.disparar(M.GATILHOS.AO_MORRER))
+        for (const r of cr.disparar(M.GATILHOS.AO_MORRER)) {
+          // Dano em área (ex. Bocarra Corrosiva "Morte Volátil", Morcego-Bomba
+          // "Detonação Biológica"): rola automático e já aplica em quem estiver
+          // no raio — igual ao resto do app, o teste de resistência (`r.cd`)
+          // fica só narrado pro Mestre reduzir à metade na mão se o jogador
+          // disser que passou (mesmo padrão dos botões ±PV livres do rastreador).
+          if (r.tipo === "dano" && r.alvo === "area" && r.raio && c2.pos) {
+            const pegos = camp.combate.ordem.filter((x) => x !== c2 && !ehNave(x) && !foraDeCombate(x) && x.pos && (distCombate(c2, x) ?? 99) <= r.raio);
+            if (pegos.length) {
+              const linhas = [];
+              for (const alvoA of pegos) { const rd = await aplicarDanoAlvo(alvoA, r.valor, r.tipoDano); linhas.push(`${alvoA.nome}: ${rd.msg}`); }
+              await enviar("sistema", `💀 ${c2.nome} — ${r.habilidade}: ${r.texto} num raio de ${r.raio}m${r.cd ? ` (${r.atributo} CD ${r.cd} reduz à metade — ajuste na mão quem passou)` : ""}. ${linhas.join(" · ")}`);
+              continue;
+            }
+          }
           await enviar("sistema", `💀 ${c2.nome} — ${r.habilidade}: ${r.texto || "efeito ao morrer"}.${r.tipo === "invocar" ? " O Mestre adiciona ao rastreador." : ""}`);
+        }
       }
     } catch (eAoMorrer) { console.error("ao_morrer:", eAoMorrer); }
     // Gravação única: escrever em campanhas no meio do handler dispara o realtime,
@@ -769,6 +784,24 @@ export function wireCombate(ctx) {
             }
           }
         } catch (eAoAcertar) { console.error("ao_acertar:", eAoAcertar); }
+        // AO MATAR: efeitos declarados do atacante quando este golpe reduziu o
+        // alvo a 0 PV (ex. um "vampiro" que se cura ao abater alguém). A maioria
+        // das habilidades "ao matar" do bestiário (copiar aparência, aprender
+        // perícia da vítima…) não tem efeito numérico pra mecanizar — continuam
+        // só em texto pro Mestre narrar; o gatilho aqui só resolve o que o motor
+        // sabe fazer sozinho (cura/dano/condição).
+        if (!ehNave(alvo) && foraDeCombate(alvo)) {
+          try {
+            const habsMatar = habsDoCombatente(c).filter((h) => h.efeito && h.gatilho === "ao_matar");
+            if (habsMatar.length) {
+              const M = await criaturaMod(); const cr = M.criar({ ...c, habs: habsMatar }, rolarTexto);
+              for (const rm of cr.disparar(M.GATILHOS.AO_MATAR)) {
+                if (rm.tipo === "cura") { c.hp = Math.min(c.hp_max, (c.hp || 0) + rm.valor); await enviar("sistema", `☠ ${c.nome} — ${rm.habilidade}: abateu ${alvo.nome} e ${rm.texto} (${c.hp}/${c.hp_max}).`); }
+                else await enviar("sistema", `☠ ${c.nome} — ${rm.habilidade}: abateu ${alvo.nome} — ${rm.texto || "efeito ao matar"}.`);
+              }
+            }
+          } catch (eAoMatar) { console.error("ao_matar:", eAoMatar); }
+        }
         await salvarCombate();
         await enviar("sistema", `💥 ${c.nome} acerta ${alvo.nome} (Def ${def}${cobA ? ` · 🧱+${cobA} cobertura` : ""}): ${rd.msg}.${!ehNave(alvo) && foraDeCombate(alvo) ? " 💀 CAIU!" : ""}`);
       } else await enviar("sistema", `❌ ${c.nome} erra ${alvo.nome} (Def ${def}${cobA ? ` · 🧱+${cobA} cobertura` : ""}).`);

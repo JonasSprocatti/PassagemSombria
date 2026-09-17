@@ -71,7 +71,8 @@ export const BESTIARIO = [
     { nota: "Flutua. O ápice da hierarquia do Vazio." }),
   C("Bocarra Corrosiva", "Crias do Vazio", "Forte", 55, 12, 6,
     [{ n: "Artilharia de Bio-Ácido", bonus: null, dano: "2d8", extra: "alcance 30m em arco, área 2x2m; testam Acrobacia (CD 14), falha = dano ácido inesquivável" }],
-    [{ n: "Sangue Cáustico (Passiva)", d: "Quem a atingir com Arma Branca sofre 1d4 de dano direto e a sua armadura perde 1 ponto de CD permanentemente, até um Mecânico consertá-la fora de combate." , gatilho: "ao_sofrer_corpo", efeito: { tipo: "dano", dano: "1d4", alvo: "atacante", tipoDano: "ácido" }}],
+    [{ n: "Sangue Cáustico (Passiva)", d: "Quem a atingir com Arma Branca sofre 1d4 de dano direto e a sua armadura perde 1 ponto de CD permanentemente, até um Mecânico consertá-la fora de combate." , gatilho: "ao_sofrer_corpo", efeito: { tipo: "dano", dano: "1d4", alvo: "atacante", tipoDano: "ácido" }},
+     { n: "Morte Volátil", d: "Quando o HP da criatura chega a zero, incha e explode no final do turno atual. Todos num raio de 5m sofrem 3d6 de dano ácido (teste de Constituição CD 14 reduz à metade).", gatilho: "ao_morrer", efeito: { tipo: "dano", dano: "3d6", alvo: "area", raio: 5, cd: 14, atributo: "Con", tipoDano: "ácido" }}],
     { nota: "O Morteiro Biológico. Lenta e fácil de acertar, letal se ignorada." }),
 
   C("A Ferida do Mundo", "Crias do Vazio", "Colossal", 300, 18, 9,
@@ -178,7 +179,7 @@ export const BESTIARIO = [
     [{ n: "Fúria Instável", d: "Abaixo de 35 HP entra em fúria (+2 dano) mas ataca a pessoa mais próxima (aliado ou jogador)." }], { raca: "Infimor" }),
   C("Titã Esquecido", "Inimigos das Raças", "Chefe", 150, 14, 6,
     [{ n: "Varredura Colossal", bonus: 7, dano: "2d8+5", extra: "atinge todos numa linha de 10m" }],
-    [{ n: "Crescimento do Desclassificado (Fase 2)", d: "A 75 PV cresce p/ 5m: ignora ataques de oportunidade, empurra 5m e cura 20 PV." }], { raca: "Infimor" }),
+    [{ n: "Crescimento do Desclassificado (Fase 2)", d: "A 75 PV cresce p/ 5m: ignora ataques de oportunidade, os ataques passam a empurrar 5m (narrativo — ajuste no campo tático na mão) e cura 20 PV.", gatilho: "limiar_pv", limiar: 75, efeito: { tipo: "cura", valor: 20 } }], { raca: "Infimor" }),
 
   // ---------------- HERANÇAS DAS ESTRELAS (fauna exoplanetária) ----------------
 
@@ -227,7 +228,7 @@ export const BESTIARIO = [
     [{ n: "Muralha Viva", d: "Resistência a armas de fogo leves (metade do dano de pistolas/submetralhadoras)." }]),
   C("Morcego-Bomba de Proxima", "Heranças das Estrelas", "Lacaio", 15, 11, 15,
     [{ n: "Choque Volátil", bonus: 3, dano: "2d6", extra: "causa a explosão" }],
-    [{ n: "Detonação Biológica", d: "Ao morrer (ou se chocar contra o alvo) explode: 2d6 de fogo em área 3x3m." }],
+    [{ n: "Detonação Biológica", d: "Ao morrer (ou se chocar contra o alvo) explode: 2d6 de fogo em área 3x3m.", gatilho: "ao_morrer", efeito: { tipo: "dano", dano: "2d6", alvo: "area", raio: 2, tipoDano: "térmico" } }],
     { nota: "Voo. Enxame." }),
   C("Sanguessuga do Vácuo", "Heranças das Estrelas", "Lacaio", 10, 10, 4,
     [{ n: "Ventosa Drenante", bonus: 2, dano: "0", extra: "sem dano físico" }],

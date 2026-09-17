@@ -7,10 +7,14 @@
 //  FACÇÕES (do livro) — usadas no rastreador de reputação
 // ---------------------------------------------------------------------------
 export const FACCOES = [
+  { n: "Helios Prime", sede: "Mercúrio", cor: "#ff6a3c",
+    d: "Fornece energia de antimatéria ao sistema inteiro — fundada por engenheiros-condenados que não precisam do perdão de ninguém. As catedrais solares que ela promete controlar pararam de responder à diretoria." },
   { n: "Genotheca S.A.", sede: "Vênus", cor: "#8be05a",
     d: "Corporação de bioengenharia que patenteia genomas. Se você tem cromo biológico, provavelmente deve royalties a eles." },
   { n: "Cofre Urak", sede: "Urano", cor: "#a0e0e0",
     d: "O cartório blindado do sistema. Guardam bens, segredos e dívidas no gelo — e cobram juros em favores." },
+  { n: "Vetor Logístico", sede: "Júpiter", cor: "#e8b400",
+    d: "Os mesmos oligarcas que monopolizam o combustível de dobra controlam também as rotas comerciais. Donos do combustível e da estrada — e agora decidem quem evacua e quem fica preso." },
   { n: "Caminho da Espiral", sede: "Itinerante", cor: "#c060f0",
     d: "Culto-laboratório da adaptação genética. Recrutam nas docas baixas e pagam bem por cobaias." },
   { n: "Sindicato de Deimos", sede: "Marte", cor: "#c1440e",
@@ -23,6 +27,8 @@ export const FACCOES = [
     d: "Sacerdotes-moldadores satas. Curam, remodelam corpos e cobram em devoção." },
   { n: "Corte de Netuno", sede: "Netuno", cor: "#3a6ecc",
     d: "Telepatas proturnos e a diplomacia das sombras. Sabem o que você pensou antes de você dizer." },
+  { n: "Os Espelhados", sede: "Netuno", cor: "#6a5acd",
+    d: "Facção herética dentro da própria Corte: acreditam que a arrogância proturna é a Sombra coletiva que a raça se recusa a catalogar — e é por essa fresta que o Sussurro do Vazio está entrando nas mentes de Netuno." },
 ];
 
 export const NIVEIS_REPUTACAO = [
