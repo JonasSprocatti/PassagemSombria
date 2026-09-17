@@ -422,6 +422,7 @@ input:focus,select:focus,button:focus-visible{outline:2px solid var(--tech);outl
 .cb-token.morto{opacity:.3;filter:grayscale(1)}
 .cb-token.movivel{cursor:grab}
 .cb-token.movivel::after{content:"⠿";margin-left:4px;opacity:.5}
+.cb-token.nave-tok{font-size:13px;padding:4px 7px;border-width:2px;border-style:double}
 .cb-token.arrastando{cursor:grabbing;z-index:6;opacity:.9;transition:none}
 .cb-regua{position:absolute;left:10px;right:10px;bottom:6px;height:10px;pointer-events:none}
 .cb-regua span{position:absolute;transform:translateX(-50%);font-size:7px;color:var(--dim);font-family:'IBM Plex Mono',monospace;opacity:.6}
@@ -1276,7 +1277,12 @@ html,body{max-width:100%;overflow-x:hidden}
   .stats-tab,.per{display:block;overflow-x:auto;-webkit-overflow-scrolling:touch}
   .cb-nome{white-space:normal;overflow-wrap:anywhere}
   .filtros,.acoes-mesa,.cb-ctrl{max-width:100%}
-  .acoes-mesa .mini,.filtros .mini{max-width:100%;overflow:hidden;text-overflow:ellipsis}
+  /* Nomes de arma/nano-tatuagem compridos ("Nano-Tatuagem: Estilete Perfurante de
+     Enxame (1d8)") não podem truncar — cortaria o dado de dano, informação que
+     importa. white-space:normal deixa o botão quebrar em 2 linhas em vez de
+     estourar a largura da tela (que #app{overflow-x:hidden} cortava de vez, sem
+     scroll nem reticências — o texto simplesmente sumia na borda). */
+  .acoes-mesa .mini,.filtros .mini{max-width:100%;min-width:0;white-space:normal;overflow-wrap:break-word;text-align:center}
   .topo{flex-wrap:wrap;gap:6px}
   .topo-status{flex:1 1 100%;order:3;font-size:11px}
   input,select,textarea{max-width:100%}
@@ -1297,7 +1303,11 @@ html,body{max-width:100%;overflow-x:hidden}
 /* munição por arma */
 .mun-armas{display:flex;flex-direction:column;gap:6px}
 .mun-armas .municao-box{margin:0;padding:6px 9px}
-.mun-arma-n{font-size:11.5px;font-family:'Chakra Petch',sans-serif;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+/* min-width:0 é obrigatório aqui: um item flex sem isso nunca encolhe abaixo do
+   tamanho do próprio texto (nome da arma sem quebrar), então overflow:hidden/
+   text-overflow:ellipsis nunca chegavam a agir — o nome comprido só empurrava a
+   caixa (e a seção inteira) pra fora da tela, cortada de vez por #app{overflow-x:hidden}. */
+.mun-arma-n{font-size:11.5px;font-family:'Chakra Petch',sans-serif;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
 .mun-armas .municao-cab b{font-size:14px;margin-left:6px}
 .mun-armas .municao-cab .mini{padding:2px 8px;min-height:26px}
 .mun-armas .pips{margin:4px 0 2px}

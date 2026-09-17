@@ -62,6 +62,14 @@ const proximoTurno = (cb) => {
 // Rolagem injetada no motor de efeitos de criatura: ele não conhece o app, só pede um número.
 const rolarTexto = (expr) => { const pd = parseDice(String(expr)); return pd ? rollNd(pd.n, pd.f).reduce((x, y) => x + y, 0) + pd.mod : (+expr || 0); };
 
+// Um jogador "a bordo" (posto na nave, qualquer posto) não é um token à parte no
+// campo tático — ele está dentro da nave, não pisando o chão ao lado dela.
+const estaABordoDeNave = (c, pers, membros) => {
+  if (!c.personagem_id) return false;
+  const dono = (pers || []).find((p) => p.id === c.personagem_id)?.dono_id;
+  return !!(dono && (membros || []).find((m) => m.perfil_id === dono)?.posto);
+};
+
 export function renderCombate(ctx) {
   const { ui, camp, membros, pers, tokenSelObj, vistaCampo, vistaLarg, pctX, defesaNaveParty, bonusDefVeiculo, aurasAtivas } = ctx;
   return `
@@ -87,7 +95,7 @@ export function renderCombate(ctx) {
                   const bloq = (camp.combate.avarias || []).some((av) => av.bloqueia === pk);
                   return `<span class="posto ${agiu ? "ok" : ""} ${quem ? "" : "vazio"} ${bloq ? "bloq" : ""}" title="${bloq ? "Posto inacessível por avaria" : quem ? esc(quem.perfis?.apelido || "") : "vago"}">${esc(ESTACOES[pk].n.split(" ")[0])}${bloq ? " ⛔" : agiu ? " ✓" : ""}</span>`; }).join("")}</div>
               </div>`; })() : ""}
-            ${camp.combate.ordem.some((c) => !ehNave(c)) ? `<div class="cb-campo ${ui.campoZoom ? "perto" : ""}" id="cb-campo" style="--g1:${((1 / vistaLarg) * 100).toFixed(3)}%;--g5:${((5 / vistaLarg) * 100).toFixed(3)}%">
+            ${camp.combate.ordem.some((c) => c.pos) ? `<div class="cb-campo ${ui.campoZoom ? "perto" : ""}" id="cb-campo" style="--g1:${((1 / vistaLarg) * 100).toFixed(3)}%;--g5:${((5 / vistaLarg) * 100).toFixed(3)}%">
               <div class="cb-campo-topo">
                 <button id="cb-zoom" class="mini" title="${ui.campoZoom ? "Ver o campo inteiro (40 m)" : "Aproximar: janela de 12 m com grade de 1 m"}">${ui.campoZoom ? "🔎− afastar" : "🔎+ aproximar"}</button>
                 <span class="dim">${Math.round(vistaCampo.ini)}–${Math.round(vistaCampo.fim)} m · grade ${ui.campoZoom ? "1" : "5"} m</span>
@@ -99,7 +107,7 @@ export function renderCombate(ctx) {
                 return b2 > a ? `<div class="cb-alcance" style="left:${pctX(a).toFixed(2)}%;width:${(pctX(b2) - pctX(a)).toFixed(2)}%" title="Alcance corpo-a-corpo de ${esc(tokenSelObj.nome)} — ${String(ALCANCE_CAC).replace(".", ",")} m"></div>` : "";
               })() : ""}
               ${Array.from({ length: CAMPO_PISTAS }, (_, lane) => {
-                const naPista = camp.combate.ordem.filter((c) => !ehNave(c) && (c.pos?.lane ?? 1) === lane)
+                const naPista = camp.combate.ordem.filter((c) => !estaABordoDeNave(c, pers, membros) && (c.pos?.lane ?? 1) === lane)
                   .sort((a, b2) => (a.pos?.x ?? 20) - (b2.pos?.x ?? 20));
                 let stack = 0;
                 return `<div class="cb-pista" data-lane="${lane}" data-rot="${["frente", "meio", "fundo"][lane] || ""}">${naPista.map((c, idx) => {
@@ -114,7 +122,7 @@ export function renderCombate(ctx) {
                   const lado = (c.tipo === "inimigo" || c.lado === "inimiga") ? "inim" : "aliado";
                   const dSel = tokenSelObj && tokenSelObj.id !== c.id ? distCombate(tokenSelObj, c) : null;
                   const rel = dSel == null ? "" : (dSel <= ALCANCE_CAC ? "perto" : "longe");
-                  return `<span class="cb-token ${lado} ${foraDeCombate(c) ? "morto" : ""} ${vez ? "vez" : ""} ${movivel ? "movivel" : ""} ${c.id === ui.tokenSel ? "sel" : ""} ${rel}" data-token="${c.id}" style="left:${px.toFixed(2)}%;--stack:${stack}" title="${esc(c.nome)} · x ${(c.pos?.x ?? 20).toFixed(1).replace(".", ",")} m · pista ${(c.pos?.lane ?? 1) + 1}${dSel != null ? ` · ${dSel.toFixed(1).replace(".", ",")} m de ${esc(tokenSelObj.nome)}` : ""}">${esc(c.nome.replace(/ #\d+$/, "").slice(0, 5))}${c.qtd > 1 ? `×${c.qtd}` : ""}</span>`;
+                  return `<span class="cb-token ${lado} ${ehNave(c) ? "nave-tok" : ""} ${foraDeCombate(c) ? "morto" : ""} ${vez ? "vez" : ""} ${movivel ? "movivel" : ""} ${c.id === ui.tokenSel ? "sel" : ""} ${rel}" data-token="${c.id}" style="left:${px.toFixed(2)}%;--stack:${stack}" title="${esc(c.nome)} · x ${(c.pos?.x ?? 20).toFixed(1).replace(".", ",")} m · pista ${(c.pos?.lane ?? 1) + 1}${dSel != null ? ` · ${dSel.toFixed(1).replace(".", ",")} m de ${esc(tokenSelObj.nome)}` : ""}">${ehNave(c) ? "🚀" : esc(c.nome.replace(/ #\d+$/, "").slice(0, 5))}${c.qtd > 1 ? `×${c.qtd}` : ""}</span>`;
                 }).join("")}</div>`;
               }).join("")}
               <div class="cb-regua">${(() => { const passo = vistaLarg <= 15 ? 1 : 5; const out = [];
@@ -123,7 +131,7 @@ export function renderCombate(ctx) {
                 return out.join(""); })()}</div>
             </div>
             ${tokenSelObj ? `<div class="cb-distancias"><b class="chrome">${esc(tokenSelObj.nome)}</b> <span class="dim">corpo-a-corpo ${String(ALCANCE_CAC).replace(".", ",")} m</span>
-              ${camp.combate.ordem.filter((c) => !ehNave(c) && c.id !== tokenSelObj.id && !foraDeCombate(c))
+              ${camp.combate.ordem.filter((c) => !estaABordoDeNave(c, pers, membros) && c.id !== tokenSelObj.id && !foraDeCombate(c))
                 .map((c) => ({ c, dd: distCombate(tokenSelObj, c) })).filter((o) => o.dd != null)
                 .sort((a, b2) => a.dd - b2.dd)
                 .map(({ c, dd }) => `<span class="cb-dist ${dd <= ALCANCE_CAC ? "ok" : ""}">${dd <= ALCANCE_CAC ? "⚔" : "·"} ${esc(c.nome.replace(/ #\d+$/, "").slice(0, 14))} <b>${dd.toFixed(1).replace(".", ",")}</b></span>`).join("")
@@ -315,6 +323,45 @@ export function wireCombate(ctx) {
       : null;
     const candidatos = [...camp.combate.ordem.filter((x) => x.id !== atc.id && !foraDeCombate(x) && !ehNave(x)), ...(naveParty ? [naveParty] : [])];
     if (!candidatos.length) return alert("Não há alvos em campo.");
+    // Arma explosiva: mesmo padrão de epicentro+raio do posto de Artilharia
+    // (mesa-nave.js) — só entra quem tem posição real no campo (a nave da party
+    // sintética não tem `.pos`, então nunca é epicentro nem é pega pela área).
+    if (atk.area && atk.raio) {
+      const comPos = candidatos.filter((x) => x.pos);
+      if (comPos.length) {
+        const rA = await modalForm({ titulo: `🚀 ${atc.nome} dispara ${atk.n} — centro do impacto`,
+          descricao: `Explode num raio de ${atk.raio} m ao redor de quem você escolher.`,
+          campos: [{ k: "epi", label: "Centro do impacto", tipo: "select", opcoes: comPos.map((x) => {
+            const pegos = comPos.filter((y) => (distCombate(x, y) ?? 99) <= atk.raio).length;
+            return { v: x.id, l: `${x.nome} — pega ${pegos} alvo${pegos === 1 ? "" : "s"}` }; }) }], okLabel: "Disparar" });
+        if (!rA?.epi) return;
+        const epi = comPos.find((x) => x.id === rA.epi);
+        snapshot("disparo de nave em área");
+        descontarMunicao(atc, atk);
+        const alvosArea = comPos.filter((x) => (distCombate(epi, x) ?? 99) <= atk.raio);
+        const linhas = [];
+        for (const alvoX of alvosArea) {
+          const natX = d(20), totX = natX + bonusAtk;
+          const defX = ehNave(alvoX) ? defesaNave(alvoX) : (alvoX.cd || 10);
+          if (natX === 1 || totX < defX) { linhas.push(`${alvoX.nome}: errou (Def ${defX})`); continue; }
+          const pd = parseDice(atk.dano); const dd = rollNd(pd.n, pd.f);
+          const bruto = danoCritico(dd.reduce((x, y) => x + y, 0), pd.mod, natX === 20 ? 2 : 1);
+          if (ehNave(alvoX)) {
+            const r = danoNave(alvoX, bruto);
+            if ((natX === 20 || r.critico) && r.casco > 0) { const av = rolarAvaria(); (camp.combate.avarias = camp.combate.avarias || []).push(av); linhas.push(`⚠ ${alvoX.nome}: ${av.n}`); }
+            linhas.push(`🚀 ${alvoX.nome}: escudos −${r.escudos}, casco −${r.casco}${alvoX.casco <= 0 ? " 💀" : ""}`);
+            if (alvoX.nave_party && camp.nave) { camp.nave.casco = alvoX.casco; camp.nave.escudos = alvoX.escudos; }
+          } else {
+            const rd = await aplicarDanoAlvo(alvoX, bruto, "físico");
+            linhas.push(`${alvoX.nome}: ${rd.msg}${alvoX.hp <= 0 ? " 💀 CAIU!" : ""}`);
+          }
+        }
+        const tocaNaveParty = alvosArea.some((x) => x.nave_party);
+        await salvarCamp({ combate: camp.combate, ...(tocaNaveParty && camp.nave ? { nave: camp.nave } : {}) }, "salvar o disparo");
+        await enviar("rolagem", null, { titulo: `🚀 ${atc.nome} dispara ${atk.n} em área`, detalhe: `raio ${atk.raio} m — cada alvo rola contra a própria Defesa`, extra: `Em torno de ${epi.nome}: ${linhas.join("  ·  ")}` });
+        return render();
+      }
+    }
     const r0 = await modalForm({ titulo: `🚀 ${atc.nome} dispara ${atk.n}`, campos: [
       { k: "alvo", label: "Alvo", tipo: "select", opcoes: candidatos.map((x) => ({ v: x.id, l: `${ehNave(x) ? "🚀 " : ""}${x.nome} — ${vidaAtual(x)}/${vidaMax(x)}${ehNave(x) ? "" : ` PV, Def ${x.cd ?? 10}`}` })) }], okLabel: "Disparar" });
     if (!r0?.alvo) return;
@@ -602,7 +649,10 @@ export function wireCombate(ctx) {
       camp.combate.ordem.push({ id: cbId(), nome: iguais ? `${b.n} #${iguais + 1}` : b.n, ini: d(20), hp: b.hp, hp_max: b.hp, cd: b.cd, tipo: "inimigo", ameaca: b.ameaca, ataques: b.ataques, habs: b.habs || [], ...(qtd > 1 ? { qtd } : {}) });
     }
     const novoCb = camp.combate.ordem[camp.combate.ordem.length - 1];
-    if (novoCb && !ehNave(novoCb) && !novoCb.pos) novoCb.pos = posInicial(camp.combate.ordem, novoCb.tipo);
+    // Naves também entram no campo tático agora (posição própria, mesmo grid dos
+    // personagens/criaturas) — tratadas como "inimigo" pro lado em que aparecem,
+    // já que só entram por aqui como `lado: "inimiga"`.
+    if (novoCb && !novoCb.pos) novoCb.pos = posInicial(camp.combate.ordem, ehNave(novoCb) ? "inimigo" : novoCb.tipo);
     ordenarCombate(camp.combate); await salvarCombate(); render();
   });
   document.querySelectorAll(".cb-atk").forEach((b) => b.onclick = async () => {

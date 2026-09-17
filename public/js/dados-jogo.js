@@ -954,7 +954,7 @@ export const ARMAS = [
 export const NAVES = [
  {
   "n": "Caça Ligeiro (O Zangão do Vácuo)",
-  "armas": [{ "n": "Canhões Gêmeos", "tipo": "balistica", "dano": "3d6", "pente": 6 }, { "n": "Mísseis Leves", "tipo": "missil", "dano": "4d6", "unidades": 2 }],
+  "armas": [{ "n": "Canhões Gêmeos", "tipo": "balistica", "dano": "3d6", "pente": 6 }, { "n": "Mísseis Leves", "tipo": "missil", "dano": "4d6", "unidades": 2, "area": true, "raio": 5 }],
   "casco": 30,
   "escudos": 10,
   "manobra": 4,
@@ -964,7 +964,7 @@ export const NAVES = [
  },
  {
   "n": "Interceptador Furtivo (O Fantasma Magnético)",
-  "armas": [{ "n": "Lança Magnética", "tipo": "energia", "dano": "2d10" }, { "n": "Torpedo Silencioso", "tipo": "missil", "dano": "3d10", "unidades": 2 }],
+  "armas": [{ "n": "Lança Magnética", "tipo": "energia", "dano": "2d10" }, { "n": "Torpedo Silencioso", "tipo": "missil", "dano": "3d10", "unidades": 2, "area": true, "raio": 5 }],
   "casco": 40,
   "escudos": 15,
   "manobra": 3,
@@ -994,7 +994,7 @@ export const NAVES = [
  },
  {
   "n": "Nave de Prospecção Conjupitera (A Fera Industrial)",
-  "armas": [{ "n": "Laser de Mineração", "tipo": "energia", "dano": "4d8" }, { "n": "Cargas de Demolição", "tipo": "missil", "dano": "6d8", "unidades": 3 }],
+  "armas": [{ "n": "Laser de Mineração", "tipo": "energia", "dano": "4d8" }, { "n": "Cargas de Demolição", "tipo": "missil", "dano": "6d8", "unidades": 3, "area": true, "raio": 5 }],
   "casco": 80,
   "escudos": 20,
   "manobra": -1,
@@ -1004,7 +1004,7 @@ export const NAVES = [
  },
  {
   "n": "Cruzador de Interdição Proturno (O Olho de Netuno)",
-  "armas": [{ "n": "Feixe de Interdição", "tipo": "energia", "dano": "6d10" }, { "n": "Torpedos de Supressão", "tipo": "missil", "dano": "8d10", "unidades": 4 }],
+  "armas": [{ "n": "Feixe de Interdição", "tipo": "energia", "dano": "6d10" }, { "n": "Torpedos de Supressão", "tipo": "missil", "dano": "8d10", "unidades": 4, "area": true, "raio": 5 }],
   "casco": 70,
   "escudos": 80,
   "manobra": 0,
@@ -1014,7 +1014,7 @@ export const NAVES = [
  },
  {
   "n": "Corveta Militar (A Lança da Confederação)",
-  "armas": [{ "n": "Baterias Principais", "tipo": "balistica", "dano": "6d10", "pente": 6 }, { "n": "Mísseis de Cruzeiro", "tipo": "missil", "dano": "8d10", "unidades": 4 }],
+  "armas": [{ "n": "Baterias Principais", "tipo": "balistica", "dano": "6d10", "pente": 6 }, { "n": "Mísseis de Cruzeiro", "tipo": "missil", "dano": "8d10", "unidades": 4, "area": true, "raio": 5 }],
   "casco": 100,
   "escudos": 50,
   "manobra": -1,
@@ -1024,7 +1024,7 @@ export const NAVES = [
  },
  {
   "n": "Bombardeiro de Cerco Urak (O Quebra-Gelo)",
-  "armas": [{ "n": "Canhão Criogênico", "tipo": "energia", "dano": "5d12" }, { "n": "Bombas de Cerco", "tipo": "missil", "dano": "8d12", "unidades": 3 }],
+  "armas": [{ "n": "Canhão Criogênico", "tipo": "energia", "dano": "5d12" }, { "n": "Bombas de Cerco", "tipo": "missil", "dano": "8d12", "unidades": 3, "area": true, "raio": 5 }],
   "casco": 120,
   "escudos": 30,
   "manobra": -3,
@@ -1034,7 +1034,7 @@ export const NAVES = [
  },
  {
   "n": "Fragata de Assalto Marciana (A Lâmina Bruta de Deimos)",
-  "armas": [{ "n": "Canhões Rotativos", "tipo": "balistica", "dano": "7d12", "pente": 8 }, { "n": "Torpedos de Abordagem", "tipo": "missil", "dano": "9d12", "unidades": 2 }],
+  "armas": [{ "n": "Canhões Rotativos", "tipo": "balistica", "dano": "7d12", "pente": 8 }, { "n": "Torpedos de Abordagem", "tipo": "missil", "dano": "9d12", "unidades": 2, "area": true, "raio": 5 }],
   "casco": 150,
   "escudos": 40,
   "manobra": -2,
@@ -1044,7 +1044,7 @@ export const NAVES = [
  },
  {
   "n": "Encouraçado (Dreadnought)",
-  "armas": [{ "n": "Bateria Principal", "tipo": "balistica", "dano": "10d20", "pente": 4 }, { "n": "Lasers de Defesa", "tipo": "energia", "dano": "4d10" }, { "n": "Torpedos Pesados", "tipo": "missil", "dano": "12d20", "unidades": 6 }],
+  "armas": [{ "n": "Bateria Principal", "tipo": "balistica", "dano": "10d20", "pente": 4 }, { "n": "Lasers de Defesa", "tipo": "energia", "dano": "4d10" }, { "n": "Torpedos Pesados", "tipo": "missil", "dano": "12d20", "unidades": 6, "area": true, "raio": 5 }],
   "casco": 300,
   "escudos": 150,
   "manobra": -4,

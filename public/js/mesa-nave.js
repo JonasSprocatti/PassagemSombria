@@ -12,7 +12,7 @@
 // ============================================================================
 import { NAVES, ESTACOES, REGRAS_NAVE, UPGRADES_NAVE } from "./dados-jogo.js";
 import {
-  d, sign, parseDice, rollNd, danoCritico, novaFichaDados, aplicarCond,
+  d, sign, parseDice, rollNd, danoCritico, novaFichaDados, aplicarCond, distCombate,
   capacidadeArma, municaoDe, descontarMunicao, recarregarArma,
 } from "./regras.js";
 import { modalForm, confirmModal } from "./ui.js";
@@ -326,9 +326,63 @@ export function wireNave(ctx) {
       const atkNave = await ataqueDaNave(camp.nave, acao.n);
       if (!atkNave) return;   // cancelou a escolha de arma — não gasta a vez
       if (municaoDe(camp.nave, atkNave) <= 0) return alert(`${atkNave.n} está sem munição. Use "Recarregar" antes de disparar de novo.`);
-      const alvo = inimigosVivos.length === 1 ? inimigosVivos[0] : (await modalForm({ titulo: `⚔ ${acao.n} — escolher alvo`, campos: [
-        { k: "alvo", label: "Alvo", tipo: "select", opcoes: inimigosVivos.map((x) => ({ v: x.id, l: `${ehNave(x) ? "🚀 " : ""}${x.nome} — ${vidaAtual(x)}/${vidaMax(x)}${ehNave(x) ? "" : ` PV, Def ${x.cd ?? 10}`}` })) }], okLabel: "Disparar" }))?.alvo;
-      const alvoObj = typeof alvo === "string" ? inimigosVivos.find((x) => x.id === alvo) : alvo;
+      // Arma explosiva (área/raio declarado no catálogo, ex. mísseis/torpedos):
+      // escolhe um epicentro entre os inimigos com posição no campo tático — igual
+      // ao seletor de área que ataques de jogador/scripts já usam — e todo mundo
+      // dentro do raio (só do lado inimigo; fogo amigo nunca é risco aqui) sofre o
+      // mesmo tipo de resolução, um d20 por alvo (o do epicentro reaproveita a
+      // rolagem original, os demais rolam fresco contra a própria Defesa).
+      const comPos = inimigosVivos.filter((x) => x.pos);
+      if (atkNave.area && atkNave.raio && comPos.length) {
+        const rA = await modalForm({ titulo: `⚔ ${acao.n} — centro do impacto`,
+          descricao: `${atkNave.n} explode num raio de ${atkNave.raio} m ao redor de quem você escolher.`,
+          campos: [{ k: "epi", label: "Centro do impacto", tipo: "select",
+            opcoes: comPos.map((x) => {
+              const pegos = comPos.filter((y) => (distCombate(x, y) ?? 99) <= atkNave.raio).length;
+              return { v: x.id, l: `${ehNave(x) ? "🚀 " : ""}${x.nome} — pega ${pegos} alvo${pegos === 1 ? "" : "s"}` };
+            }) }], okLabel: "Disparar" });
+        if (!rA?.epi) return;   // cancelou — não gasta a vez
+        const epi = comPos.find((x) => x.id === rA.epi);
+        snapshot(`${acao.n} em área contra ${epi.nome}`);
+        descontarMunicao(camp.nave, atkNave);
+        let natUsado = nat, totalUsado = total, marcasBase = [];
+        if (nt.alinhado) { const n2 = d(20); if (n2 > nat) { natUsado = n2; totalUsado = n2 + mod; }
+          marcasBase.push(`🎯 Vantagem por alinhamento [${nat}/${n2}]`); nt.alinhado = false; mexeuNaTatica = true; }
+        const alvosArea = comPos.filter((x) => (distCombate(epi, x) ?? 99) <= atkNave.raio);
+        const linhas = [];
+        for (const alvoX of alvosArea) {
+          const primario = alvoX.id === epi.id;
+          const natX = primario ? natUsado : d(20);
+          const totX = primario ? totalUsado : natX + mod;
+          const defX = ehNave(alvoX) ? defesaNave(alvoX) : (alvoX.cd ?? 10);
+          if (natX === 1 || totX < defX) { linhas.push(`${alvoX.nome}: errou (Def ${defX})`); continue; }
+          const pdn = parseDice(atkNave.dano || "1d6");
+          const dd = rollNd(pdn.n, pdn.f);
+          let bruto = danoCritico(dd.reduce((x2, y2) => x2 + y2, 0), pdn.mod, natX === 20 ? 2 : 1);
+          if (nt.fraqueza && primario) { const bonus = d(6); bruto += bonus; linhas.push(`🔎 fraqueza +${bonus}`); nt.fraqueza = false; mexeuNaTatica = true; }
+          if (ehNave(alvoX)) {
+            const r2 = danoNave(alvoX, bruto);
+            if ((natX === 20 || r2.critico) && r2.casco > 0) { const av = rolarAvaria(); (camp.combate.avarias = camp.combate.avarias || []).push(av); linhas.push(`⚠ ${alvoX.nome}: ${av.n}`); }
+            linhas.push(`🚀 ${alvoX.nome}: escudos −${r2.escudos}, casco −${r2.casco}${alvoX.casco <= 0 ? " 💥 ABATIDA!" : ""}`);
+            if (comDesv && primario && r2.casco > 0) { const t4 = d(4); aplicarCond(alvoX, "Subsistema off", t4); linhas.push(`🎯 subsistema de ${alvoX.nome} desativado por ${t4}t`); }
+          } else {
+            const rd = await aplicarDanoAlvo(alvoX, bruto, "físico");
+            linhas.push(`${alvoX.nome}: ${rd.msg}${alvoX.hp <= 0 ? " 💀 CAIU!" : ""}`);
+          }
+        }
+        extra = `${atkNave.n} [${atkNave.dano}] explode num raio de ${atkNave.raio} m em torno de ${epi.nome}${marcasBase.length ? "  ·  " + marcasBase.join(" · ") : ""}: ${linhas.join("  ·  ")}`;
+        camp.combate.agiram = [...new Set([...(camp.combate.agiram || []), meuPosto])];
+        await salvarCamp({ combate: camp.combate, nave: camp.nave }, "salvar a ação do posto");
+        if (mexeuNaTatica) await salvarCamp({ combate: camp.combate }, "salvar o estado tático");
+        enviar("rolagem", null, { titulo: `${ESTACOES[meuPosto].n} — ${acao.n}`, detalhe: `d20 [${nat}] ${sign(mod)} (${at}+${pn})`, total, crit: nat === 20, fumble: nat === 1, extra });
+        return render();
+      }
+      // Sempre pergunta o alvo, mesmo com um só candidato — antes pulava a
+      // pergunta com 1 inimigo em campo (o caso mais comum) e parecia que a nave
+      // "atirava sozinha", sem opção nenhuma de mirar.
+      const r0 = await modalForm({ titulo: `⚔ ${acao.n} — escolher alvo`, campos: [
+        { k: "alvo", label: "Alvo", tipo: "select", opcoes: inimigosVivos.map((x) => ({ v: x.id, l: `${ehNave(x) ? "🚀 " : ""}${x.nome} — ${vidaAtual(x)}/${vidaMax(x)}${ehNave(x) ? "" : ` PV, Def ${x.cd ?? 10}`}` })) }], okLabel: "Disparar" });
+      const alvoObj = r0?.alvo ? inimigosVivos.find((x) => x.id === r0.alvo) : null;
       if (!alvoObj) return;   // fechou o seletor sem escolher — não gasta a vez
       snapshot(`${acao.n} contra ${alvoObj.nome}`);
       descontarMunicao(camp.nave, atkNave);
@@ -364,7 +418,12 @@ export function wireNave(ctx) {
       camp.combate.agiram = [...new Set([...(camp.combate.agiram || []), meuPosto])];
       await salvarCamp({ combate: camp.combate }, "salvar a ação do posto");
     }
-    if (mexeuNaTatica) { await salvarCamp({ combate: camp.combate }, "salvar o estado tático"); render(); }
+    if (mexeuNaTatica) await salvarCamp({ combate: camp.combate }, "salvar o estado tático");
     enviar("rolagem", null, { titulo: `${ESTACOES[meuPosto].n} — ${acao.n}`, detalhe: `d20 [${nat}] ${sign(mod)} (${at}+${pn})`, total, crit: nat === 20, fumble: nat === 1, extra });
+    // Sem isto, um tiro de Artilharia que acerta muda casco/escudos/HP em memória
+    // mas a tela só refletia no próximo render() — que só rodava se `mexeuNaTatica`
+    // (Manobra Evasiva/Alinhamento/Guerra Eletrônica) tivesse disparado; um tiro
+    // "normal" deixava o dano visível só depois de um F5. render() sempre no fim.
+    render();
   });
 }

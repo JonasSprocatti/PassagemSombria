@@ -1703,7 +1703,9 @@ async function telaMesa(id) {
   const salvarMapa = async (mapa) => { camp.mapa = mapa; await salvarCamp({ mapa }, "salvar o mapa"); };
   if (!camp.combate || typeof camp.combate !== "object" || !("ordem" in camp.combate)) camp.combate = combateVazio();
   // Migração: combates antigos não têm posição no campo. Persiste no próximo salvamento.
-  for (const c of camp.combate.ordem || []) if (!ehNave(c) && !c.pos) c.pos = posInicial(camp.combate.ordem, c.tipo);
+  // Naves inimigas também ganham posição agora (entram no mesmo campo tático, do
+  // lado "inimigo") — antes ficavam de fora e não davam pra selecionar/medir distância.
+  for (const c of camp.combate.ordem || []) if (!c.pos) c.pos = posInicial(camp.combate.ordem, ehNave(c) ? "inimigo" : c.tipo);
   // Migração: naves registradas antes do esquema de armas nomeadas (com CD/munição
   // própria) não têm `nave.armas` — `armas` só é preenchido em `#def-nave`, na
   // criação. Sem isto, o posto de Artilharia nunca pergunta qual arma nem mostra
@@ -1978,16 +1980,18 @@ async function telaMesa(id) {
     // Janela visível do campo tático: tudo (40 m) ou aproximada (12 m em volta do foco).
     const vistaCampo = (() => {
       if (!ui.campoZoom) return { ini: 0, fim: CAMPO_LARGURA };
-      const foco = camp.combate.ordem.find((c) => c.id === ui.tokenSel && !ehNave(c))
+      const foco = camp.combate.ordem.find((c) => c.id === ui.tokenSel)
         || camp.combate.ordem[camp.combate.turno]
-        || camp.combate.ordem.find((c) => !ehNave(c));
+        || camp.combate.ordem.find((c) => c.pos);
       const cx = foco?.pos?.x ?? CAMPO_LARGURA / 2;
       const ini = Math.max(0, Math.min(CAMPO_LARGURA - CAMPO_JANELA, cx - CAMPO_JANELA / 2));
       return { ini, fim: ini + CAMPO_JANELA };
     })();
     const vistaLarg = vistaCampo.fim - vistaCampo.ini;
     const pctX = (x) => ((x - vistaCampo.ini) / vistaLarg) * 100;
-    const tokenSelObj = camp.combate.ordem.find((c) => c.id === ui.tokenSel && !ehNave(c)) || null;
+    // Naves agora têm posição no campo tático — podem ser selecionadas como
+    // qualquer token (ver alcance/distâncias), não só personagens/criaturas.
+    const tokenSelObj = camp.combate.ordem.find((c) => c.id === ui.tokenSel) || null;
     const ctxNave = { id, camp, pers, membros, ui, f, k, nave, cbn, meuPosto, enviar, salvarCamp, salvarCbn, render, defesaNaveParty, bonusDefVeiculo, aplicarDanoAlvo, snapshot };
     const ctxCombate = { id, camp, pers, membros, ui, f, k, enviar, salvarCamp, salvarCombate, render, snapshot,
       aplicarDanoAlvo, habsDoCombatente, aurasAtivas, gastarAcao, sincronizarCdCombate, sincronizarFicha,
