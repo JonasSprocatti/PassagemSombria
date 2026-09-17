@@ -184,7 +184,7 @@ export function renderCombate(ctx) {
               <button id="cb-surpresa" class="mini" title="Declarar rodada surpresa: quem for pego não age no primeiro turno">❕ Surpresa</button>
               <button id="cb-evento" class="mini" title="Agendar um evento para daqui a N turnos (contagem regressiva, explosão, reforços)">⏳ Evento</button></div>
             ${(camp.combate.eventos || []).length ? `<div class="avarias">${camp.combate.eventos.map((ev, ei) => `<div class="avaria"><b>⏳ ${esc(ev.n)}</b> <span class="regra">em ${ev.turnos} rodada(s) — ${esc(ev.texto || "")}</span>${ui.souMestre ? `<button class="mini rm" data-ev-del="${ei}" title="Cancelar">✕</button>` : ""}</div>`).join("")}</div>` : ""}
-            <div class="cb-ctrl"><button id="cb-undo" class="mini" title="Desfazer a última ação">↶</button><button id="cb-prox" class="mini eq">▶ Próximo turno</button><button id="cb-timer" class="mini" title="Cronômetro do turno">⏱</button><button id="cb-fim" class="mini rm">⏹ Encerrar</button></div><div id="cb-timer-out" class="cb-timer"></div>` : ""}`}
+            <div class="cb-ctrl"><button id="cb-undo" class="mini" title="Desfazer a última ação">↶</button><button id="cb-prox" class="mini eq" title="Atalho: barra de espaço (Mestre)">▶ Próximo turno</button><button id="cb-timer" class="mini" title="Cronômetro do turno">⏱</button><button id="cb-fim" class="mini rm">⏹ Encerrar</button></div><div id="cb-timer-out" class="cb-timer"></div>` : ""}`}
           </section>` : ""}
           </div>`;
 }
@@ -198,6 +198,25 @@ export function wireCombate(ctx) {
   // ---- rastreador de iniciativa ----
   const cbId = () => "c" + Math.random().toString(36).slice(2, 8);
   const cbFind = (idc) => camp.combate.ordem.find((x) => x.id === idc);
+  // Atalho de teclado pro Mestre passar o turno (#cb-prox é clicado toda hora
+  // durante o combate): barra de espaço. Guardado em `ui`, mesmo padrão de
+  // `ui._teclaListener` em mesa-ficha.js — wireCombate roda a cada render(),
+  // então sem essa guarda cada render empilharia um listener novo no documento.
+  if (!ui._provimoTurnoListener) {
+    ui._provimoTurnoListener = (e) => {
+      if (e.repeat || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey || e.code !== "Space") return;
+      const alvo = e.target;
+      // Espaço é o jeito padrão de "clicar" um elemento focado via teclado
+      // (botão, link, checkbox…) — se algo assim estiver com foco, deixa o
+      // navegador fazer o normal em vez de roubar a tecla pro próximo turno.
+      if (alvo && (alvo.tagName === "INPUT" || alvo.tagName === "TEXTAREA" || alvo.tagName === "SELECT" || alvo.tagName === "BUTTON" || alvo.tagName === "A" || alvo.isContentEditable)) return;
+      if (document.querySelector(".mdl-overlay")) return;   // modal pedindo decisão — não passa o turno por baixo
+      if (!ui.souMestre || !camp.combate?.ativo) return;
+      e.preventDefault();
+      document.querySelector("#cb-prox")?.click();
+    };
+    document.addEventListener("keydown", ui._provimoTurnoListener);
+  }
   $("#cb-iniciar")?.addEventListener("click", async () => { camp.combate = { ...combateVazio(), ativo: true }; await salvarCombate(); render(); });
   // Rodada surpresa: quem não estava emboscando fica Surpreso por 1 turno.
   // Sentidos Alertas (Batedor) e o Código do Sobrevivente passam batido.
