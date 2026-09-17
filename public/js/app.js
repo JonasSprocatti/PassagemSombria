@@ -379,7 +379,7 @@ export async function ataqueDaNave(nave, origemTxt = "") {
   const r = await modalForm({ titulo: `⚔ ${origemTxt || nave?.nome || nave?.nome_batismo || nave?.modelo || "Nave"} — qual arma?`,
     campos: [{ k: "atk", label: "Ataque", tipo: "select",
       opcoes: pool.map((a, i) => { const cap = capacidadeArma(a); const mun = cap == null ? "" : ` (${municaoDe(nave, a)}/${cap})`;
-        return { v: String(i), l: `${a.n || "Canhões"}${a.dano ? ` — ${a.dano}` : ""}${a.extra ? ` (${a.extra})` : ""}${mun}` }; }) }],
+        return { v: String(i), l: `${a.n || "Canhões"}${a.dano ? ` — ${a.dano}` : ""}${a.area && a.raio ? ` ◎${a.raio}m` : ""}${a.extra ? ` (${a.extra})` : ""}${mun}` }; }) }],
     okLabel: "Disparar" });
   if (!r?.atk) return null;   // cancelou
   return pool[+r.atk];

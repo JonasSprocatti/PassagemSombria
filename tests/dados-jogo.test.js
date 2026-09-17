@@ -232,6 +232,11 @@ describe("conteúdo dos implantes: todo `ataque` declarado tem dado válido e kw
 // coerente com o tipo e dado que parseia. Regressão: energia (infinita) não
 // pode ter pente/unidades, e balística/míssil precisam do teto declarado,
 // senão `capacidadeArma`/`municaoDe` (regras.js) trabalham com `undefined`.
+// `area`/`raio` (explosivos, ex. mísseis/torpedos) precisam vir juntos e com
+// raio positivo — mesa-nave.js/mesa-combate.js checam `arma.area && arma.raio`
+// pra decidir entre o fluxo de área (epicentro) e o de alvo único; um `raio`
+// zerado ou ausente com `area:true` faria o filtro de epicentro (`comPos.length`
+// com raio 0/undefined) se comportar como "ninguém no raio", silenciosamente.
 describe("conteúdo das naves: toda arma declarada tem tipo, munição e dado válidos", () => {
   for (const nave of NAVES) {
     if (!nave.armas?.length) continue;
@@ -242,6 +247,8 @@ describe("conteúdo das naves: toda arma declarada tem tipo, munição e dado v�
         if (arma.tipo === "balistica") assert.ok(arma.pente > 0, `arma balística "${arma.n}" sem pente`);
         if (arma.tipo === "missil") assert.ok(arma.unidades > 0, `míssil "${arma.n}" sem unidades`);
         if (arma.tipo === "energia") assert.ok(arma.pente == null && arma.unidades == null, `arma de energia "${arma.n}" não devia ter pente/unidades`);
+        if (arma.area) assert.ok(arma.raio > 0, `arma de área "${arma.n}" sem raio positivo`);
+        if (arma.raio != null) assert.ok(arma.area === true, `arma "${arma.n}" tem raio mas não está marcada area:true`);
       });
     }
   }

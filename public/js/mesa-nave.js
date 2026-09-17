@@ -37,7 +37,7 @@ export function renderNave(ctx) {
               </div>
               <p class="regra">Defesa ${defesaNaveParty()}${bonusDefVeiculo() ? ` (10 + Manobra + ${bonusDefVeiculo()} do Piloto)` : ""} · ${esc(REGRAS_NAVE.defesa)}</p>
               ${nave.armas?.length ? `<p class="regra">${nave.armas.map((a) => { const cap = capacidadeArma(a);
-                return `<b class="chrome">${esc(a.n)}</b> ${esc(a.dano)}${cap == null ? " (energia)" : ` — ${municaoDe(nave, a)}/${cap} ${a.tipo === "missil" ? "unid." : "tiros"}`}`; }).join(" · ")}</p>` : ""}
+                return `<b class="chrome">${esc(a.n)}</b> ${esc(a.dano)}${a.area && a.raio ? ` ◎ raio ${a.raio}m` : ""}${cap == null ? " (energia)" : ` — ${municaoDe(nave, a)}/${cap} ${a.tipo === "missil" ? "unid." : "tiros"}`}`; }).join(" · ")}</p>` : ""}
               <label>Meu posto<select id="sel-posto"><option value="">— fora da nave —</option>
                 ${Object.entries(ESTACOES).map(([pk, e]) => `<option value="${pk}" ${meuPosto === pk ? "selected" : ""}>${e.n}</option>`).join("")}</select></label>
               ${meuPosto && f ? `<div class="acoes-mesa">${ESTACOES[meuPosto].acoes.map((a, i) => `<button class="mini" data-est="${i}" title="${esc(a.d)}">${esc(a.n)}</button>`).join("")}</div>` : ""}
@@ -319,8 +319,11 @@ export function wireNave(ctx) {
       extra = `+${val} de ${acao.cura}! (${n[acao.cura]}/${n[acao.cura + "_max"]})`;
       mexeuNaTatica = true;   // força o render() no fim, pra barra subir na hora
     }
-    // Artilharia: alvo pode ser nave inimiga, jogador, criatura ou NPC — nunca
-    // aliado nem a própria nave da party (fogo amigo por engano).
+    // Artilharia: alvo pode ser nave inimiga, criatura ou NPC hostil — nunca um
+    // jogador/aliado nem a própria nave da party (fogo amigo por engano). Um
+    // jogador nunca cai neste filtro porque a linha dele nunca ganha `lado`
+    // (só `tipo:"jogador"`) — o comentário antigo prometia "jogador" como alvo
+    // possível aqui, mas isso nunca foi alcançável pelo código.
     const inimigosVivos = camp.combate?.ativo ? camp.combate.ordem.filter((x) => (x.tipo === "inimigo" || x.lado === "inimiga") && !foraDeCombate(x)) : [];
     if (acao.danoNave && inimigosVivos.length && camp.nave) {
       const atkNave = await ataqueDaNave(camp.nave, acao.n);
