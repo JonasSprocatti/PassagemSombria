@@ -735,13 +735,20 @@ export function wireCombate(ctx) {
     const critAuto2 = !semCriticoAlvo2 && seriaCritico2;
     const mult = critAuto2 ? 2 : 1;
     const ds = pd ? rollNd(pd.n, pd.f) : [];
-    const danoSoma = pd ? ds.reduce((x, y) => x + y, 0) + pd.mod : 0;
-    const danoTotal = pd ? danoCritico(ds.reduce((x, y) => x + y, 0), pd.mod, mult) : 0;
-    const danoTxt = pd ? ` · dano ${atk.dano}${mult > 1 ? ` ×${mult}` : ""}${critAuto2 && paralisadoPerto2 && nat !== 20 ? " (crítico automático — Paralisado ≤2m)" : ""}${semCriticoAlvo2 && seriaCritico2 ? " (🛡 armadura anticrítica bloqueia o crítico)" : ""} [${ds.join(", ")}]${pd.mod ? ` ${sign(pd.mod)}` : ""}${mult > 1 ? ` = ${danoSoma} ×${mult}` : ""} = ${danoTotal}` : "";
+    const danoDiceSoma = pd ? ds.reduce((x, y) => x + y, 0) : 0;
+    const danoTotal = pd ? danoCritico(danoDiceSoma, pd.mod, mult) : 0;
+    // Mesmo layout de [data-atq] (mesa-ficha.js): `detalhe` só com a rolagem
+    // em dados brutos (o total de acerto já aparece grande no .m-total, não
+    // precisa repetir "= acerto N" aqui), e o resumo do dano no `extra` —
+    // antes esta linha cravava "= acerto N" + a conta do dano toda dentro de
+    // `detalhe`, então a MESMA arma saía com um formato diferente conforme
+    // quem rolou (jogador vs. Mestre pelo rastreador).
+    const notaCrit = critAuto2 && paralisadoPerto2 && nat !== 20 ? "crítico automático — Paralisado ≤2m" : semCriticoAlvo2 && seriaCritico2 ? "🛡 armadura anticrítica bloqueia o crítico" : "";
+    const danoExtra = pd ? `Dano: ${danoTotal}${mult > 1 ? ` (${danoDiceSoma} + ${pd.mod} × ${mult})` : ""}` : "";
     await enviar("rolagem", null, { titulo: `${c.personagem_id ? "🎯" : "👹"} ${c.nome} — ${atk.n}`,
-      detalhe: `d20 [${nat}]${detVant} ${sign(atk.bonus)}${bonusMarcado ? ` +${bonusMarcado} Marcado` : ""} = acerto ${acerto}${danoTxt}`,
+      detalhe: `d20 [${nat}]${detVant} ${sign(atk.bonus)}${bonusMarcado ? ` +${bonusMarcado} Marcado` : ""}${pd ? ` · dano ${atk.dano} [${ds.join(", ")}]${pd.mod ? ` ${sign(pd.mod)}` : ""}${mult > 1 ? ` ×${mult}` : ""}` : ""}`,
       total: acerto, crit: critAuto2, fumble: nat === 1,
-      extra: atk.extra || "", ...(danoTotal ? { dano_total: danoTotal } : {}), ...(alvo ? { alvo_resolvido: true } : {}) });
+      extra: [danoExtra, notaCrit, atk.extra].filter(Boolean).join("  —  "), ...(danoTotal ? { dano_total: danoTotal } : {}), ...(alvo ? { alvo_resolvido: true } : {}) });
     if (alvo && danoTotal) {
       const cobA = (alc == null || alc > 3) ? [0, 2, 5][alvo.cobertura || 0] : 0;   // cobertura só vale contra tiro
       const def = (alvo.cd ?? 10) + cobA;

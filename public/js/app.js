@@ -2030,8 +2030,13 @@ async function telaMesa(id) {
         { k: "i", label: `${p.titulo || "Rolagem"} — ${p.detalhe || ""}${p.total != null ? `  =  ${p.total}` : ""}${p.extra ? "\n" + p.extra : ""}`, tipo: "info" }], okLabel: "Fechar", semCancelar: true });
       return true;
     }
-    const { data, error } = await sb.from("mensagens").insert({ campanha_id: id, autor_id: usuario.id, personagem_id: ui.meuPers?.id || null, tipo, conteudo, payload }).select("*,perfis:autor_id(apelido,avatar_url)").single();
-    if (error) { alert("Não consegui transmitir: " + error.message); return false; }
+    const tentar = () => sb.from("mensagens").insert({ campanha_id: id, autor_id: usuario.id, personagem_id: ui.meuPers?.id || null, tipo, conteudo, payload }).select("*,perfis:autor_id(apelido,avatar_url)").single();
+    let { data, error } = await tentar();
+    // "Failed to fetch" é o fetch() do navegador não completando (Wi-Fi
+    // instável, aba voltando do segundo plano) — não é erro do Supabase em si.
+    // 1 nova tentativa depois de meio segundo antes de desistir.
+    if (error && /failed to fetch/i.test(error.message || "")) { await new Promise((r) => setTimeout(r, 600)); ({ data, error } = await tentar()); }
+    if (error) { alert("Não consegui transmitir: " + (/failed to fetch/i.test(error.message || "") ? "sinal instável, tente de novo." : error.message)); return false; }
     ui.pintarMsg?.(data, true); // mostra na hora, sem depender do realtime voltar
     return true;
   };
@@ -2368,12 +2373,18 @@ async function telaMesa(id) {
       });
 
     // ---- binds ----
-    $("#enviar-msg").onclick = () => { const t = $("#msg").value.trim(); if (!t) return; $("#msg").value = "";
+    $("#enviar-msg").onclick = async () => { const t = $("#msg").value.trim(); if (!t) return; $("#msg").value = "";
       const resp = respondendoA; cancelarResp();
       const rr = /^\/(?:r(?:olar)?)?\s*(.+)$/i.exec(t);
-      if (rr) { const r = rolarExpr(rr[1], ui.vantagem); if (r) {
-        return enviar("rolagem", null, { titulo: (ui.privada ? "🔒 " : "") + `Rolagem ${rr[1]}`, detalhe: r.detalhe, total: r.total, ...(ui.privada ? { privada: true } : {}), ...(resp ? { resp } : {}) }); } }
-      enviar("texto", t, resp ? { resp } : null); };
+      let ok;
+      if (rr) { const r = rolarExpr(rr[1], ui.vantagem);
+        ok = r ? await enviar("rolagem", null, { titulo: (ui.privada ? "🔒 " : "") + `Rolagem ${rr[1]}`, detalhe: r.detalhe, total: r.total, ...(ui.privada ? { privada: true } : {}), ...(resp ? { resp } : {}) }) : true; }
+      else ok = await enviar("texto", t, resp ? { resp } : null);
+      // Falha de rede: devolve o texto pro campo em vez de perdê-lo — já foi bug
+      // real (o alert do erro aparecia, mas a mensagem tinha sumido do input).
+      if (!ok) { $("#msg").value = t;
+        if (resp) { respondendoA = resp; const bar = $("#resp-preview");
+          if (bar) { bar.querySelector(".rp-txt").innerHTML = `↩ Respondendo a <b>${esc(resp.quem)}</b>: <span class="rp-resumo">${esc(resp.resumo)}</span>`; bar.style.display = "flex"; } } } };
     $("#resp-cancel")?.addEventListener("click", cancelarResp);
     const syncTg = () => { $("#tg-vant")?.classList.toggle("on", ui.vantagem > 0); $("#tg-desv")?.classList.toggle("on", ui.vantagem < 0); $("#tg-priv")?.classList.toggle("on", ui.privada); $("#tg-cega")?.classList.toggle("on", ui.asCegas); };
     $("#tg-vant")?.addEventListener("click", () => { ui.vantagem = ui.vantagem > 0 ? 0 : 1; syncTg(); });

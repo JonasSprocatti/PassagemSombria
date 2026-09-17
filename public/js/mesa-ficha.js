@@ -23,7 +23,7 @@ import {
 } from "./regras.js";
 import { modalForm, confirmModal, efeitoMatrix } from "./ui.js";
 import {
-  sb, esc, usuario, perfil,
+  sb, esc, usuario, perfil, avisar,
   ehNave, foraDeCombate, vidaAtual, vidaMax, rolarAvaria, salvarFicha,
   todasArmas, todosImplantes, danoArma, armaMontada,
   estadoArma, normalizaPentes, capacidadePente, armasDeFogo, habilidadesAtivas, duracaoDe, rolarExpr,
@@ -63,6 +63,34 @@ const desvPorTeste = (condsList, pericia) =>
 const macrosDe = (pid) => { if (!pid) return [];
   try { return JSON.parse(localStorage.getItem("ps-macros-" + pid) || "[]"); } catch { return []; } };
 const salvarMacros = (pid, lista) => { try { localStorage.setItem("ps-macros-" + pid, JSON.stringify(lista.slice(0, 12))); } catch {} };
+// Macros de TECLA (1-9 / Shift+1-9): configuráveis por personagem, mesmo
+// armazenamento local (não sincroniza entre dispositivos) do bloco acima.
+// Sem nenhuma tecla configurada à mão, as armas equipadas ocupam 1, 2, 3...
+// sozinhas, na ordem em que aparecem em `armasEq` — pedido explícito do
+// usuário. Uma tecla configurada sempre vence o automático e NÃO desloca as
+// outras armas pra preencher o buraco (index fixo por tecla, não por arma).
+const TECLAS_SLOTS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9"];
+const rotuloTecla = (slot) => slot[0] === "s" ? `Shift+${slot[1]}` : slot;
+const teclasDe = (pid) => { if (!pid) return {};
+  try { return JSON.parse(localStorage.getItem("ps-teclas-" + pid) || "{}"); } catch { return {}; } };
+const salvarTeclas = (pid, mapa) => { try { localStorage.setItem("ps-teclas-" + pid, JSON.stringify(mapa)); } catch {} };
+// `cfg === undefined` (nunca mexeram nessa tecla) → cai no automático da
+// posição; `cfg === null` (usuário limpou de propósito) → tecla fica muda,
+// mesmo que uma arma "caberia" ali pelo índice.
+const acaoDaTecla = (slot, pid, armasEq) => {
+  const cfg = teclasDe(pid)[slot];
+  if (cfg !== undefined) return cfg;
+  const i = TECLAS_SLOTS.indexOf(slot);
+  const a = i >= 0 ? armasEq[i] : null;
+  return a ? { tipo: "ataque", valor: a.nome } : null;
+};
+const rotuloAcao = (ac, f) => !ac ? "— livre —"
+  : ac.tipo === "ataque" ? `⚔ ${ac.valor}`
+  : ac.tipo === "teste" ? `🎯 Teste: ${ac.valor}`
+  : ac.tipo === "habilidade" ? `★ ${habilidadesAtivas(f).find((h) => h.id === ac.valor)?.nome || ac.valor}`
+  : ac.tipo === "item" ? `🎒 ${ac.valor}`
+  : ac.tipo === "script" ? `◈ ${ac.valor}`
+  : ac.tipo === "livre" ? `🎲 ${ac.valor}` : String(ac.valor);
 
 export function renderFicha(ctx) {
   const { id, ui, f, k, camp, pers, meus, semImplantes, minhaLinhaCb } = ctx;
@@ -143,6 +171,7 @@ export function renderFicha(ctx) {
               ${(f.inventario || []).filter((it) => ehConsumivel(it.nome) && (it.qtd || 1) > 0)
                 .map((it) => { const c = ehConsumivel(it.nome);
                   return `<button class="mini item-usa" data-item="${esc(it.nome)}" title="${esc(c.d)} · ${esc(c.acao)}">${c.ic} ${esc(it.nome.replace(/ de Batalha| de Campo| de Nanofibra|Kit de |Granada de |Granada /i, "").slice(0, 16))} <b>×${it.qtd || 1}</b></button>`; }).join("")}
+              <button id="teclas-config" class="mini" title="Liga as teclas 1-9 e Shift+1-9 a ataques, testes, habilidades, itens ou scripts. Sem configurar nada, as armas equipadas ocupam 1, 2, 3... sozinhas.">⌨ Teclas</button>
               <input id="dado-livre" placeholder="1d20+2d10" style="width:80px"/><button id="rolar-livre" class="mini">🎲</button><button id="macro-salvar" class="mini" title="Salvar essa expressão como macro, pra rolar num clique depois">☆</button>
               ${macrosDe(ui.meuPers?.id).map((m, i) => `<span class="macro-par"><button class="mini macro-chip" data-macro="${i}" title="${esc(m.expr)}${ui.vantagem ? ` · ${ui.vantagem > 0 ? "vantagem" : "desvantagem"} ligada` : ""}">🎲 ${esc(m.rotulo)}</button><button class="mini rm" data-macro-del="${i}" title="Remover macro">✕</button></span>`).join("")}
             </div>
@@ -585,13 +614,21 @@ export function wireFicha(ctx) {
     // nos marcadores (Brutal, Ágil…) e em "ignora N de armadura" acima; repeti-las
     // aqui de novo só duplicava o texto sem acrescentar nada.
     const infoArma = [pr.area ? `◎ Área: ${pr.areaTxt}` : "", pr.alcance ? `⟿ Alcance: ${pr.alcanceTxt}` : ""].filter(Boolean).join("  ·  ");
-    enviar("rolagem", null, { titulo: (ui.privada ? "🔒 " : "") + `Ataque — ${a.nome}${furtivo ? " 🥷" : ""}`,
-      detalhe: `d20 [${nat}]${detVant} ${sign(mod)} · dano ${danoBase} [${dados.join(", ")}] ${sign(danoMod)}${multCrit > 1 ? ` ×${multCrit}` : ""}${marcadores ? " · " + marcadores : ""}`,
+    // Formato da mensagem alinhado com o mesmo ataque rolado por .cb-atk
+    // (mesa-combate.js): detalhe = só a rolagem (d20 + dano em dados brutos);
+    // o total do acerto já aparece grande no badge .m-total, então "= acerto
+    // N" ali seria repetir o mesmo número duas vezes. O resto (crítico,
+    // furtivo, palavras-chave, munição, alcance) vai todo pro extra, na
+    // mesma ordem/estilo nos dois lugares — antes cada ataque da MESMA arma
+    // saía com um layout diferente dependendo de quem rolou (jogador vs.
+    // Mestre pelo rastreador), e parecia bug de UI sem ser.
+    enviar("rolagem", null, { titulo: (ui.privada ? "🔒 " : "") + `🎯 ${ui.meuPers.nome} — ${a.nome}${furtivo ? " 🥷" : ""}`,
+      detalhe: `d20 [${nat}]${detVant} ${sign(mod)} · dano ${danoBase} [${dados.join(", ")}] ${sign(danoMod)}${multCrit > 1 ? ` ×${multCrit}` : ""}`,
       total: nat + mod, crit: critAuto, fumble: nat === 1, ...(ui.privada ? { privada: true } : {}), dano_total: danoFinal,
       tipoDano: munTipo || tipoDanoArma(cat),
       ...(pr.ignoraArmadura ? { ignoraArmadura: pr.ignoraArmadura } : {}),
       ...(alvoNave || alvoCombatente ? { alvo_resolvido: true } : {}),
-      extra: `Dano: ${danoFinal}${multCrit > 1 ? ` (${somaDados} + ${danoMod} × ${multCrit})` : ""}${efeitoKw ? "  —  " + efeitoKw : ""}${efeitoMun ? "  —  " + efeitoMun : ""}${infoArma ? "  —  " + infoArma : ""}` });
+      extra: [`Dano: ${danoFinal}${multCrit > 1 ? ` (${somaDados} + ${danoMod} × ${multCrit})` : ""}`, marcadores, efeitoKw, efeitoMun, infoArma].filter(Boolean).join("  —  ") });
     // Sobreaquecimento: num natural 1, a arma superaquece e queima a mão de
     // quem atira — "pode superaquecer se disparada em excesso" virou de fato
     // uma consequência jogável, em vez de só texto sem efeito nenhum.
@@ -1188,6 +1225,73 @@ export function wireFicha(ctx) {
   });
   document.querySelectorAll("[data-macro-del]").forEach((b) => b.onclick = () => {
     const lista = macrosDe(ui.meuPers.id); lista.splice(+b.dataset.macroDel, 1); salvarMacros(ui.meuPers.id, lista); render();
+  });
+  // ---- Macros de tecla (1-9 / Shift+1-9) ----
+  // Dispara clicando no botão real (`.atq`/`.hab-ativa`/`.item-usa`/`#conjurar`/
+  // `#rolar-per`) em vez de duplicar a lógica de cada um — herda de graça toda
+  // checagem que esses handlers já fazem (turno, trava por condição, custo de
+  // ação, munição...).
+  const executarTecla = (slot) => {
+    const acao = acaoDaTecla(slot, ui.meuPers?.id, armasEq);
+    if (!acao) return;
+    if (acao.tipo === "ataque") { const i = armasEq.findIndex((a) => a.nome === acao.valor);
+      const btn = i >= 0 ? document.querySelectorAll(".atq")[i] : null;
+      if (btn) btn.click(); else avisar(`⌨ [${rotuloTecla(slot)}]: "${acao.valor}" não está mais equipada.`); }
+    else if (acao.tipo === "teste") { const sel = $("#sel-per"); if (sel && [...sel.options].some((o) => o.value === acao.valor)) { sel.value = acao.valor; $("#rolar-per")?.click(); } }
+    else if (acao.tipo === "habilidade") { const btn = [...document.querySelectorAll(".hab-ativa")].find((e) => e.dataset.habUsar === acao.valor); if (btn) btn.click(); }
+    else if (acao.tipo === "item") { const btn = [...document.querySelectorAll(".item-usa")].find((e) => e.dataset.item === acao.valor); if (btn) btn.click(); }
+    else if (acao.tipo === "script") { const sel = $("#sel-scr"); if (sel && [...sel.options].some((o) => o.value === acao.valor)) { sel.value = acao.valor; $("#conjurar")?.click(); } }
+    else if (acao.tipo === "livre") rolarLivre(acao.valor);
+  };
+  // O listener do teclado é instalado 1x por entrada na mesa (guardado em
+  // `ui`, mesmo padrão de marcarSinalCaido/Ok em app.js) — wireFicha roda a
+  // cada render(), então sem essa guarda cada render empilharia um listener
+  // novo. `ui._teclaAcao` é reatribuído a cada render pra sempre fechar sobre
+  // o `armasEq`/`ui.meuPers`/`f` mais recentes.
+  ui._teclaAcao = executarTecla;
+  if (!ui._teclaListener) {
+    ui._teclaListener = (e) => {
+      if (e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
+      const alvo = e.target;
+      if (alvo && (alvo.tagName === "INPUT" || alvo.tagName === "TEXTAREA" || alvo.tagName === "SELECT" || alvo.isContentEditable)) return;
+      if (document.querySelector(".mdl-overlay")) return;   // já tem modal pedindo decisão — não empilha outra
+      if (!/^[1-9]$/.test(e.key)) return;
+      e.preventDefault();
+      ui._teclaAcao?.((e.shiftKey ? "s" : "") + e.key);
+    };
+    document.addEventListener("keydown", ui._teclaListener);
+  }
+  $("#teclas-config")?.addEventListener("click", async () => {
+    if (!ui.meuPers) return;
+    const mapaAtual = teclasDe(ui.meuPers.id);
+    const rSlot = await modalForm({ titulo: "⌨ Macros de tecla", descricao: "Escolha uma tecla pra configurar. Sem mexer em nada, as armas equipadas ocupam 1, 2, 3... sozinhas — Shift+número dá mais 9 atalhos.",
+      campos: [{ k: "slot", label: "Tecla", tipo: "select", opcoes: TECLAS_SLOTS.map((s) => ({ v: s, l: `[${rotuloTecla(s)}] ${rotuloAcao(acaoDaTecla(s, ui.meuPers.id, armasEq), f)}${mapaAtual[s] === undefined ? " (automático)" : ""}` })) }], okLabel: "Escolher" });
+    if (!rSlot?.slot) return;
+    const slot = rSlot.slot;
+    const opcoesAcao = [
+      { v: "auto", l: "— automático (sequência de armas) —" },
+      ...armasEq.map((a) => ({ v: "ataque:" + a.nome, l: `⚔ Ataque: ${a.nome}` })),
+      ...PERICIAS.map(([pn]) => ({ v: "teste:" + pn, l: `🎯 Teste: ${pn}` })),
+      ...habilidadesAtivas(f).map((h) => ({ v: "habilidade:" + h.id, l: `★ Habilidade: ${h.nome}` })),
+      ...(f.inventario || []).filter((it) => ehConsumivel(it.nome) && (it.qtd || 1) > 0).map((it) => ({ v: "item:" + it.nome, l: `${ehConsumivel(it.nome).ic} Item: ${it.nome}` })),
+      ...(f.deck.length ? SCRIPTS.filter((s) => f.deck.includes(s.n)) : SCRIPTS.filter((s) => s.c === 0)).map((s) => ({ v: "script:" + s.n, l: `◈ Script: ${s.n}` })),
+      { v: "livre", l: "🎲 Rolagem livre (expressão)…" },
+      { v: "limpar", l: "✕ Limpar (sem ação nesta tecla)" },
+    ];
+    const atualCfg = mapaAtual[slot];
+    const valorAtual = atualCfg === undefined ? "auto" : atualCfg === null ? "limpar" : `${atualCfg.tipo}:${atualCfg.valor}`;
+    const rAcao = await modalForm({ titulo: `⌨ Tecla [${rotuloTecla(slot)}]`, campos: [{ k: "acao", label: "O que essa tecla faz", tipo: "select", valor: valorAtual, opcoes: opcoesAcao }], okLabel: "Salvar" });
+    if (!rAcao?.acao) return;
+    const mapa = teclasDe(ui.meuPers.id);
+    if (rAcao.acao === "auto") delete mapa[slot];
+    else if (rAcao.acao === "limpar") mapa[slot] = null;
+    else if (rAcao.acao === "livre") {
+      const rExpr = await modalForm({ titulo: `⌨ Tecla [${rotuloTecla(slot)}] — rolagem livre`, campos: [{ k: "expr", label: "Expressão (ex: 1d20+2d10)", tipo: "texto", valor: "" }], okLabel: "Salvar" });
+      if (!rExpr?.expr?.trim()) return;
+      mapa[slot] = { tipo: "livre", valor: rExpr.expr.trim() };
+    } else { const sep = rAcao.acao.indexOf(":"); mapa[slot] = { tipo: rAcao.acao.slice(0, sep), valor: rAcao.acao.slice(sep + 1) }; }
+    salvarTeclas(ui.meuPers.id, mapa);
+    render();
   });
   $("#enviar-dano").onclick = () => { const v = +$("#dano-val").value; if (!v) return;
     const alvo = pers.find((x) => x.id === $("#sel-alvo").value);
