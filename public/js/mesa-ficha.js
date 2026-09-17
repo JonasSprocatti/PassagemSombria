@@ -75,14 +75,17 @@ export function renderFicha(ctx) {
             ${f ? `${(() => {
               const pvP = k.pvMax ? Math.max(0, Math.min(100, 100 * f.pvAtual / k.pvMax)) : 0;
               const ramP = k.ramMax ? Math.max(0, Math.min(100, 100 * k.ramLivre / k.ramMax)) : 0;
+              const escP = k.escudoMax ? Math.max(0, Math.min(100, 100 * k.escudoLivre / k.escudoMax)) : 0;
               const est = f.pvAtual <= 0 ? "morto" : pvP <= 30 ? "critico" : pvP <= 60 ? "ferido" : "";
               return `<div class="vitais-barras compacto">
                 <div class="vb" data-barra="mesa-pv"><div class="vb-topo"><span>❤ PV</span><b class="${est}">${f.pvAtual}<span class="dim">/${k.pvMax}</span></b></div>
                   <div class="vb-trilho"><span class="rastro"></span><span class="cb-hp-barra vb-fill ${est}" style="width:${pvP}%"></span></div></div>
                 <div class="vb" data-barra="mesa-ram"><div class="vb-topo"><span>◈ RAM</span><b class="sombra-c">${k.ramLivre}<span class="dim">/${k.ramMax}</span></b></div>
                   <div class="vb-trilho"><span class="rastro"></span><span class="cb-hp-barra vb-fill ram" style="width:${ramP}%"></span></div></div>
+                ${k.escudoMax ? `<div class="vb" data-barra="mesa-escudo"><div class="vb-topo"><span>🛡 Escudo</span><b class="chrome">${k.escudoLivre}<span class="dim">/${k.escudoMax}</span></b></div>
+                  <div class="vb-trilho"><span class="rastro"></span><span class="cb-hp-barra vb-fill escudo" style="width:${escP}%"></span></div></div>` : ""}
               </div>`; })()}
-            <p class="regra">CD ${k.cd} · conj +${k.conj}${k.pvTemp ? ` · <b class="tech-c">✚ ${k.pvTemp} PV temp</b>` : ""}${k.escudoMax ? ` · <b class="sombra-c">🛡 escudo ${k.escudoLivre}/${k.escudoMax}</b>` : ""}${f.pvAtual <= 0 ? ` · <b class="perigo-c">☠ inconsciente</b>` : ""}</p>
+            <p class="regra">CD ${k.cd} · conj +${k.conj}${k.pvTemp ? ` · <b class="tech-c">✚ ${k.pvTemp} PV temp</b>` : ""}${f.pvAtual <= 0 ? ` · <b class="perigo-c">☠ inconsciente</b>` : ""}</p>
             ${k.implantesInertes ? `<p class="regra perigo-c fx-glitch"><b>⧉ Implantes inertes:</b> você está dentro de uma zona que desliga cibernética — os números acima já estão recalculados sem eles. Saia do raio para voltar ao normal.</p>` : ""}
             ${(() => {
               const res = normalizaPentes(f);

@@ -996,13 +996,15 @@ function digitarTexto(el, texto) {
 }
 // O total do d20 "rola" (números cascateando) antes de travar no valor real —
 // só ao vivo; o resultado já veio pronto do servidor, isto é só apresentação.
+// 90ms × 9 trocas ≈ 800ms: rápido demais (45ms × 7 ≈ 300ms, versão original)
+// mal dava pra perceber que era uma animação — passava direto pro número final.
 function animarRolagem(el, valorFinal) {
   el.classList.add("rolando");
   let n = 0;
   const iv = setInterval(() => {
     el.textContent = 1 + Math.floor(Math.random() * 20);
-    if (++n > 7) { clearInterval(iv); el.textContent = valorFinal; el.classList.remove("rolando"); }
-  }, 45);
+    if (++n > 9) { clearInterval(iv); el.textContent = valorFinal; el.classList.remove("rolando"); }
+  }, 90);
 }
 // Um crítico ou uma falha crítica sacode a mesa por um instante.
 function sacudir() {
@@ -1734,6 +1736,26 @@ async function telaMesa(id) {
     // estamos no meio de uma operação, sobrescrevem o estado local e travam o turno.
     gravandoAte: 0,
   };
+  // Sinal de rede do sistema operacional ("offline"/"online" do browser) — dispara
+  // na hora que o SO perde/recupera a rede. O status do canal Realtime sozinho
+  // (ver .subscribe() em render(), mais abaixo) só percebe a queda depois de um
+  // timeout de heartbeat bem mais longo — tarde demais pra um teste rápido de
+  // "desliga o wifi e liga de novo" (foi exatamente isso que não apareceu na
+  // primeira versão: o toggle foi rápido demais pro canal notar sozinho).
+  // Registrado uma vez só por entrada na mesa (não a cada render(), senão
+  // empilharia um listener novo a cada re-render) e removido ao sair da mesa.
+  const marcarSinalCaido = () => { const b = $("#mesa-conn"); if (!b) return;
+    b.hidden = false; b.textContent = "⚠ SINAL PERDIDO — reconectando à matriz…";
+    b.classList.add("erro"); b.classList.remove("ok"); b.dataset.caiu = "1"; };
+  const marcarSinalOk = () => { const b = $("#mesa-conn"); if (!b || b.dataset.caiu !== "1") return;
+    b.textContent = "✅ sinal restabelecido"; b.classList.remove("erro"); b.classList.add("ok");
+    setTimeout(() => { b.hidden = true; b.classList.remove("ok"); }, 2200); b.dataset.caiu = "0"; };
+  window.addEventListener("offline", marcarSinalCaido);
+  window.addEventListener("online", marcarSinalOk);
+  window.addEventListener("hashchange", () => {
+    window.removeEventListener("offline", marcarSinalCaido);
+    window.removeEventListener("online", marcarSinalOk);
+  }, { once: true });
   const historico = msgs || [];  // lista mutável de mensagens (sobrevive a re-renders)
   const pilhaUndo = [];          // snapshots para desfazer a última ação do Mestre (máx 10)
   // (macrosDe/salvarMacros agora vivem em mesa-ficha.js — único consumidor.)
@@ -2323,17 +2345,11 @@ async function telaMesa(id) {
           camp.nave = pl.new.nave; camp.mapa = pl.new.mapa; camp.combate = pl.new.combate; camp.combate_nave = pl.new.combate_nave || combateNaveVazio(); camp.handout = pl.new.handout || {}; camp.faccoes = pl.new.faccoes || {}; camp.contratos = pl.new.contratos || []; camp.bestiario = pl.new.bestiario || []; ui.mapaCtrl?.atualizar(pl.new.mapa, pl.new.combate); render(); })
       .on("presence", { event: "sync" }, renderPresenca)
       .subscribe(async (status) => {
-        const banner = $("#mesa-conn"); if (!banner) return;
         if (status === "SUBSCRIBED") {
           try { await canalMesa.track({ uid: usuario.id, nome: perfil?.apelido || "?", av: perfil?.avatar_url || null }); } catch (_) {}
-          if (banner.dataset.caiu === "1") {   // já esteve fora do ar nesta sessão — avisa que voltou
-            banner.textContent = "✅ sinal restabelecido"; banner.classList.remove("erro"); banner.classList.add("ok");
-            setTimeout(() => { banner.hidden = true; banner.classList.remove("ok"); }, 2200);
-          }
-          banner.dataset.caiu = "0";
+          marcarSinalOk();   // só mostra "restabelecido" se `marcarSinalCaido` já rodou antes
         } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
-          banner.hidden = false; banner.textContent = "⚠ SINAL PERDIDO — reconectando à matriz…";
-          banner.classList.add("erro"); banner.classList.remove("ok"); banner.dataset.caiu = "1";
+          marcarSinalCaido();
         }
       });
 
