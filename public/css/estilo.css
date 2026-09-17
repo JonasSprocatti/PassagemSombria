@@ -1098,6 +1098,7 @@ kbd{font-family:'IBM Plex Mono',monospace;font-size:11px;background:var(--panel2
 .vb-fill.critico{background:var(--perigo)}
 .vb-fill.morto{background:var(--perigo);opacity:.45}
 .vb-fill.ram{background:var(--sombra)}
+.vb-fill.escudo{background:var(--chrome)}
 .vb-aviso{display:block;font-size:10px;margin-top:3px;color:var(--perigo);font-family:'IBM Plex Mono',monospace}
 .perigo-c{color:var(--perigo)}
 .vitais-barras.compacto .vb-topo b{font-size:16px}

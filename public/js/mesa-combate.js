@@ -20,9 +20,9 @@ import {
   CONDICOES_INFO, infoCond, distCombate, posInicial, tipoDanoAtaque, alcanceDaArma,
   CAMPO_LARGURA, CAMPO_PISTAS, PISTA_M, ALCANCE_CAC, municaoDe, descontarMunicao,
 } from "./regras.js";
-import { modalForm, somDado } from "./ui.js";
+import { modalForm, confirmModal, somDado } from "./ui.js";
 import {
-  esc, POSTOS_ORDEM,
+  sb, esc, POSTOS_ORDEM,
   ehNave, foraDeCombate, defesaNave, danoNave, rolarAvaria, ataqueDaNave, combateVazio, naveTaticaVazia,
   vidaAtual, vidaMax, salvarFicha, todasArmas, todasCriaturas, criaturaMod, danoArma, armaMontada, avisar,
 } from "./app.js";
@@ -71,12 +71,30 @@ const estaABordoDeNave = (c, pers, membros) => {
 };
 
 export function renderCombate(ctx) {
-  const { ui, camp, membros, pers, tokenSelObj, vistaCampo, vistaLarg, pctX, defesaNaveParty, bonusDefVeiculo, aurasAtivas } = ctx;
+  const { ui, camp, membros, pers, f, k, tokenSelObj, vistaCampo, vistaLarg, pctX, defesaNaveParty, bonusDefVeiculo, aurasAtivas } = ctx;
   return `
           <div class="mesa-painel" ${ui.abaMesa === "combate" ? "" : "hidden"}>
           ${(camp.combate.ativo || ui.souMestre) ? `<section class="sec combate-sec">
             <header><span class="tag">⚔</span><h2>Combate</h2>${camp.combate.ativo ? `<span class="regra" style="margin-left:auto">Rodada ${camp.combate.rodada}</span>` : ""}</header>
             ${!camp.combate.ativo ? (ui.souMestre ? `<button id="cb-iniciar" class="mini eq">⚔ Iniciar Combate</button><p class="regra">Adicione jogadores e inimigos do bestiário; a ordem é montada pela iniciativa.</p>` : "") : `
+            ${(f && k) ? (() => {
+              // PV/RAM/Escudo do PRÓPRIO jogador, visíveis aqui — sem isto, quem está
+              // lutando precisava trocar pra aba Ficha toda hora só pra conferir RAM/
+              // escudo no meio do combate. Mesmas barras da aba Ficha (vitais-barras
+              // compacto), só que na aba onde a ação realmente está acontecendo.
+              const pvP = k.pvMax ? Math.max(0, Math.min(100, 100 * f.pvAtual / k.pvMax)) : 0;
+              const ramP = k.ramMax ? Math.max(0, Math.min(100, 100 * k.ramLivre / k.ramMax)) : 0;
+              const est = f.pvAtual <= 0 ? "morto" : pvP <= 30 ? "critico" : pvP <= 60 ? "ferido" : "";
+              const escP = k.escudoMax ? Math.max(0, Math.min(100, 100 * k.escudoLivre / k.escudoMax)) : 0;
+              return `<div class="vitais-barras compacto cb-meus-vitais">
+                <div class="vb" data-barra="cb-pv"><div class="vb-topo"><span>❤ PV</span><b class="${est}">${f.pvAtual}<span class="dim">/${k.pvMax}</span></b></div>
+                  <div class="vb-trilho"><span class="rastro"></span><span class="cb-hp-barra vb-fill ${est}" style="width:${pvP}%"></span></div></div>
+                <div class="vb" data-barra="cb-ram"><div class="vb-topo"><span>◈ RAM</span><b class="sombra-c">${k.ramLivre}<span class="dim">/${k.ramMax}</span></b></div>
+                  <div class="vb-trilho"><span class="rastro"></span><span class="cb-hp-barra vb-fill ram" style="width:${ramP}%"></span></div></div>
+                ${k.escudoMax ? `<div class="vb" data-barra="cb-escudo"><div class="vb-topo"><span>🛡 Escudo</span><b class="chrome">${k.escudoLivre}<span class="dim">/${k.escudoMax}</span></b></div>
+                  <div class="vb-trilho"><span class="rastro"></span><span class="cb-hp-barra vb-fill escudo" style="width:${escP}%"></span></div></div>` : ""}
+                ${k.pvTemp ? `<p class="regra" style="grid-column:1/-1;margin:0">✚ <b class="tech-c">${k.pvTemp} PV temporário</b> (absorve antes do PV)</p>` : ""}
+              </div>`; })() : ""}
             ${(camp.nave && camp.combate.naveEmCena) ? (() => { const nt = camp.combate.nave || naveTaticaVazia();
               const defBase = defesaNaveParty();
               const def = nt.evasiva != null ? nt.evasiva : defBase;
@@ -173,7 +191,7 @@ export function renderCombate(ctx) {
 
 export function wireCombate(ctx) {
   const {
-    camp, pers, ui, k, enviar, salvarCamp, salvarCombate, render, snapshot,
+    id, camp, pers, membros, ui, k, enviar, salvarCamp, salvarCombate, render, snapshot,
     aplicarDanoAlvo, habsDoCombatente, gastarAcao, sincronizarCdCombate, sincronizarFicha,
     salvarBestiario, pilhaUndo, vistaCampo, vistaLarg, pctX,
   } = ctx;
@@ -629,6 +647,22 @@ export function wireCombate(ctx) {
   $("#cb-add-btn")?.addEventListener("click", async () => {
     const v = $("#cb-quem").value; if (!v) return;
     if (v.startsWith("j:")) { const p = (pers || []).find((x) => x.id === v.slice(2)); if (!p) return;
+      // Quem está a bordo (posto de nave atribuído) some do campo tático — ver
+      // `estaABordoDeNave` — mesmo com a nave FORA de cena. Adicionar assim sem
+      // avisar deixava o personagem "invisível" no rastreador, sem token nenhum
+      // e sem pista do motivo. Avisa e oferece tirar do posto na hora.
+      const membroDono = (membros || []).find((m) => m.perfil_id === p.dono_id);
+      if (membroDono?.posto) {
+        const nomePosto = ESTACOES[membroDono.posto]?.n || membroDono.posto;
+        const semNave = !(camp.nave && camp.combate.naveEmCena);
+        const sair = await confirmModal(
+          `${p.nome || "Esse personagem"} está no posto "${nomePosto}"${semNave ? " e a nave não está em cena" : ""} — enquanto estiver a bordo, ele não aparece como token no campo tático.\n\nTirar do posto agora, pra entrar em combate físico?`,
+          { okLabel: "Tirar do posto e adicionar" });
+        if (sair) {
+          await sb.from("campanha_membros").update({ posto: null }).eq("campanha_id", id).eq("perfil_id", membroDono.perfil_id);
+          membroDono.posto = null;
+        }
+      }
       const kk = calc({ ...novaFichaDados(), ...p.dados }); const nome = p.nome || "Tripulante";
       camp.combate.ordem.push({ id: cbId(), nome, ini: d(20) + kk.iniciativa, hp: p.dados.pvAtual ?? kk.attr.Con, hp_max: kk.pvMax || 1, cd: kk.cd, tipo: "jogador", personagem_id: p.id });
     } else if (v.startsWith("ni:")) {
