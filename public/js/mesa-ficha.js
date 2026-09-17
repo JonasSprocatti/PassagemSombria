@@ -21,7 +21,7 @@ import {
   d, sign, parseDice, rollNd, danoCritico, aplicarCond, novaFichaDados, calc,
   distCombate, tipoDanoArma, alcanceDaArma, empurrarDe, dcSalvaguarda,
 } from "./regras.js";
-import { modalForm, confirmModal } from "./ui.js";
+import { modalForm, confirmModal, efeitoMatrix } from "./ui.js";
 import {
   sb, esc, usuario, perfil,
   ehNave, foraDeCombate, vidaAtual, vidaMax, rolarAvaria, salvarFicha,
@@ -83,7 +83,7 @@ export function renderFicha(ctx) {
                   <div class="vb-trilho"><span class="rastro"></span><span class="cb-hp-barra vb-fill ram" style="width:${ramP}%"></span></div></div>
               </div>`; })()}
             <p class="regra">CD ${k.cd} · conj +${k.conj}${k.pvTemp ? ` · <b class="tech-c">✚ ${k.pvTemp} PV temp</b>` : ""}${k.escudoMax ? ` · <b class="sombra-c">🛡 escudo ${k.escudoLivre}/${k.escudoMax}</b>` : ""}${f.pvAtual <= 0 ? ` · <b class="perigo-c">☠ inconsciente</b>` : ""}</p>
-            ${k.implantesInertes ? `<p class="regra perigo-c"><b>⧉ Implantes inertes:</b> você está dentro de uma zona que desliga cibernética — os números acima já estão recalculados sem eles. Saia do raio para voltar ao normal.</p>` : ""}
+            ${k.implantesInertes ? `<p class="regra perigo-c fx-glitch"><b>⧉ Implantes inertes:</b> você está dentro de uma zona que desliga cibernética — os números acima já estão recalculados sem eles. Saia do raio para voltar ao normal.</p>` : ""}
             ${(() => {
               const res = normalizaPentes(f);
               const totalReserva = Object.values(res).reduce((a2, b2) => a2 + b2, 0);
@@ -585,6 +585,7 @@ export function wireFicha(ctx) {
     enviar("rolagem", null, { titulo: (ui.privada ? "🔒 " : "") + `Ataque — ${a.nome}${furtivo ? " 🥷" : ""}`,
       detalhe: `d20 [${nat}]${detVant} ${sign(mod)} · dano ${danoBase} [${dados.join(", ")}] ${sign(danoMod)}${multCrit > 1 ? ` ×${multCrit}` : ""}${marcadores ? " · " + marcadores : ""}`,
       total: nat + mod, crit: critAuto, fumble: nat === 1, ...(ui.privada ? { privada: true } : {}), dano_total: danoFinal,
+      tipoDano: munTipo || tipoDanoArma(cat),
       ...(pr.ignoraArmadura ? { ignoraArmadura: pr.ignoraArmadura } : {}),
       ...(alvoNave || alvoCombatente ? { alvo_resolvido: true } : {}),
       extra: `Dano: ${danoFinal}${multCrit > 1 ? ` (${somaDados} + ${danoMod} × ${multCrit})` : ""}${efeitoKw ? "  —  " + efeitoKw : ""}${efeitoMun ? "  —  " + efeitoMun : ""}${infoArma ? "  —  " + infoArma : ""}` });
@@ -1066,6 +1067,7 @@ export function wireFicha(ctx) {
       ui.meuPers.dados = { ...f, ramGasta: (f.ramGasta || 0) + s.c };
       await salvarFicha(ui.meuPers.id, ui.meuPers.dados);
     }
+    efeitoMatrix();   // flash de "código da matrix" — só imersão, não afeta a resolução
     const nat = d(20);
     // Scripts que reparam a nave resolvem direto no casco.
     // O campo `resolve` manda; o regex no texto fica só como rede para

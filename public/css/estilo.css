@@ -836,6 +836,56 @@ body.a11y-reduzir .ondula::after,body.a11y-reduzir .pulsa-perigo,
 body.a11y-reduzir .pulsa-tech,body.a11y-reduzir.critico .mesa{animation:none!important}
 
 /* ============================================================================
+   IMERSÃO — flashes e detalhes atmosféricos (Matrix, terminal, vinheta, presença)
+   ============================================================================ */
+
+/* Flash de "código da matrix" ao conjurar tecnomancia (ver efeitoMatrix em ui.js) */
+.fx-matrix{position:fixed;inset:0;z-index:10055;pointer-events:none;opacity:.85;transition:opacity .4s ease}
+.fx-matrix.saindo{opacity:0}
+
+/* Zona Morta (implantes inertes): o aviso "estremece" como um sinal ruim */
+.fx-glitch{animation:fx-glitch 2.6s ease-in-out infinite}
+@keyframes fx-glitch{
+  0%,88%,100%{transform:none;text-shadow:none}
+  90%{transform:translate(-1px,0);text-shadow:2px 0 var(--tech),-2px 0 var(--sombra)}
+  92%{transform:translate(1px,0);text-shadow:-2px 0 var(--tech),2px 0 var(--sombra)}
+  94%{transform:none;text-shadow:none}
+}
+
+/* Mensagens de sistema "digitando" — cursor piscando enquanto o texto entra (ver digitarTexto em app.js) */
+.m-txt.sistema.digitando::after{content:"▊";color:var(--tech);animation:pisca-cursor .8s step-end infinite;margin-left:1px}
+@keyframes pisca-cursor{50%{opacity:0}}
+
+/* O total do d20 cascateando antes de travar no resultado real (ver animarRolagem em app.js) */
+.m-total.rolando{color:var(--dim);filter:blur(.3px)}
+
+/* Ícone/cor do tipo de dano numa rolagem de ataque */
+.m-dano-tipo{font-size:11px;font-family:'IBM Plex Mono',monospace;text-transform:uppercase;letter-spacing:.04em}
+
+/* Vinheta de perigo — PV abaixo de 25%, só na mesa (ver vinhetaAtiva/shell() em app.js) */
+body.vinheta-critica::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:9990;
+  box-shadow:inset 0 0 40px 6px rgba(240,122,122,.28),inset 0 0 120px 40px rgba(240,122,122,.16);
+  animation:vinheta-pulso 2.4s ease-in-out infinite}
+@keyframes vinheta-pulso{0%,100%{opacity:.55}50%{opacity:1}}
+
+/* Quem está com a mesa aberta agora (Realtime Presence) */
+.mesa-presence{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:2px 0 8px;font-size:10.5px}
+.pres-chip{display:inline-flex;align-items:center;gap:4px;border:1px solid var(--line);border-radius:20px;
+  padding:2px 8px 2px 2px;color:var(--dim);font-family:'IBM Plex Mono',monospace}
+.pres-chip img{width:16px;height:16px;border-radius:50%;object-fit:cover}
+.pres-dot{width:6px;height:6px;border-radius:50%;background:var(--tech);box-shadow:0 0 4px var(--tech)}
+
+/* Sinal perdido / reconectando ao realtime da mesa */
+.mesa-conn{font-family:'IBM Plex Mono',monospace;font-size:11px;padding:5px 10px;margin-bottom:8px;
+  border-left:3px solid var(--perigo);background:rgba(240,122,122,.1);color:var(--perigo);animation:respira 2.4s ease-in-out infinite}
+.mesa-conn.ok{border-color:var(--tech);background:rgba(89,227,200,.1);color:var(--tech);animation:none}
+
+@media(prefers-reduced-motion:reduce){
+  .fx-glitch,body.vinheta-critica::after,.mesa-conn,.m-txt.sistema.digitando::after{animation:none!important}
+}
+body.a11y-reduzir .fx-glitch,body.a11y-reduzir.vinheta-critica::after,body.a11y-reduzir .mesa-conn{animation:none!important}
+
+/* ============================================================================
    SUBIR DE NÍVEL — acontece poucas vezes por campanha; é a segunda grande cena.
    ============================================================================ */
 .nv-cena{position:fixed;inset:0;z-index:10050;display:flex;align-items:center;justify-content:center;

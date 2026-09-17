@@ -77,6 +77,37 @@ export function somDado() { beep(880, 0.05); setTimeout(() => beep(1200, 0.07), 
 // Um crítico sobe; uma falha desaba. O ouvido entende antes dos olhos.
 export function somCritico() { [660, 880, 1320].forEach((f, i) => setTimeout(() => beep(f, 0.09, 0.16), i * 70)); }
 export function somFalha() { [400, 300, 190].forEach((f, i) => setTimeout(() => beep(f, 0.11, 0.14), i * 80)); }
+// ---------------- EFEITOS VISUAIS ----------------
+// Chuva de caracteres estilo "Matrix" — flash rápido de imersão ao conjurar
+// tecnomancia. Puramente decorativo (canvas fixo, pointer-events:none),
+// respeita a11y-reduzir (movimento reduzido) e se autodestrói sozinho.
+export function efeitoMatrix(cor = "#59e3c8", duracaoMs = 900) {
+  try {
+    if (document.body.classList.contains("a11y-reduzir")) return;
+    const canvas = document.createElement("canvas");
+    canvas.className = "fx-matrix";
+    document.body.appendChild(canvas);
+    const ctx = canvas.getContext("2d");
+    canvas.width = window.innerWidth; canvas.height = window.innerHeight;
+    const chars = "01アイウエオカキクケコサシスセソタチツテト";
+    const tam = 16;
+    const cols = Math.ceil(canvas.width / tam);
+    const linhas = new Array(cols).fill(0).map(() => Math.random() * -30);
+    let vivo = true;
+    const passo = () => {
+      if (!vivo) return;
+      ctx.fillStyle = "rgba(10,12,21,.16)"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = cor; ctx.font = `${tam}px 'IBM Plex Mono',monospace`;
+      linhas.forEach((linha, i) => {
+        ctx.fillText(chars[Math.floor(Math.random() * chars.length)], i * tam, linha * tam);
+        linhas[i] = (linha * tam > canvas.height && Math.random() > 0.975) ? 0 : linha + 1;
+      });
+      requestAnimationFrame(passo);
+    };
+    passo();
+    setTimeout(() => { vivo = false; canvas.classList.add("saindo"); setTimeout(() => canvas.remove(), 400); }, duracaoMs);
+  } catch (e) {}
+}
 export function notificar(titulo, corpo) {
   try { if (document.hidden && "Notification" in window && Notification.permission === "granted") new Notification(titulo, { body: corpo, silent: true }); } catch (e) {}
 }

@@ -275,6 +275,14 @@ export const posInicial = (ordem, tipo) => {
 // "verdadeiro" atravessa qualquer resistência ou imunidade.
 export const TIPOS_DANO = ["físico", "térmico", "químico", "elétrico", "psíquico", "gélido", "ácido", "verdadeiro"];
 export const semAcento = (s) => String(s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+// Ícone+cor por tipo de dano — só cosmético (mensagens de rolagem), pra "ler"
+// o combate de relance sem abrir o detalhe de cada ataque.
+export const ICONE_DANO = {
+  "físico": { ic: "⚔", cor: "var(--ink)" }, "térmico": { ic: "🔥", cor: "var(--chrome)" },
+  "químico": { ic: "☣", cor: "#8bcf6e" }, "elétrico": { ic: "⚡", cor: "var(--sombra)" },
+  "psíquico": { ic: "🧠", cor: "var(--sombra)" }, "gélido": { ic: "❄", cor: "var(--tech)" },
+  "ácido": { ic: "🧪", cor: "#8bcf6e" }, "verdadeiro": { ic: "☠", cor: "var(--perigo)" },
+};
 // Tipo de dano de uma arma: deriva da palavra-chave, senão é físico.
 export function tipoDanoArma(cat) {
   const kw = semAcento(cat?.kw);

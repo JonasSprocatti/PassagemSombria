@@ -18,7 +18,7 @@ import {
   novaFichaDados, calc, pentesReservaDe, ganhosDoNivel, CONTEUDO_EXTRA, modosAtivosDe,
   CONDICOES_INFO, CONDICOES, infoCond, aplicarCond,
   CAMPO_LARGURA, CAMPO_JANELA, distCombate, posInicial,
-  TIPOS_DANO, semAcento, imuneAoDano,
+  TIPOS_DANO, semAcento, imuneAoDano, ICONE_DANO,
   capacidadeArma, municaoDe,
 } from "./regras.js";
 
@@ -74,6 +74,7 @@ const comprimirFoto = (file, cb) => {
 
 export let usuario = null, perfil = null;
 let canalMesa = null; // realtime da mesa aberta
+let vinhetaAtiva = false; // PV baixo do próprio personagem — lido por shell() (ver telaMesa)
 
 // Valida a sessão contra o servidor de auth. Se estiver morta (refresh token
 // revogado/expirado), limpa o cache podre e força re-login. Devolve o user ou null.
@@ -552,6 +553,11 @@ export function shell(titulo, corpo, ativo = "") {
   // que descontar um número mágico do padding do body na conta) — mais simples
   // e sem acoplamento com um valor de padding que pode mudar no resto do app.
   document.body.classList.toggle("pagina-cheia", titulo === "login");
+  // Vinheta de PV baixo: `vinhetaAtiva` é setada só por telaMesa (único lugar
+  // com `f`/`k` do próprio personagem); aqui só decide se ela pode aparecer
+  // NESTA tela — sair da mesa (qualquer outro `titulo`) sempre limpa, mesmo
+  // se `vinhetaAtiva` ficou true por último no render da mesa.
+  document.body.classList.toggle("vinheta-critica", titulo === "mesa" && vinhetaAtiva);
   // No mobile (ver CSS), os links/usuário/sair colapsam atrás de um botão ☰ —
   // no desktop `.menu-links` vira `display:contents` e some da equação, os
   // filhos continuam fluindo direto na `.menu` como sempre foi.
@@ -973,6 +979,31 @@ function animarBarras(raiz = document) {
   });
 }
 
+// Mensagens de sistema aparecem digitando, feito um terminal — só ao vivo (uma
+// mensagem que acabou de chegar), pra não atrasar quem abre o histórico
+// rolando pra trás. Passo escalado pelo tamanho do texto: sempre termina em
+// ~500ms, mensagem curta ou longa (não fica robótico numa linha de 300 chars).
+function digitarTexto(el, texto) {
+  el.textContent = ""; el.classList.add("digitando");
+  const passoTam = Math.max(1, Math.ceil(texto.length / 50));
+  let i = 0;
+  const passo = () => {
+    i += passoTam; el.textContent = texto.slice(0, i);
+    if (i < texto.length) setTimeout(passo, 10);
+    else el.classList.remove("digitando");
+  };
+  passo();
+}
+// O total do d20 "rola" (números cascateando) antes de travar no valor real —
+// só ao vivo; o resultado já veio pronto do servidor, isto é só apresentação.
+function animarRolagem(el, valorFinal) {
+  el.classList.add("rolando");
+  let n = 0;
+  const iv = setInterval(() => {
+    el.textContent = 1 + Math.floor(Math.random() * 20);
+    if (++n > 7) { clearInterval(iv); el.textContent = valorFinal; el.classList.remove("rolando"); }
+  }, 45);
+}
 // Um crítico ou uma falha crítica sacode a mesa por um instante.
 function sacudir() {
   if (document.body.classList.contains("a11y-reduzir")) return;
@@ -1994,6 +2025,9 @@ async function telaMesa(id) {
     // a CD das Placas e todo efeito declarado de implante, enquanto ela estiver no raio.
     const semImplantes = auraNega("implantes");
     const k = f ? calc(f, { semImplantes }) : null;
+    // Vinheta de perigo: PV vivo mas abaixo de 25% do teto. `shell()` decide se
+    // ela aparece de fato (só na tela "mesa" — ver lá).
+    vinhetaAtiva = !!(f && k && k.pvMax && f.pvAtual > 0 && (f.pvAtual / k.pvMax) <= 0.25);
     const nave = camp.nave;
     const meuPosto = membros?.find((m) => m.perfil_id === usuario.id)?.posto;
     const cbn = camp.combate_nave || combateNaveVazio();
@@ -2064,6 +2098,8 @@ async function telaMesa(id) {
         </div>
         <section class="sec mesa-chat">
           <header><span class="tag">≣</span><h2>Mesa · transmissão ao vivo</h2></header>
+          <div id="mesa-presence" class="mesa-presence"></div>
+          <div id="mesa-conn" class="mesa-conn" hidden></div>
           ${camp.handout?.visivel && camp.handout?.url ? `<div class="handout"><div class="handout-cab"><b>🖼 ${esc(camp.handout.titulo || "O Mestre mostra algo")}</b><a href="${esc(camp.handout.url)}" target="_blank" rel="noopener" class="mini">abrir</a></div><img src="${esc(camp.handout.url)}" alt="${esc(camp.handout.titulo || "imagem compartilhada pelo Mestre")}"/></div>` : ""}
           <div id="chat" class="chat"></div>
           <div id="resp-preview" class="resp-preview" style="display:none"><span class="rp-txt"></span><button id="resp-cancel" class="rp-x" title="Cancelar resposta">✕</button></div>
@@ -2110,10 +2146,12 @@ async function telaMesa(id) {
       let corpo = "";
       if (m.tipo === "texto" || m.tipo === "sistema") corpo = `<div class="m-txt ${m.tipo}">${esc(m.conteudo)}</div>`;
       else if (m.tipo === "rolagem") { const p = m.payload || {};
+        const dt = p.tipoDano && ICONE_DANO[p.tipoDano];
         corpo = `<div class="m-roll ${p.crit ? "crit" : ""} ${p.fumble ? "fumble" : ""}">
           <b>${esc(p.titulo)}</b><span class="m-det">${esc(p.detalhe)}</span>
-          ${p.total !== undefined && p.total !== null ? `<span class="m-total">${p.total}</span>` : ""}
+          ${p.total !== undefined && p.total !== null ? `<span class="m-total" data-final="${p.total}">${p.total}</span>` : ""}
           ${p.crit ? `<span class="log-flag crit">CRÍTICO!</span>` : ""}${p.fumble ? `<span class="log-flag fumble">FALHA CRÍTICA</span>` : ""}
+          ${dt ? `<span class="m-dano-tipo" style="color:${dt.cor}" title="Dano ${esc(p.tipoDano)}">${dt.ic} ${esc(p.tipoDano)}</span>` : ""}
           ${p.extra ? `<span class="m-extra">${esc(p.extra)}</span>` : ""}
           ${p.dano_total != null && !p.alvo_resolvido && ui.souMestre && camp.combate.ativo ? `<button class="m-aplicar" data-dano="${p.dano_total}">🩸 aplicar ${p.dano_total} de dano</button>` : ""}</div>`; }
       else if (m.tipo === "dano" || m.tipo === "cura") { const p = m.payload || {};
@@ -2136,6 +2174,13 @@ async function telaMesa(id) {
       el.dataset.mid = m.id;
       el.innerHTML = `${avatarHtml}<div class="m-corpo"><div class="m-cab">${quem}${persN ? ` <i>como ${persN}</i>` : ""} <time>${new Date(m.criado_em).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</time><button class="m-reply" data-reply title="Responder">↩</button></div>${respHtml}${corpo}</div>`;
       chatEl.appendChild(el); chatEl.scrollTop = chatEl.scrollHeight;
+      // Terminal-digitando e "dado rolando" só em mensagens que acabaram de
+      // chegar ao vivo — no histórico (F5/scroll pra trás) tudo aparece pronto,
+      // senão reabrir o chat ficaria lento de propósito.
+      if (aoVivo && !document.body.classList.contains("a11y-reduzir")) {
+        if (m.tipo === "sistema") { const txtEl = el.querySelector(".m-txt.sistema"); if (txtEl) digitarTexto(txtEl, m.conteudo || ""); }
+        else if (m.tipo === "rolagem") { const totalEl = el.querySelector(".m-total"); if (totalEl) animarRolagem(totalEl, totalEl.dataset.final); }
+      }
       el.querySelector("[data-reply]")?.addEventListener("click", () => iniciarResp(m));
       el.querySelector(".m-aplicar")?.addEventListener("click", async () => {
         if (!camp.combate.ativo || !camp.combate.ordem.length) return alert("Nenhum combate ativo com combatentes.");
@@ -2258,13 +2303,39 @@ async function telaMesa(id) {
     // Passa o token do usuário pro socket realtime; sem isso o canal entra como
     // anônimo e a RLS de mensagens filtra tudo (nada chega na mesa).
     try { const { data: { session } } = await sb.auth.getSession(); if (session?.access_token) sb.realtime.setAuth(session.access_token); } catch (_) {}
+    // Presença: quem está com a mesa aberta agora. `presenceState()` devolve um
+    // mapa chave→[metas] (cada aba conectada é uma chave própria do Realtime);
+    // deduplica por usuário porque a mesma pessoa pode ter 2 abas abertas.
+    const renderPresenca = () => {
+      const el = $("#mesa-presence"); if (!el || !canalMesa) return;
+      const vistos = new Set(); const chips = [];
+      Object.values(canalMesa.presenceState()).forEach((arr) => arr.forEach((p) => {
+        if (vistos.has(p.uid)) return; vistos.add(p.uid);
+        chips.push(`<span class="pres-chip" title="${esc(p.nome)} · online agora">${p.av ? `<img src="${esc(p.av)}" alt=""/>` : "◈"} ${esc(p.nome)}</span>`);
+      }));
+      el.innerHTML = chips.length ? `<span class="pres-dot"></span>${chips.join("")}` : "";
+    };
     canalMesa = sb.channel(`mesa-${id}`)
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "mensagens", filter: `campanha_id=eq.${id}` },
         async (pl) => { const { data: m } = await sb.from("mensagens").select("*,perfis:autor_id(apelido,avatar_url)").eq("id", pl.new.id).single(); if (m) addMsg(m, true); })
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "campanhas", filter: `id=eq.${id}` },
         (pl) => { if (ecoProprio()) return;   // é a nossa própria gravação voltando
           camp.nave = pl.new.nave; camp.mapa = pl.new.mapa; camp.combate = pl.new.combate; camp.combate_nave = pl.new.combate_nave || combateNaveVazio(); camp.handout = pl.new.handout || {}; camp.faccoes = pl.new.faccoes || {}; camp.contratos = pl.new.contratos || []; camp.bestiario = pl.new.bestiario || []; ui.mapaCtrl?.atualizar(pl.new.mapa, pl.new.combate); render(); })
-      .subscribe();
+      .on("presence", { event: "sync" }, renderPresenca)
+      .subscribe(async (status) => {
+        const banner = $("#mesa-conn"); if (!banner) return;
+        if (status === "SUBSCRIBED") {
+          try { await canalMesa.track({ uid: usuario.id, nome: perfil?.apelido || "?", av: perfil?.avatar_url || null }); } catch (_) {}
+          if (banner.dataset.caiu === "1") {   // já esteve fora do ar nesta sessão — avisa que voltou
+            banner.textContent = "✅ sinal restabelecido"; banner.classList.remove("erro"); banner.classList.add("ok");
+            setTimeout(() => { banner.hidden = true; banner.classList.remove("ok"); }, 2200);
+          }
+          banner.dataset.caiu = "0";
+        } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
+          banner.hidden = false; banner.textContent = "⚠ SINAL PERDIDO — reconectando à matriz…";
+          banner.classList.add("erro"); banner.classList.remove("ok"); banner.dataset.caiu = "1";
+        }
+      });
 
     // ---- binds ----
     $("#enviar-msg").onclick = () => { const t = $("#msg").value.trim(); if (!t) return; $("#msg").value = "";
