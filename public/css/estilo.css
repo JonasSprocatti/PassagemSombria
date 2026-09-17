@@ -868,6 +868,12 @@ body.vinheta-critica::after{content:"";position:fixed;inset:0;pointer-events:non
   animation:vinheta-pulso 2.4s ease-in-out infinite}
 @keyframes vinheta-pulso{0%,100%{opacity:.55}50%{opacity:1}}
 
+/* Flash de crítico — cobre a tela por um instante (ver flashCritico() em app.js) */
+body.flash-critico::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:9995;
+  background:radial-gradient(circle at center,rgba(89,227,200,.32),transparent 70%);
+  animation:flash-critico .5s ease-out}
+@keyframes flash-critico{0%{opacity:1}100%{opacity:0}}
+
 /* Quem está com a mesa aberta agora (Realtime Presence) */
 .mesa-presence{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:2px 0 8px;font-size:10.5px}
 .pres-chip{display:inline-flex;align-items:center;gap:4px;border:1px solid var(--line);border-radius:20px;
@@ -881,9 +887,9 @@ body.vinheta-critica::after{content:"";position:fixed;inset:0;pointer-events:non
 .mesa-conn.ok{border-color:var(--tech);background:rgba(89,227,200,.1);color:var(--tech);animation:none}
 
 @media(prefers-reduced-motion:reduce){
-  .fx-glitch,body.vinheta-critica::after,.mesa-conn,.m-txt.sistema.digitando::after{animation:none!important}
+  .fx-glitch,body.vinheta-critica::after,.mesa-conn,.m-txt.sistema.digitando::after,body.flash-critico::before{animation:none!important}
 }
-body.a11y-reduzir .fx-glitch,body.a11y-reduzir.vinheta-critica::after,body.a11y-reduzir .mesa-conn{animation:none!important}
+body.a11y-reduzir .fx-glitch,body.a11y-reduzir.vinheta-critica::after,body.a11y-reduzir .mesa-conn,body.a11y-reduzir.flash-critico::before{animation:none!important}
 
 /* ============================================================================
    SUBIR DE NÍVEL — acontece poucas vezes por campanha; é a segunda grande cena.

@@ -996,15 +996,15 @@ function digitarTexto(el, texto) {
 }
 // O total do d20 "rola" (números cascateando) antes de travar no valor real —
 // só ao vivo; o resultado já veio pronto do servidor, isto é só apresentação.
-// 90ms × 9 trocas ≈ 800ms: rápido demais (45ms × 7 ≈ 300ms, versão original)
-// mal dava pra perceber que era uma animação — passava direto pro número final.
+// 70ms × 7 trocas ≈ 500ms — já passou por 300ms (rápido demais pra perceber)
+// e 800ms (devagar demais, atrasa o chat) antes de assentar aqui.
 function animarRolagem(el, valorFinal) {
   el.classList.add("rolando");
   let n = 0;
   const iv = setInterval(() => {
     el.textContent = 1 + Math.floor(Math.random() * 20);
-    if (++n > 9) { clearInterval(iv); el.textContent = valorFinal; el.classList.remove("rolando"); }
-  }, 90);
+    if (++n > 6) { clearInterval(iv); el.textContent = valorFinal; el.classList.remove("rolando"); }
+  }, 70);
 }
 // Um crítico ou uma falha crítica sacode a mesa por um instante.
 function sacudir() {
@@ -1012,6 +1012,17 @@ function sacudir() {
   document.body.classList.remove("critico"); void document.body.offsetWidth;
   document.body.classList.add("critico");
   setTimeout(() => document.body.classList.remove("critico"), 420);
+}
+// Crítico: um flash de luz cobre a tela por um instante — além do brilho já
+// existente na própria bolha da mensagem (.m-roll.crit), dá pra sentir o golpe
+// mesmo sem estar olhando pro chat naquele instante. Dispara pra qualquer
+// crítico ao vivo (seu ou de outro jogador), não só o tremor/som que já eram
+// só pra mensagens de outra pessoa.
+function flashCritico() {
+  if (document.body.classList.contains("a11y-reduzir")) return;
+  document.body.classList.remove("flash-critico"); void document.body.offsetWidth;
+  document.body.classList.add("flash-critico");
+  setTimeout(() => document.body.classList.remove("flash-critico"), 500);
 }
 
 async function iniciar() {
@@ -2201,7 +2212,10 @@ async function telaMesa(id) {
       // senão reabrir o chat ficaria lento de propósito.
       if (aoVivo && !document.body.classList.contains("a11y-reduzir")) {
         if (m.tipo === "sistema") { const txtEl = el.querySelector(".m-txt.sistema"); if (txtEl) digitarTexto(txtEl, m.conteudo || ""); }
-        else if (m.tipo === "rolagem") { const totalEl = el.querySelector(".m-total"); if (totalEl) animarRolagem(totalEl, totalEl.dataset.final); }
+        else if (m.tipo === "rolagem") {
+          const totalEl = el.querySelector(".m-total"); if (totalEl) animarRolagem(totalEl, totalEl.dataset.final);
+          if (m.payload?.crit) flashCritico();   // qualquer crítico ao vivo, seu ou de outro jogador
+        }
       }
       el.querySelector("[data-reply]")?.addEventListener("click", () => iniciarResp(m));
       el.querySelector(".m-aplicar")?.addEventListener("click", async () => {
