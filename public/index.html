@@ -25,6 +25,19 @@
   <script>
     if ("serviceWorker" in navigator) {
       window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
+      // sw.js já ativa a versão nova sozinho (skipWaiting + clients.claim), sem
+      // esperar as abas antigas fecharem — mas sem isto, uma aba já aberta ficava
+      // rodando com o app.js antigo (import estático, só carrega uma vez por
+      // sessão) mesmo depois do Service Worker trocar de versão por baixo dela.
+      // Só um F5/fechar-e-reabrir resolvia. Recarregar na troca de controller
+      // garante que a aba sempre acaba rodando a versão que o SW já teria servido
+      // de qualquer forma na próxima navegação — só antecipa isso.
+      let jaRecarregou = false;
+      navigator.serviceWorker.addEventListener("controllerchange", () => {
+        if (jaRecarregou) return;
+        jaRecarregou = true;
+        location.reload();
+      });
     }
   </script>
 </body>

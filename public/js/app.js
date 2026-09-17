@@ -552,17 +552,37 @@ export function shell(titulo, corpo, ativo = "") {
   // que descontar um número mágico do padding do body na conta) — mais simples
   // e sem acoplamento com um valor de padding que pode mudar no resto do app.
   document.body.classList.toggle("pagina-cheia", titulo === "login");
+  // No mobile (ver CSS), os links/usuário/sair colapsam atrás de um botão ☰ —
+  // no desktop `.menu-links` vira `display:contents` e some da equação, os
+  // filhos continuam fluindo direto na `.menu` como sempre foi.
   const nav = usuario ? `
     <nav class="menu">
       <a href="#/hangar" class="brand" title="Passagem Sombria"><img src="logo.svg" alt="Passagem Sombria" class="brand-logo"/><span class="brand-txt">PASSAGEM<b>SOMBRIA</b></span></a>
-      <a href="#/hangar" class="${ativo === "hangar" ? "on" : ""}">◈ Hangar</a>
-      <a href="#/campanhas" class="${ativo === "campanhas" ? "on" : ""}">☄ Campanhas</a>
-      <a href="#/biblioteca" class="${ativo === "biblioteca" ? "on" : ""}">📖 Biblioteca</a>
-      <span class="menu-user">${esc(perfil?.apelido || "")}</span>
-      <button id="sair" class="btn-ghost">SAIR</button>
+      <button id="menu-burger" class="menu-burger" type="button" aria-label="Abrir menu" aria-expanded="false" aria-controls="menu-links">☰</button>
+      <div class="menu-links" id="menu-links">
+        <a href="#/hangar" class="${ativo === "hangar" ? "on" : ""}">◈ Hangar</a>
+        <a href="#/campanhas" class="${ativo === "campanhas" ? "on" : ""}">☄ Campanhas</a>
+        <a href="#/biblioteca" class="${ativo === "biblioteca" ? "on" : ""}">📖 Biblioteca</a>
+        <span class="menu-user">${esc(perfil?.apelido || "")}</span>
+        <button id="sair" class="btn-ghost">SAIR</button>
+      </div>
     </nav>` : "";
   app.innerHTML = `<div class="frame">${nav}${corpo}</div>`;
   $("#sair")?.addEventListener("click", async () => { await sb.auth.signOut(); location.hash = "#/login"; });
+  const burger = $("#menu-burger"), links = $("#menu-links");
+  if (burger && links) {
+    burger.onclick = () => {
+      const abrir = !links.classList.contains("open");
+      links.classList.toggle("open", abrir);
+      burger.setAttribute("aria-expanded", String(abrir));
+      burger.textContent = abrir ? "✕" : "☰";
+    };
+    // Fecha ao clicar num link/botão lá dentro (ex.: SAIR, ou trocar de tela) —
+    // sem isto, o menu ficava aberto por cima da tela seguinte.
+    links.querySelectorAll("a, button").forEach((el) => el.addEventListener("click", () => {
+      links.classList.remove("open"); burger.setAttribute("aria-expanded", "false"); burger.textContent = "☰";
+    }));
+  }
   requestAnimationFrame(() => animarBarras());   // rastro do dano / brilho da cura
 }
 
@@ -1992,7 +2012,7 @@ async function telaMesa(id) {
     // Naves agora têm posição no campo tático — podem ser selecionadas como
     // qualquer token (ver alcance/distâncias), não só personagens/criaturas.
     const tokenSelObj = camp.combate.ordem.find((c) => c.id === ui.tokenSel) || null;
-    const ctxNave = { id, camp, pers, membros, ui, f, k, nave, cbn, meuPosto, enviar, salvarCamp, salvarCbn, render, defesaNaveParty, bonusDefVeiculo, aplicarDanoAlvo, snapshot };
+    const ctxNave = { id, camp, pers, membros, ui, f, k, nave, cbn, meuPosto, enviar, salvarCamp, salvarCbn, render, defesaNaveParty, bonusDefVeiculo, aplicarDanoAlvo, snapshot, gastarAcao };
     const ctxCombate = { id, camp, pers, membros, ui, f, k, enviar, salvarCamp, salvarCombate, render, snapshot,
       aplicarDanoAlvo, habsDoCombatente, aurasAtivas, gastarAcao, sincronizarCdCombate, sincronizarFicha,
       defesaNaveParty, bonusDefVeiculo, salvarBestiario, pilhaUndo, vistaCampo, vistaLarg, pctX, tokenSelObj };

@@ -26,6 +26,22 @@ b{font-weight:600}
 .menu a{text-decoration:none;color:var(--dim);border:1px solid var(--line);padding:8px 14px;font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.08em}
 .menu a.on,.menu a:hover{color:var(--tech);border-color:var(--tech)}
 .menu-user{margin-left:auto;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--dim)}
+/* No desktop `.menu-links` é invisível pro layout (display:contents) — os links/
+   usuário/SAIR continuam fluindo direto como filhos de `.menu`, igual sempre foi.
+   O botão ☰ só existe visualmente abaixo de 720px (ver media query). */
+.menu-links{display:contents}
+.menu-burger{display:none;background:none;border:1px solid var(--line);color:var(--ink);font-size:17px;line-height:1;padding:8px 12px;cursor:pointer;margin-left:auto}
+.menu-burger:hover{border-color:var(--tech);color:var(--tech)}
+@media(max-width:720px){
+  /* Abaixo de 720px o ☰ aparece e `.menu-links` vira um painel que cai numa
+     linha própria (a `.menu` já tem flex-wrap) — escondido por padrão, some só
+     o essencial (logo + ☰) na primeira linha em vez de 6 elementos espremidos. */
+  .menu-burger{display:block}
+  .menu-links{display:none;flex-direction:column;align-items:stretch;width:100%;gap:8px;margin-top:4px}
+  .menu-links.open{display:flex}
+  .menu-links .menu-user{margin-left:0;padding:4px 2px}
+  .menu-links a,.menu-links #sair{width:100%;text-align:center;box-sizing:border-box}
+}
 
 .masthead{border:1px solid var(--line);border-left:3px solid var(--tech);background:linear-gradient(180deg,var(--panel2),var(--panel));padding:24px;margin-bottom:18px}
 .mast-eyebrow{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.22em;color:var(--dim)}

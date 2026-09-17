@@ -65,7 +65,7 @@ export function renderNave(ctx) {
 }
 
 export function wireNave(ctx) {
-  const { id, camp, pers, ui, f, k, meuPosto, enviar, salvarCamp, salvarCbn, render, defesaNaveParty, aplicarDanoAlvo, snapshot } = ctx;
+  const { id, camp, pers, ui, f, k, meuPosto, enviar, salvarCamp, salvarCbn, render, defesaNaveParty, aplicarDanoAlvo, snapshot, gastarAcao } = ctx;
   // A nave da party também aparece como linha no rastreador (`nave_party`), com
   // cópia própria de casco/escudos — o HUD de combate lê de lá. Toda mudança em
   // camp.nave precisa ser espelhada, senão uma aba mostra um número e a outra outro.
@@ -84,7 +84,16 @@ export function wireNave(ctx) {
     render();
   });
   $("#sel-posto")?.addEventListener("change", async (e) => {
-    await sb.from("campanha_membros").update({ posto: e.target.value || null }).eq("campanha_id", id).eq("perfil_id", usuario.id);
+    const novoPosto = e.target.value || null;
+    // Embarcar (ocupar um posto) custa a Ação de Movimento + a Ação Principal do
+    // turno — correr até o posto e operar os controles não é de graça. Sair da
+    // nave (voltar a "fora da nave") continua livre. Fora de combate, gastarAcao
+    // já é um no-op (retorna true direto), então isto não atrapalha fora de cena.
+    if (novoPosto) {
+      if (!(await gastarAcao("Ação de Movimento", "embarcar na nave"))) { e.target.value = meuPosto || ""; return; }
+      if (!(await gastarAcao("Ação Principal", "embarcar na nave"))) { e.target.value = meuPosto || ""; return; }
+    }
+    await sb.from("campanha_membros").update({ posto: novoPosto }).eq("campanha_id", id).eq("perfil_id", usuario.id);
     location.reload();
   });
   $("#cbn-iniciar")?.addEventListener("click", async () => {
@@ -221,6 +230,14 @@ export function wireNave(ctx) {
   });
   if (meuPosto && f) document.querySelectorAll("[data-est]").forEach((b) => b.onclick = async () => {
     const acao = ESTACOES[meuPosto].acoes[+b.dataset.est];
+    // Qualquer ação de posto (atirar, manobrar, recarregar, reparar...) consome
+    // a Ação Principal do turno — operar a nave não é de graça só porque já está
+    // a bordo. Mesmo padrão de turno/ação de [data-atq] (mesa-ficha.js): só o
+    // dono da vez age (Mestre sempre pode forçar), e gastarAcao já é um no-op
+    // fora de combate.
+    if (camp.combate?.ativo && !ui.souMestre && camp.combate.ordem[camp.combate.turno]?.personagem_id !== ui.meuPers.id)
+      return alert(`Não é o seu turno (vez de ${camp.combate.ordem[camp.combate.turno]?.nome || "outro combatente"}).`);
+    if (!(await gastarAcao("Ação Principal", `usar o posto: ${acao.n}`))) return;
     const nt = (camp.combate.nave = camp.combate.nave || naveTaticaVazia());
     let mexeuNaTatica = false;
     let extra = acao.d;
