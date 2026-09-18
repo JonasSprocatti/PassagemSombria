@@ -14,7 +14,7 @@ import { modalForm, confirmModal, somMensagem, somDado, somCritico, somFalha, no
 // pra um módulo sem import de rede, testável direto com `node --test tests/`.
 // Ver public/js/regras.js.
 import {
-  d, sign, rollNd, parseDice, rolaDadoVida, rolaVidaInicial, migrarPericias, danoCritico,
+  d, sign, rollNd, parseDice, rolaDadoVida, rolaVidaInicial, conPorNivel, CON_PV_NIVEL_MAX, migrarPericias, danoCritico,
   novaFichaDados, calc, pentesReservaDe, ganhosDoNivel, CONTEUDO_EXTRA, modosAtivosDe,
   CONDICOES_INFO, CONDICOES, infoCond, aplicarCond,
   CAMPO_LARGURA, CAMPO_JANELA, distCombate, posInicial,
@@ -110,6 +110,7 @@ export function gerarFichaHTML(nome, f, k) {
   if (raca?.lendaria && f.nivel >= 10) habs.push([`★★ Lendária — ${raca.lendaria.n}`, raca.lendaria.d]);
   if (classe) classe.hab.forEach((h) => habs.push([`${f.classe} (${h.tipo}) — ${h.n}`, h.d]));
   if (classe && f.nivel >= 5) habs.push([`★ Veterana — ${classe.vet.n}`, classe.vet.d]);
+  if (classe?.lendaria && f.nivel >= 10) habs.push([`★★ Marco de classe — ${classe.lendaria.n}`, classe.lendaria.d]);
   if (filo) habs.push([`Filosofia — ${f.filosofia}`, filo.d]);
   const implantes = (f.implantes || []).map((nm) => { const im = Object.values(IMPLANTES).find((x) => x.n === nm); return im ? `<li><b>${esc(im.n)}</b> <span class="dim">(${esc(im.g)})</span> — ${esc(im.e)}</li>` : `<li>${esc(nm)}</li>`; }).join("");
   const deck = (f.deck || []).map((nm) => { const s = SCRIPTS.find((x) => x.n === nm); return s ? `<li><b>${esc(s.n)}</b> <span class="dim">${s.c}◈ · ${esc(s.a)}</span> — ${esc(s.d)}</li>` : `<li>${esc(nm)}</li>`; }).join("");
@@ -241,6 +242,10 @@ function abilidadesDeDescanso(f) {
   const filo = f.filosofia ? FILOSOFIAS[f.filosofia] : null;
   if (classe) classe.hab.forEach((h, i) => { const fr = freqDescanso(h); if (fr) out.push({ id: `cl${i}`, nome: h.n, origem: f.classe, freq: fr }); });
   if (classe && f.nivel >= 5) { const fr = freqDescanso(classe.vet); if (fr) out.push({ id: "vet", nome: classe.vet.n, origem: `${f.classe} · Veterana`, freq: fr }); }
+  // Marco de classe (NV10) — o espelho da Lendária de raça, mesmo gate de nível.
+  // Id "clend" (a raça usa "lend"): os dois podem existir na mesma ficha.
+  // Sem o fallback "longo" da Lendária de raça: metade dos marcos é passiva e não tem uso a repor.
+  if (classe?.lendaria && f.nivel >= 10) { const fr = freqDescanso(classe.lendaria); if (fr) out.push({ id: "clend", nome: classe.lendaria.n, origem: `${f.classe} · Marco`, freq: fr }); }
   if (filo) { const fr = freqDescanso(filo); if (fr) out.push({ id: "filo", nome: f.filosofia, origem: "Filosofia", freq: fr }); }
   if (raca) (raca.habilidades || []).forEach((h, i) => { const fr = freqDescanso(h); if (fr) out.push({ id: `ra${i}`, nome: h.n, origem: raca.nome, freq: fr }); });
   if (raca?.lendaria && f.nivel >= 10) { const fr = freqDescanso(raca.lendaria) || "longo"; out.push({ id: "lend", nome: raca.lendaria.n, origem: `${raca.nome} · Lendária`, freq: fr }); }
@@ -255,6 +260,7 @@ function abilidadesDeSessao(f) {
     || (h.efeitos || []).some((e) => e.tipo === "recurso" && e.freq === "sessao"));
   (classe?.hab || []).forEach((h, i) => { if (ehSessao(h)) out.push({ id: `cl${i}`, nome: h.n }); });
   if (classe?.vet && f.nivel >= 5 && ehSessao(classe.vet)) out.push({ id: "vet", nome: classe.vet.n });
+  if (classe?.lendaria && f.nivel >= 10 && ehSessao(classe.lendaria)) out.push({ id: "clend", nome: classe.lendaria.n });
   if (filo && ehSessao(filo)) out.push({ id: "filo", nome: f.filosofia });
   (raca?.habilidades || []).forEach((h, i) => { if (ehSessao(h)) out.push({ id: `ra${i}`, nome: h.n }); });
   return out;
@@ -282,6 +288,7 @@ export function habilidadesAtivas(f) {
   };
   (classe?.hab || []).forEach((h, i) => add(`cl${i}`, h, f.classe));
   if (classe?.vet && f.nivel >= 5) add("vet", classe.vet, `${f.classe} · Veterana`);
+  if (classe?.lendaria && f.nivel >= 10) add("clend", classe.lendaria, `${f.classe} · Marco`);
   (raca?.habilidades || []).forEach((h, i) => add(`ra${i}`, h, raca.nome));
   if (raca?.lendaria && f.nivel >= 10) add("lend", raca.lendaria, `${raca.nome} · Lendária`);
   // A filosofia também vira botão na mesa. As 4 passivas (Espiral, Corporativo,
@@ -1205,7 +1212,7 @@ async function telaFicha(id) {
         </div>
         ${raca ? `<details class="det grande" open><summary>🧬 <b>${esc(raca.nome)}</b> (${raca.planeta}) — ${esc(raca.titulo)}</summary>
           <p>${esc(raca.lore)}</p>
-          <p class="regra">Vida inicial (nível 1): 4d6 descarta o menor ${sign(raca.vidaMod)} + Con · Vida por nível: 1d${raca.dadoVida} (ou fixo ${raca.vidaFixa}) + Con · ${["For","Des","Con","Int","Sab","Car"].map((a) => `${a} ${sign(raca.attrs[a])}`).join(" · ")}${raca.livre ? " · +4 pontos livres (máx. +2 cada) e +3 perícias" : ""}</p>
+          <p class="regra">Vida inicial (nível 1): 4d6 descarta o menor ${sign(raca.vidaMod)} + Con · Vida por nível: 1d${raca.dadoVida} (ou fixo ${raca.vidaFixa}) + Con até +${CON_PV_NIVEL_MAX} · ${["For","Des","Con","Int","Sab","Car"].map((a) => `${a} ${sign(raca.attrs[a])}`).join(" · ")}${raca.livre ? " · +4 pontos livres (máx. +2 cada) e +3 perícias" : ""}</p>
           ${raca.habilidades.map((h) => `<p><b class="tech-c">${esc(h.n)}:</b> ${esc(h.d)}</p>`).join("")}
           ${raca.lendaria ? `<p class="sombra-c"><b>★★ Lendária (NV10) — ${esc(raca.lendaria.n)}:</b> ${esc(raca.lendaria.d)}${f.nivel < 10 ? " <i>(bloqueada até o nível 10)</i>" : " ✓ DESBLOQUEADA"}</p>` : ""}</details>` : ""}
         ${classe ? `<details class="det grande" open><summary>⚙ <b>${esc(f.classe)}</b> — Vida base +${classe.pv}${k.isCin ? " · usa Int no Limite Cibernético" : ""}</summary>
@@ -1521,8 +1528,16 @@ async function telaFicha(id) {
       const a = i.dataset.a;
       const outros = Object.entries(f.pontosAttr || {}).reduce((s, [key, v]) => s + (key === a ? 0 : (v || 0)), 0);
       const maxEste = Math.max(0, k.pontosDireito - outros); // não pode exceder o orçamento total
+      // Teto por atributo dos 4 pontos LIVRES da raça "tela em branco" (Terráqueo):
+      // no máximo +2 em cada, como a própria ficha sempre anunciou — mas nada
+      // validava, então dava pra abrir no nível 1 com Int +4 (7 de RAM e
+      // conjuração +9 num Cinético, contra 5 e +7 da melhor Int natural).
+      // Os pontos de level up não entram nesse teto: cada nível vale +1 livre,
+      // por isso o limite cresce com o nível.
+      const tetoLivre = raca?.livre ? 2 + Math.max(0, (f.nivel || 1) - 1) : Infinity;
       let v = Math.max(0, Math.floor(+i.value || 0));
       if (v > maxEste) { v = maxEste; $("#st").textContent = `Sem pontos de atributo livres (${k.pontosDireito} no total)`; }
+      if (v > tetoLivre) { v = tetoLivre; $("#st").textContent = `Pontos livres da raça: no máximo +2 por atributo (+1 por nível acima do 1º).`; }
       f.pontosAttr[a] = v; (autoSalvar(), render());
     });
     app.querySelectorAll(".pt-per").forEach((i) => i.onchange = () => {
@@ -1557,13 +1572,16 @@ async function telaFicha(id) {
       const novoNv = f.nivel + 1;
       const k2 = calc(f); const r = RACAS.find((x) => x.nome === f.raca);
       let ganhoPV, detalhe;
+      // Con por nível é limitada a [0,+2] — ver conPorNivel() em regras.js.
+      const conNv = conPorNivel(k2.attr.Con);
+      const notaCon = conNv !== k2.attr.Con ? ` (Con ${sign(k2.attr.Con)} conta ${sign(conNv)} por nível)` : "";
       if (f.usarVidaFixa) {
-        ganhoPV = Math.max(1, (r?.vidaFixa || 3) + k2.attr.Con);
-        detalhe = `média fixa ${r?.vidaFixa} ${sign(k2.attr.Con)} Con`;
+        ganhoPV = Math.max(1, (r?.vidaFixa || 3) + conNv);
+        detalhe = `média fixa ${r?.vidaFixa} ${sign(conNv)} Con${notaCon}`;
       } else {
         const rolou = d(r?.dadoVida || 6);
-        ganhoPV = Math.max(1, rolou + k2.attr.Con);
-        detalhe = `1d${r?.dadoVida} [${rolou}] ${sign(k2.attr.Con)} Con`;
+        ganhoPV = Math.max(1, rolou + conNv);
+        detalhe = `1d${r?.dadoVida} [${rolou}] ${sign(conNv)} Con${notaCon}`;
       }
       f.nivel = novoNv; f.pvMax += ganhoPV; f.pvAtual += ganhoPV;
       if (f.metodoNivel === "xp") { f.xp = Math.max(0, f.xp - f.xpMeta); f.xpMeta = novoNv * 1000; }
@@ -1612,7 +1630,18 @@ async function telaFicha(id) {
           if (!r) return;
           qtd = Math.max(1, Math.min(maxPode, +r.q || 1));
         }
-        const total = it.preco * qtd;
+        let total = it.preco * qtd, notaDesc = "";
+        // Dono do Contrato (marco do Prospector): 1x/sessão, uma compra sai com
+        // desconto. O uso mora em f.usos.clend, que abilidadesDeSessao repõe na
+        // abertura de sessão do Mestre (o texto do marco diz "1x/sessão").
+        const descLoja = calc(f).descontoLoja || 0;
+        if (descLoja && !f.usos?.clend && total > 1
+            && await confirmModal(`Usar ${CLASSES[f.classe]?.lendaria?.n || "o desconto"} nesta compra?\n\n${total} CG → ${Math.ceil(total * (100 - descLoja) / 100)} CG. Só uma vez por sessão.`, { okLabel: "Fechar negócio" })) {
+          const cheio = total;
+          total = Math.ceil(total * (100 - descLoja) / 100);
+          f.usos = { ...(f.usos || {}), clend: true };
+          notaDesc = ` (−${descLoja}%, de ${cheio})`;
+        }
         if ((f.creditos ?? 0) < total) return alert(`Faltam ${total - (f.creditos ?? 0)} CG.`);
         const cgAntes = f.creditos ?? 0;
         f.creditos = cgAntes - total;
@@ -1620,14 +1649,14 @@ async function telaFicha(id) {
         if (it.pente) { const res2 = normalizaPentes(f); const teto = pentesReservaDe(f);
           const tot = Object.values(res2).reduce((x, y) => x + y, 0);
           const cabe = Math.min(qtd, Math.max(0, teto - tot));
-          if (!cabe) { f.creditos = cgAntes; return alert(`A reserva já está cheia (${teto} pentes).`); }
+          if (!cabe) { f.creditos = cgAntes; if (notaDesc) delete f.usos.clend; return alert(`A reserva já está cheia (${teto} pentes).`); }
           res2[it.pente] = (res2[it.pente] || 0) + cabe; f.pentes = res2;
-          if (cabe < qtd) f.creditos = cgAntes - it.preco * cabe;   // devolve o que não coube
+          if (cabe < qtd) f.creditos = cgAntes - Math.ceil(total * cabe / qtd);   // devolve o que não coube (no preço já descontado, se houve)
           qtd = cabe;
         } else if (cat === "implante") { if (!f.implantes.includes(it.nome)) f.implantes.push(it.nome); }
         else { const ja = f.inventario.find((x) => x.nome === it.nome && ehConsumivel(it.nome));
           if (ja) ja.qtd = (ja.qtd || 1) + qtd; else f.inventario.push({ tipo: cat, nome: it.nome, equip: false, qtd }); }
-        registrar(`🛒 Comprou ${qtd > 1 ? `${qtd}× ` : ""}${it.nome} por ${it.preco * qtd} CG (restam ${f.creditos} CG).`);
+        registrar(`🛒 Comprou ${qtd > 1 ? `${qtd}× ` : ""}${it.nome} por ${cgAntes - f.creditos} CG${notaDesc} (restam ${f.creditos} CG).`);
         autoSalvar();                       // a compra precisa persistir antes de ir para a mesa
         setTimeout(render, 650);
       });
@@ -1932,6 +1961,25 @@ async function telaMesa(id) {
       if (absorvidoEscudo) partes.push(`🛡 escudo bloqueia o golpe inteiro (${absorvidoEscudo})${absorvidoEscudo > escudoAntes ? ` — estourou o escudo (tinha ${escudoAntes})` : ""}`);
       if (noTemp) partes.push(`✚ PV temp absorve ${noTemp}`);
       partes.push(`−${resta} (${dd.pvAtual}/${kA.pvMax || dd.pvMax || alvo.hp_max})`);
+      // Modo que cai ao sofrer dano (a Frequência do Músico): o golpe que passou
+      // pela redução e pelo escudo interrompe a música — a menos que a aura seja
+      // inquebrável (Sinfonia Total) ou que o teste de sustentação passe
+      // (Maestro de Guerra: Performance CD 12).
+      if (resta + noTemp > 0 && dd.modos) {
+        const racaA = RACAS.find((r) => r.nome === dd.raca), claA = CLASSES[dd.classe];
+        const fontesA = [...(racaA?.habilidades || []), ...(claA?.hab || []), claA?.vet, claA?.lendaria, racaA?.lendaria].filter(Boolean);
+        for (const nomeModo of Object.keys(dd.modos)) {
+          if (!fontesA.find((x) => x.n === nomeModo)?.resolve?.quebraAoSofrer || kA.auraInquebravel) continue;
+          let mantem = false, detS = "";
+          if (kA.sustentaAura) {
+            const sa = kA.sustentaAura, at = (PERICIAS.find(([p]) => p === sa.pericia) || [])[1];
+            const bo = (kA.attr[at] || 0) + (kA.per[sa.pericia] || 0), n = d(20);
+            mantem = n + bo >= sa.cd; detS = ` (${sa.pericia} ${n}${sign(bo)}=${n + bo} vs CD ${sa.cd})`;
+          }
+          if (mantem) partes.push(`🎵 ${nomeModo} se mantém${detS}`);
+          else { delete dd.modos[nomeModo]; if (dd.modosAte) delete dd.modosAte[nomeModo]; partes.push(`🎵 ${nomeModo} interrompida${detS}`); }
+        }
+      }
       dd.log = [{ q: new Date().toISOString(), t: `💥 ${valor} de dano — ${partes.join(" · ")}` }, ...(dd.log || [])].slice(0, 60);
       await salvarFicha(alvo.personagem_id, dd);
       if (pjA) pjA.dados = dd;
@@ -2039,11 +2087,21 @@ async function telaMesa(id) {
     const linha = minhaLinhaCb();
     if (!linha) return true;                            // não está no rastreador
     linha.acoes = linha.acoes || {};
+    // Ataques extras dentro da MESMA Ação Principal (Rajada Disciplinada, Não
+    // Recuar): enquanto sobrar ataque na conta (k.ataquesPorAcao), atacar de
+    // novo não cobra ação nenhuma. `pAtaques` mora em `acoes`, então zera junto
+    // com ela no início do próximo turno (#cb-prox troca o objeto inteiro).
+    const ehAtaque = chave === "p" && /^atacar/i.test(oque);
+    if (ehAtaque && linha.acoes.p && (linha.acoes.pAtaques || 0) > 0) {
+      const porAcao = calc({ ...novaFichaDados(), ...(ui.meuPers?.dados || {}) }).ataquesPorAcao || 1;
+      if (linha.acoes.pAtaques < porAcao) { linha.acoes.pAtaques++; await salvarCombate(); return true; }
+    }
     if (linha.acoes[chave]) {
       if (!ui.souMestre) { alert(`${ui.meuPers.nome} já usou a ${ROT_ACAO[chave]} nesta rodada${oque ? ` (tentou: ${oque})` : ""}.`); return false; }
       if (!(await confirmModal(`A ${ROT_ACAO[chave]} de ${linha.nome} já foi usada nesta rodada.\n\nUsar assim mesmo?`, { okLabel: "Usar mesmo assim" }))) return false;
     }
     linha.acoes[chave] = true;
+    if (ehAtaque) linha.acoes.pAtaques = 1;
     await salvarCombate();
     return true;
   };

@@ -19,13 +19,13 @@ import { RACAS, CLASSES, FILOSOFIAS, SCRIPTS, PERICIAS, propsArma, ehConsumivel,
 import { NIVEIS_AMEACA } from "./dados-bestiario.js";
 import {
   d, sign, parseDice, rollNd, danoCritico, aplicarCond, novaFichaDados, calc,
-  distCombate, tipoDanoArma, alcanceDaArma, empurrarDe, dcSalvaguarda,
+  distCombate, tipoDanoArma, alcanceDaArma, empurrarDe, dcSalvaguarda, podeAgirAgora, modosAtivosDe,
 } from "./regras.js";
 import { modalForm, confirmModal, efeitoMatrix } from "./ui.js";
 import {
   sb, esc, usuario, perfil, avisar,
   ehNave, foraDeCombate, vidaAtual, vidaMax, rolarAvaria, salvarFicha,
-  todasArmas, todosImplantes, danoArma, armaMontada,
+  todasArmas, todasArmaduras, todosConsumiveis, todosImplantes, danoArma, armaMontada,
   estadoArma, normalizaPentes, capacidadePente, armasDeFogo, habilidadesAtivas, duracaoDe, rolarExpr,
 } from "./app.js";
 
@@ -366,7 +366,7 @@ export function wireFicha(ctx) {
   // Em chamas: apaga gastando Ação Principal + Reação, com deslocamento pela
   // metade neste turno (independente do resultado) — d20 puro, sem modificador.
   $("#cb-apagar-fogo")?.addEventListener("click", async () => {
-    if (camp.combate?.ativo && !ui.souMestre && camp.combate.ordem[camp.combate.turno]?.personagem_id !== ui.meuPers.id)
+    if (camp.combate?.ativo && !ui.souMestre && !podeAgirAgora(camp.combate, minhaLinhaCb()))
       return alert(`Não é o seu turno (vez de ${camp.combate.ordem[camp.combate.turno]?.nome || "outro combatente"}).`);
     const travaFogo = minhaTrava(); if (travaFogo) return alert(`${ui.meuPers.nome} está ${travaFogo.n} e não pode agir neste turno.`);
     if (!(await gastarAcao("Ação Principal", "apagar o fogo"))) return render();
@@ -384,7 +384,7 @@ export function wireFicha(ctx) {
   });
   // Caído: levanta na hora gastando Ação Principal + Ação de Movimento.
   $("#cb-levantar")?.addEventListener("click", async () => {
-    if (camp.combate?.ativo && !ui.souMestre && camp.combate.ordem[camp.combate.turno]?.personagem_id !== ui.meuPers.id)
+    if (camp.combate?.ativo && !ui.souMestre && !podeAgirAgora(camp.combate, minhaLinhaCb()))
       return alert(`Não é o seu turno (vez de ${camp.combate.ordem[camp.combate.turno]?.nome || "outro combatente"}).`);
     const travaLev = minhaTrava(); if (travaLev) return alert(`${ui.meuPers.nome} está ${travaLev.n} e não pode agir neste turno.`);
     if (!(await gastarAcao("Ação Principal", "levantar"))) return render();
@@ -401,8 +401,7 @@ export function wireFicha(ctx) {
     // pelo botão ⚔ da linha dele no rastreador.
     if (camp.combate?.ativo && !ui.souMestre) {
       const minhaLinha = camp.combate.ordem.find((x) => x.personagem_id === ui.meuPers.id);
-      const ehMinhaVez = camp.combate.ordem[camp.combate.turno]?.personagem_id === ui.meuPers.id;
-      if (minhaLinha && !ehMinhaVez)
+      if (minhaLinha && !podeAgirAgora(camp.combate, minhaLinha))
         return alert(`Não é o seu turno (vez de ${camp.combate.ordem[camp.combate.turno]?.nome || "outro combatente"}). O Mestre pode rolar por você no rastreador.`);
     }
     const trava = minhaTrava();
@@ -413,11 +412,16 @@ export function wireFicha(ctx) {
     const cat = armaMontada(catBase, itemInv);
     if (!cat) return alert(`Não encontrei "${a.nome}" no arsenal. Se a arma foi renomeada na administração, reequipe-a na ficha.`);
     const pr = propsArma(cat);
+    // Um Tiro (marco do Franco-atirador): o próximo DISPARO ignora alcance,
+    // cobertura e Defesa e causa o dano máximo ×2. Só arma de fogo consome —
+    // um golpe de faca no meio do caminho não gasta o tiro guardado.
+    const tiroPerfeito = !!k.tiroPerfeito && cat.tipo === "fogo";
     // Alcance da arma: quem está longe demais nem entra na mira (e a munição
     // nem chega a ser gasta). O Mestre ainda pode mirar fora do alcance.
-    const alcance = alcanceDaArma(cat, pr, k.alcanceCac);
+    const alcance = tiroPerfeito ? Infinity : alcanceDaArma(cat, pr, k.alcanceCac);
+    const alcanceTxt = tiroPerfeito ? "ilimitado (Um Tiro)" : `${String(alcance).replace(".", ",")} m`;
     const minhaLinhaAtq = minhaLinhaCb();
-    const podeMirarAtq = !!(camp.combate?.ativo && (ui.souMestre || camp.combate.ordem[camp.combate.turno]?.personagem_id === ui.meuPers.id));
+    const podeMirarAtq = !!(camp.combate?.ativo && (ui.souMestre || podeAgirAgora(camp.combate, minhaLinhaAtq)));
     const candidatos = podeMirarAtq
       ? camp.combate.ordem.filter((x) => !foraDeCombate(x) && x.personagem_id !== ui.meuPers.id && !x.nave_party)
           .map((x) => ({ x, dist: distCombate(minhaLinhaAtq, x) }))
@@ -500,7 +504,7 @@ export function wireFicha(ctx) {
       const bons = listaMira.filter((o) => (o.x.tipo === "inimigo" || o.x.lado === "inimiga") && (o.dist == null || o.dist <= alcance + 0.01));
       const alvoPadrao = (bons[0] || listaMira[0]).x.id;
       const r = await modalForm({ titulo: `⚔ ${a.nome}`,
-        descricao: `Alcance da arma: ${String(alcance).replace(".", ",")} m.${ui.souMestre ? " Como Mestre, você pode mirar fora do alcance." : ""}`,
+        descricao: `Alcance da arma: ${alcanceTxt}.${ui.souMestre ? " Como Mestre, você pode mirar fora do alcance." : ""}`,
         campos: [{ k: "alvo", label: "Mirar em", tipo: "select", valor: alvoPadrao,
           opcoes: [
             ...listaMira.map(({ x, dist }) => ({ v: x.id, l: `${ehNave(x) ? "🚀 " : ""}${x.nome} — ${ehNave(x) ? `casco ${x.casco}/${x.casco_max}` : `${vidaAtual(x)}/${vidaMax(x)} PV, Def ${x.cd ?? 10}`}${dist != null ? ` · ${dist.toFixed(1).replace(".", ",")} m${dist > alcance + 0.01 ? " ⚠ fora de alcance" : ""}` : ""}` })),
@@ -531,8 +535,38 @@ export function wireFicha(ctx) {
     const furtivoMarcado = $("#atq-furtivo")?.checked;
     const idxAlvoCb = alvoCombatente ? (camp.combate?.ordem || []).findIndex((x) => x.id === alvoCombatente.id) : -1;
     const alvoAindaNaoAgiu = !!alvoCombatente && camp.combate?.rodada === 1 && idxAlvoCb > (camp.combate?.turno ?? -1);
-    const alvoRealmenteDesprevenido = !alvoCombatente || condsAlvo.includes("surpreso") || alvoAindaNaoAgiu;
-    const furtivo = !!(furtivoMarcado && alvoRealmenteDesprevenido);
+    // Nome na Lista (marco do Assassino): contra o alvo que ESTE atacante marcou,
+    // todo ataque é furtivo — mesmo sem o checkbox, mesmo com o alvo alerta.
+    const condsAlvoObjs = alvoCombatente?.cond || [];
+    const naLista = condsAlvoObjs.some((c) => c.n === "Na Lista" && c.origemId && c.origemId === minhaLinhaAtq?.id);
+    const alvoRealmenteDesprevenido = !alvoCombatente || condsAlvo.includes("surpreso") || alvoAindaNaoAgiu || naLista;
+    const furtivo = !!((furtivoMarcado || naLista) && alvoRealmenteDesprevenido);
+    // Auras de JOGADOR (Frequência do Músico, Sinfonia Total): cada ficha em
+    // combate declara as suas; aliado dentro do raio soma acerto, inimigo dentro
+    // do raio perde Defesa. Sem posição no campo, vale pro combate inteiro — o
+    // mesmo critério das auras de criatura (aurasSobre, em app.js).
+    const aurasJog = camp.combate?.ativo ? (pers || []).flatMap((p2) => {
+      const linhaP = camp.combate.ordem.find((x) => x.personagem_id === p2.id);
+      if (!linhaP || foraDeCombate(linhaP)) return [];
+      const kk2 = p2.id === ui.meuPers.id ? k : calc({ ...novaFichaDados(), ...(p2.dados || {}) });
+      return (kk2.efeitos?.auras?.() || []).map((au) => ({ ...au, linha: linhaP }));
+    }) : [];
+    const dentroDaAura = (au, quem) => !!quem && (au.linha.id === quem.id || (distCombate(au.linha, quem) ?? 0) <= au.raio);
+    const ehInimigo = (x) => x && (x.tipo === "inimigo" || x.lado === "inimiga");
+    const auraAcerto = Math.max(0, ...aurasJog.filter((au) => au.alvo === "aliados" && dentroDaAura(au, minhaLinhaAtq)).map((au) => au.acerto || 0));
+    const auraDefDe = (x) => ehInimigo(x) ? Math.min(0, ...aurasJog.filter((au) => au.alvo === "inimigos" && dentroDaAura(au, x)).map((au) => au.defesa || 0)) : 0;
+    // Marcas com origem rastreada: a Marca do Caçador ignora cobertura média e
+    // soma o dado de quem marcou (Predador Paciente / O Território é Meu); a
+    // Vulnerabilidade Exposta soma +1d6 e se gasta a cada acerto.
+    const ignoraCobMarca = Math.max(0, ...condsAlvoObjs.map((c) => c.ignoraCob || 0));
+    const bonusMarcaDado = (() => {
+      const mo = condsAlvoObjs.find((c) => c.n === "Marcado" && c.origemId);
+      const lo = mo && camp.combate?.ordem.find((x) => x.id === mo.origemId);
+      const po = lo?.personagem_id && (pers || []).find((p2) => p2.id === lo.personagem_id);
+      if (!po) return null;
+      return (po.id === ui.meuPers.id ? k : calc({ ...novaFichaDados(), ...(po.dados || {}) })).bonusMarca || null;
+    })();
+    const expostoObj = condsAlvoObjs.find((c) => c.n === "Exposto");
     const furtivoNegado = furtivoMarcado && !furtivo;
     const assassino = f.classe === "Assassino";
     // Ágil: usa o melhor de For/Des no acerto e no dano
@@ -559,6 +593,7 @@ export function wireFicha(ctx) {
       + (cat.tipo === "fogo" && f.implantes.includes("Olho Biônico de Precisão") ? 2 : 0)
       + (furtivo && pr.oculta ? 2 : 0)          // Oculta: +2 no furtivo
       + (alvoMarcado ? 2 : 0)                   // alvo Marcado
+      + auraAcerto                              // Frequência de Inspiração de um Músico por perto
       + penalidadePesada
       + (k.efeitos ? k.efeitos.modificarAtaque({ acerto: 0, dano: 0, arma: cat, alvo: alvoParaEfeitos, situacao: situacaoAtq }).acerto : 0)
       + (cat._efeitos || []).filter((e) => e.momento === "ao_atacar" && e.tipo === "acerto").reduce((x, e) => x + (e.valor || 0), 0);
@@ -569,6 +604,9 @@ export function wireFicha(ctx) {
     const marcasVant = [vantEfeito ? "efeito" : "", alvoAberto ? "alvo exposto" : "", desvPorCond ? "condição" : ""].filter(Boolean).join(", ");
     let nat, detVant = "";
     if (vantAtaque !== 0) { const r1 = d(20), r2 = d(20); nat = vantAtaque > 0 ? Math.max(r1, r2) : Math.min(r1, r2); detVant = ` [${vantAtaque > 0 ? "vant" : "desv"}${marcasVant ? ` (${marcasVant})` : ""} ${r1}/${r2}]`; } else nat = d(20);
+    // Um Tiro não rola acerto. nat=20 só mantém os ramos "não é falha" de pé —
+    // o crítico em si é desligado logo abaixo (critAuto), o ×2 vem do próprio tiro.
+    if (tiroPerfeito) { nat = 20; detVant = ""; }
     const total = nat + mod;
     const danoBase = danoArma(cat, f.nivel);
     const pd = parseDice(danoBase);
@@ -585,6 +623,18 @@ export function wireFicha(ctx) {
     // Descarregar: esvaziou o pente inteiro (ver bloco de munição acima) —
     // some um dado extra de dano por bala gasta além do custo normal do tiro.
     if (dadosExtraDescarregar > 0) dados = [...dados, ...rollNd(dadosExtraDescarregar, pd.f)];
+    // Um Tiro: todo dado da arma na face máxima.
+    if (tiroPerfeito) dados = dados.map(() => pd.f);
+    // Dados extras que dependem do ALVO (Marca do Caçador, Exposto). Entram no
+    // mesmo monte antes do crítico, pela regra "soma tudo, depois multiplica".
+    // Só com alvo único: numa área o mesmo dano vai pra todo mundo pego, e o
+    // bônus é de quem foi marcado, não da explosão inteira.
+    const extrasAlvo = [];
+    if (alvoCombatente && !(alvosArea && alvosArea.length > 1)) {
+      if (bonusMarcaDado) { const pm = parseDice(bonusMarcaDado); if (pm) extrasAlvo.push({ rot: `Marca +${bonusMarcaDado}`, v: rollNd(pm.n, pm.f).reduce((x, y) => x + y, 0) }); }
+      if (expostoObj) extrasAlvo.push({ rot: "Exposto +1d6", v: d(6) });
+    }
+    if (extrasAlvo.length) dados = [...dados, ...extrasAlvo.map((x) => x.v)];
     // Situação do ataque: o que o motor precisa saber para efeitos condicionais.
     const situacao = situacaoPre, modAtq = modAtqPre;
     const modsAtq = (cat._efeitos || []).filter((e) => e.momento === "ao_atacar");
@@ -603,14 +653,17 @@ export function wireFicha(ctx) {
     const semCriticoAlvo = alvoCombatente?.personagem_id
       ? !!calc({ ...novaFichaDados(), ...(pers.find((p2) => p2.id === alvoCombatente.personagem_id)?.dados || {}) }).efeitos?.aoSofrer?.().semCritico
       : false;
-    const critAuto = !semCriticoAlvo && (nat === 20 || (paralisadoPerto && nat !== 1));   // 1 natural ainda falha, mesmo contra alvo Paralisado
+    const critAuto = !tiroPerfeito && !semCriticoAlvo && (nat === 20 || (paralisadoPerto && nat !== 1));   // 1 natural ainda falha, mesmo contra alvo Paralisado
     // Multiplicador final: ×2 no crítico, ×2 no furtivo do Assassino — e o
-    // Assassino veterano acumula os dois, chegando a ×4.
-    const multCrit = (critAuto ? 2 : 1) * (modAtq.multDano || 1);
+    // Assassino veterano acumula os dois, chegando a ×4. Um Tiro é o seu próprio ×2.
+    const multCrit = (critAuto ? 2 : 1) * (modAtq.multDano || 1) * (tiroPerfeito ? 2 : 1);
     const somaDados = dados.reduce((x, y) => x + y, 0);
     const danoFinal = Math.floor(danoCritico(somaDados, danoMod, multCrit) * (enfraquecido ? 0.5 : 1));   // Enfraquecido: metade
-    const seriaCritico = nat === 20 || (paralisadoPerto && nat !== 1);   // pra mostrar que a armadura bloqueou, não só omitir
-    const marcadores = [critAuto && nat === 20 ? "CRÍTICO ×2" : critAuto ? "CRÍTICO automático (alvo Paralisado ≤2m) ×2" : (semCriticoAlvo && seriaCritico) ? "🛡 armadura anticrítica bloqueia o crítico" : "", furtivo && assassino ? "FURTIVO ×2" : furtivo ? "furtivo +2 acerto" : furtivoNegado ? "🥷 furtivo NÃO vale — alvo não está desprevenido" : "", pr.agil ? `Ágil (${atkAttr})` : "", pr.brutal ? "Brutal (vantagem)" : "", enfraquecido ? "Enfraquecido ½" : "", alvoMarcado ? "alvo Marcado +2" : "", penalidadePesada ? "Pesada −2" : (pr.pesada ? "Pesada (Memória Muscular anula)" : ""), pr.confiavel ? "Confiável (mín. garantido)" : "", dadosExtraDescarregar > 0 ? `Descarregou +${dadosExtraDescarregar}d${pd.f}` : ""].filter(Boolean).join(" · ");
+    const seriaCritico = !tiroPerfeito && (nat === 20 || (paralisadoPerto && nat !== 1));   // pra mostrar que a armadura bloqueou, não só omitir
+    const marcadores = [tiroPerfeito ? "🎯 UM TIRO — acerto automático, dano máximo ×2" : "",
+      naLista ? "📜 Nome na Lista — furtivo" : "", auraAcerto ? `🎵 aura +${auraAcerto}` : "",
+      ...extrasAlvo.map((x) => `${x.rot} [${x.v}]`),
+      critAuto && nat === 20 ? "CRÍTICO ×2" : critAuto ? "CRÍTICO automático (alvo Paralisado ≤2m) ×2" : (semCriticoAlvo && seriaCritico) ? "🛡 armadura anticrítica bloqueia o crítico" : "", furtivo && assassino ? "FURTIVO ×2" : furtivo ? "furtivo +2 acerto" : furtivoNegado ? "🥷 furtivo NÃO vale — alvo não está desprevenido" : "", pr.agil ? `Ágil (${atkAttr})` : "", pr.brutal ? "Brutal (vantagem)" : "", enfraquecido ? "Enfraquecido ½" : "", alvoMarcado ? "alvo Marcado +2" : "", penalidadePesada ? "Pesada −2" : (pr.pesada ? "Pesada (Memória Muscular anula)" : ""), pr.confiavel ? "Confiável (mín. garantido)" : "", dadosExtraDescarregar > 0 ? `Descarregou +${dadosExtraDescarregar}d${pd.f}` : ""].filter(Boolean).join(" · ");
     // Palavras-chave declaradas: condições ao acertar e perfuração de armadura.
     let efeitoKw = "";
     if (nat !== 1 && total >= 0) {
@@ -642,12 +695,21 @@ export function wireFicha(ctx) {
     // saía com um layout diferente dependendo de quem rolou (jogador vs.
     // Mestre pelo rastreador), e parecia bug de UI sem ser.
     enviar("rolagem", null, { titulo: (ui.privada ? "🔒 " : "") + `🎯 ${ui.meuPers.nome} — ${a.nome}${furtivo ? " 🥷" : ""}`,
-      detalhe: `d20 [${nat}]${detVant} ${sign(mod)} · dano ${danoBase} [${dados.join(", ")}] ${sign(danoMod)}${multCrit > 1 ? ` ×${multCrit}` : ""}`,
-      total: nat + mod, crit: critAuto, fumble: nat === 1, ...(ui.privada ? { privada: true } : {}), dano_total: danoFinal,
+      detalhe: `${tiroPerfeito ? "sem rolagem de acerto" : `d20 [${nat}]${detVant} ${sign(mod)}`} · dano ${danoBase} [${dados.join(", ")}] ${sign(danoMod)}${multCrit > 1 ? ` ×${multCrit}` : ""}`,
+      // total null = "acerta sem rolar": o .m-aplicar do Mestre aplica direto.
+      total: tiroPerfeito ? null : nat + mod, crit: critAuto, fumble: !tiroPerfeito && nat === 1, ...(ui.privada ? { privada: true } : {}), dano_total: danoFinal,
       tipoDano: munTipo || tipoDanoArma(cat),
       ...(pr.ignoraArmadura ? { ignoraArmadura: pr.ignoraArmadura } : {}),
       ...(alvoNave || alvoCombatente ? { alvo_resolvido: true } : {}),
       extra: [`Dano: ${danoFinal}${multCrit > 1 ? ` (${somaDados} + ${danoMod} × ${multCrit})` : ""}`, marcadores, efeitoKw, efeitoMun, infoArma].filter(Boolean).join("  —  ") });
+    // Um Tiro é UM tiro: desliga o modo que o concedeu assim que dispara.
+    if (tiroPerfeito) {
+      const modos = { ...(ui.meuPers.dados.modos || {}) }, ate = { ...(ui.meuPers.dados.modosAte || {}) };
+      for (const mo of modosAtivosDe(ui.meuPers.dados))
+        if (mo.efeitos.some((e) => e.tipo === "tiro_perfeito")) { const chave = mo.nome.split(": ")[0]; delete modos[chave]; delete ate[chave]; }
+      ui.meuPers.dados = { ...ui.meuPers.dados, modos, modosAte: ate }; f.modos = modos;
+      await salvarFicha(ui.meuPers.id, ui.meuPers.dados, "gastar o Um Tiro");
+    }
     // Sobreaquecimento: num natural 1, a arma superaquece e queima a mão de
     // quem atira — "pode superaquecer se disparada em excesso" virou de fato
     // uma consequência jogável, em vez de só texto sem efeito nenhum.
@@ -684,7 +746,7 @@ export function wireFicha(ctx) {
     };
     if (alvoNave) {                    // resolve o tiro contra o casco
       const def = 10 + (alvoNave.manobra || 0);
-      const acertou = total >= def && nat !== 1;
+      const acertou = tiroPerfeito || (total >= def && nat !== 1);
       if (acertou) {
         snapshot("tiro em nave");
         const rd = await aplicarDanoAlvo(alvoNave, danoFinal);
@@ -698,17 +760,20 @@ export function wireFicha(ctx) {
     if (alvoCombatente) {             // resolve o tiro contra um combatente do rastreador
       // Cobertura só atrapalha tiro; quem está no corpo-a-corpo contorna o muro.
       // Atravessa Paredes (pr.ignoraCobertura) ignora a cobertura de qualquer alcance.
-      const cob = (cat.tipo === "branca" || pr.ignoraCobertura) ? 0 : [0, 2, 5][alvoCombatente.cobertura || 0];
+      // Marca do Caçador (`ignoraCob` na condição) anula cobertura até o nível dela.
+      const nivelCob = alvoCombatente.cobertura || 0;
+      const cob = (cat.tipo === "branca" || pr.ignoraCobertura || tiroPerfeito || nivelCob <= ignoraCobMarca) ? 0 : [0, 2, 5][nivelCob];
       const defBase = alvoCombatente.cd ?? 10;
-      const def = Math.max(0, defBase + cob - (pr.ignoraArmadura || 0));
+      const auraDef = auraDefDe(alvoCombatente);   // Ressonância de um Músico: −2
+      const def = Math.max(0, defBase + cob - (pr.ignoraArmadura || 0) + auraDef);
       // Def mostrada por extenso (base → cobertura/perfuração → efetiva) — antes
       // aparecia só "Def 13 · 🗡−2", que lia como se ainda faltasse subtrair algo.
-      const defTxt = (cob || pr.ignoraArmadura)
-        ? `Def ${defBase}${cob ? ` +${cob}🧱` : ""}${pr.ignoraArmadura ? ` −${pr.ignoraArmadura}🗡` : ""} = ${def}`
+      const defTxt = (cob || pr.ignoraArmadura || auraDef)
+        ? `Def ${defBase}${cob ? ` +${cob}🧱` : ""}${pr.ignoraArmadura ? ` −${pr.ignoraArmadura}🗡` : ""}${auraDef ? ` ${auraDef}🎵` : ""} = ${def}`
         : `Def ${def}`;
       const fora = distAlvo != null && distAlvo > alcance + 0.01;
-      const txtDist = distAlvo != null ? ` · ${distAlvo.toFixed(1).replace(".", ",")} m${fora ? ` ⚠ fora do alcance de ${String(alcance).replace(".", ",")} m` : ""}` : "";
-      const acertou = !fora && (nat === 20 || (nat !== 1 && total >= def));
+      const txtDist = distAlvo != null ? ` · ${distAlvo.toFixed(1).replace(".", ",")} m${fora ? ` ⚠ fora do alcance de ${alcanceTxt}` : ""}` : "";
+      const acertou = !fora && (tiroPerfeito || nat === 20 || (nat !== 1 && total >= def));
       if (fora) {
         await enviar("sistema", `⚠ ${ui.meuPers.nome} não alcança ${alvoCombatente.nome} com ${a.nome}${txtDist}. O golpe passa longe.`);
       } else if (acertou) {
@@ -717,6 +782,11 @@ export function wireFicha(ctx) {
         const conds = (rd.absorvido || rd.imune) ? [] : aplicarCondsNoAlvo(alvoCombatente);
         // Cone de Repulsão: empurra quem foi atingido para longe de quem atirou.
         if (pr.empurrao && !foraDeCombate(alvoCombatente)) { const novaPos = empurrarDe(minhaLinhaAtq, alvoCombatente, pr.empurrao); if (novaPos) alvoCombatente.pos = novaPos; }
+        // Vulnerabilidade Exposta se gasta a cada acerto (99 cargas = combate inteiro).
+        if (expostoObj && extrasAlvo.length && (expostoObj.cargas ?? 1) < 99) {
+          expostoObj.cargas = (expostoObj.cargas ?? 1) - 1;
+          if (expostoObj.cargas <= 0) alvoCombatente.cond = (alvoCombatente.cond || []).filter((c) => c !== expostoObj);
+        }
         await salvarCombate();
         await enviar("sistema", `🎯 ${ui.meuPers.nome} acerta ${alvoCombatente.nome} com ${a.nome} (${defTxt}${txtDist}): ${rd.msg}.${foraDeCombate(alvoCombatente) ? " 💀 CAIU!" : ""}${conds.length ? `  —  ${conds.join(" · ")}` : ""}${pr.empurrao ? " ↗ empurrado" : ""}`);
       } else {
@@ -743,7 +813,7 @@ export function wireFicha(ctx) {
             continue;
           }
           const cobX = (cat.tipo === "branca" || pr.ignoraCobertura) ? 0 : [0, 2, 5][alvoX.cobertura || 0];
-          const defX = Math.max(0, (alvoX.cd ?? 10) + cobX - (pr.ignoraArmadura || 0));
+          const defX = Math.max(0, (alvoX.cd ?? 10) + cobX - (pr.ignoraArmadura || 0) + auraDefDe(alvoX));
           const totX = d(20) + mod;
           if (totX >= defX) {
             const rd = await aplicarDanoAlvo(alvoX, danoFinal, munTipo || tipoDanoArma(cat));
@@ -855,13 +925,116 @@ export function wireFicha(ctx) {
       // Caserna). Sem ela, hRaw ficaria undefined e a habilidade nunca poderia
       // custar ação nem resolver sozinha.
       const fi = FILOSOFIAS[f.filosofia];
-      return [...(raca?.habilidades || []), ...(cl?.hab || []), cl?.vet, raca?.lendaria,
+      return [...(raca?.habilidades || []), ...(cl?.hab || []), cl?.vet, cl?.lendaria, raca?.lendaria,
         fi ? { ...fi, n: f.filosofia } : null]
         .filter(Boolean).find((x) => x.n === h.nome);
     })();
     const turnos = duracaoDe(hRaw, f.nivel);
     const R = hRaw?.resolve;
-    if (!(await gastarAcao(hRaw?.acao, `usar ${h.nome}`))) return;
+    // Veteranas que "viram Ação de Movimento" declaram isso num efeito acao_de;
+    // sem ele, vale o custo escrito na própria habilidade.
+    if (!(await gastarAcao(k.acaoDe?.[h.nome] || hRaw?.acao, `usar ${h.nome}`))) return;
+    // Marca o uso de habilidades 1x/descanso. Chamado por TODO ramo que resolve
+    // sozinho — antes os ramos "modo" e "tabela" retornavam sem marcar, e a
+    // Fúria / o Êxtase podiam ser ligados de novo quantas vezes se quisesse.
+    const marcarUso = async () => {
+      if (!h.descanso) return;
+      const usos = { ...(ui.meuPers.dados.usos || {}), [h.id]: true };
+      ui.meuPers.dados = { ...ui.meuPers.dados, usos }; f.usos = usos;
+      await salvarFicha(ui.meuPers.id, ui.meuPers.dados);
+    };
+
+    // ---- Turno extra (Palavra de Capitão, É Agora ou Nunca) ----
+    // Dá ações novas (Principal e Movimento) e libera a pessoa pra agir AGORA,
+    // fora da vez dela — `turnoExtra` casa com a rodada/turno atuais e expira
+    // sozinho assim que o combate avança (ver podeAgirAgora em regras.js).
+    if (R?.tipo === "turno_extra") {
+      if (!camp.combate?.ativo) return alert(`${h.nome} só funciona em combate — adicione a tripulação ao rastreador.`);
+      const aliados = camp.combate.ordem.filter((c2) => c2.personagem_id && c2.personagem_id !== ui.meuPers.id
+        && !foraDeCombate(c2) && c2.tipo !== "inimigo" && c2.lado !== "inimiga");
+      if (!aliados.length) return alert(`Não há aliado no rastreador para receber o turno.`);
+      let quem = aliados;
+      if (R.alvos === "um") {
+        const r2 = await modalForm({ titulo: `★ ${h.nome}`, descricao: h.d,
+          campos: [{ k: "alvo", label: "Quem ganha o turno?", tipo: "select", opcoes: aliados.map((c2) => ({ v: c2.id, l: c2.nome })) }], okLabel: "Ceder" });
+        if (!r2?.alvo) return;
+        quem = aliados.filter((c2) => c2.id === r2.alvo);
+      } else if (!(await confirmModal(`Usar ${h.nome}?\n\n${h.d}`, { okLabel: "Agora!" }))) return;
+      snapshot(h.nome);
+      for (const c2 of quem) {
+        c2.acoes = { r: !!c2.acoes?.r };
+        c2.turnoExtra = { rodada: camp.combate.rodada, turno: camp.combate.turno };
+      }
+      // Ceder o turno: o próprio Starlord abre mão das ações que ainda tinha.
+      if (R.cede) { const eu = minhaLinhaCb(); if (eu) eu.acoes = { p: true, m: true, r: !!eu.acoes?.r }; }
+      await salvarCombate();
+      await marcarUso();
+      await enviar("sistema", `★ ${ui.meuPers.nome} — **${h.nome}**: ${quem.map((c2) => c2.nome).join(", ")} ${quem.length > 1 ? "ganham" : "ganha"} um turno completo extra AGORA (Ação Principal e de Movimento novas).${R.cede ? ` ${ui.meuPers.nome} cede o próprio turno.` : ""}`);
+      return render();
+    }
+
+    // ---- Marcar alvo (Marca do Caçador, Nome na Lista, Vulnerabilidade Exposta) ----
+    // Aplica uma condição com a ORIGEM rastreada (origemId = minha linha), que é
+    // o que o [data-atq] consulta pra saber quem marcou e o que isso concede.
+    if (R?.tipo === "marcar") {
+      if (!camp.combate?.ativo) return alert(`${h.nome} precisa de um alvo no rastreador de combate.`);
+      const eu = minhaLinhaCb();
+      const inimigos = camp.combate.ordem.filter((c2) => !ehNave(c2) && !foraDeCombate(c2) && (c2.tipo === "inimigo" || c2.lado === "inimiga"));
+      if (!inimigos.length) return alert("Nenhum inimigo vivo no rastreador.");
+      let alvos;
+      if (R.cond === "Marcado" && k.marcaEmArea) alvos = inimigos;   // O Território é Meu: todos de uma vez
+      else {
+        const r2 = await modalForm({ titulo: `★ ${h.nome}`, descricao: h.d,
+          campos: [{ k: "alvo", label: "Quem?", tipo: "select", opcoes: inimigos.map((c2) => ({ v: c2.id, l: `${c2.nome} — Def ${c2.cd ?? 10}` })) }], okLabel: "Marcar" });
+        if (!r2?.alvo) return;
+        alvos = inimigos.filter((c2) => c2.id === r2.alvo);
+      }
+      // Teste pra revelar (Vulnerabilidade Exposta): o melhor bônus entre as
+      // perícias listadas, contra a Defesa do próprio alvo — escala sozinho
+      // com a ameaça, sem precisar inventar uma CD por criatura.
+      let detTeste = "";
+      if (R.teste) {
+        const bo = Math.max(...R.teste.map((pn) => { const at = (PERICIAS.find(([x]) => x === pn) || [])[1]; return (k.attr[at] || 0) + (k.per[pn] || 0); }));
+        const nat = d(20), tot = nat + bo, cdT = alvos[0].cd ?? 10;
+        const ok = nat === 20 || (nat !== 1 && tot >= cdT);
+        detTeste = ` [${R.teste.join("/")} ${nat}${sign(bo)}=${tot} vs Def ${cdT} — ${ok ? "revelou" : "não achou nada"}]`;
+        if (!ok) { await marcarUso(); await enviar("sistema", `★ ${ui.meuPers.nome} — ${h.nome}${detTeste}.`); return render(); }
+      }
+      snapshot(h.nome);
+      for (const alvo of alvos) {
+        aplicarCond(alvo, R.cond, R.turnos || 99, eu?.id || null);
+        const c3 = alvo.cond.find((c2) => c2.n === R.cond);
+        if (R.ignoraCobertura) c3.ignoraCob = R.ignoraCobertura;
+        if (R.cond === "Exposto") c3.cargas = k.expostoCargas || 1;
+      }
+      await salvarCombate();
+      await marcarUso();
+      await enviar("sistema", `★ ${ui.meuPers.nome} — **${h.nome}**: ${alvos.map((c2) => c2.nome).join(", ")} → ${R.cond}${detTeste}${R.cond === "Exposto" ? ` (${(k.expostoCargas || 1) >= 99 ? "o combate inteiro" : `${k.expostoCargas || 1} ataque(s)`})` : ""}.`);
+      return render();
+    }
+
+    // ---- Improvisar item (Nada se Perde do Catador) ----
+    if (R?.tipo === "improvisar") {
+      const teto = R.teto || 1000;
+      const opcoes = [
+        ...todasArmas().filter((a2) => !a2.nano && (a2.preco || 0) > 0 && a2.preco <= teto).map((a2) => ({ v: `arma|${a2.n}`, l: `⚔ ${a2.n} — ${a2.preco} CG` })),
+        ...todasArmaduras().filter((a2) => (a2.preco || 0) > 0 && a2.preco <= teto).map((a2) => ({ v: `armadura|${a2.n}`, l: `🛡 ${a2.n} — ${a2.preco} CG` })),
+        ...todosConsumiveis().filter((c2) => (c2.p || 0) > 0 && c2.p <= teto).map((c2) => ({ v: `consumivel|${c2.n}`, l: `${c2.ic || "🎒"} ${c2.n} — ${c2.p} CG` })),
+      ];
+      const r2 = await modalForm({ titulo: `★ ${h.nome}`, descricao: `${h.d}\n\nQualquer item de até ${teto} CG, de graça.`,
+        campos: [{ k: "it", label: "Improvisar o quê?", tipo: "select", opcoes }], okLabel: "Montar" });
+      if (!r2?.it) return;
+      const [tipo, ...resto] = r2.it.split("|"); const nome = resto.join("|");
+      const dd3 = { ...novaFichaDados(), ...ui.meuPers.dados };
+      dd3.inventario = [...(dd3.inventario || [])];
+      const ja = tipo === "consumivel" ? dd3.inventario.find((x) => x.nome === nome) : null;
+      if (ja) ja.qtd = (ja.qtd || 1) + 1; else dd3.inventario.push({ tipo, nome, equip: false, qtd: 1 });
+      ui.meuPers.dados = dd3; f.inventario = dd3.inventario;
+      await salvarFicha(ui.meuPers.id, dd3, "guardar o item improvisado");
+      await marcarUso();
+      await enviar("sistema", `★ ${ui.meuPers.nome} — **${h.nome}**: da sucata sai ${nome}, pronto pra uso.`);
+      return render();
+    }
 
     // ---- habilidades que resolvem sozinhas ----
     if (R?.tipo === "tabela") {           // Êxtase da Batalha: 1d6 decide o efeito
@@ -874,6 +1047,7 @@ export function wireFicha(ctx) {
       if (sincronizarCdCombate(ui.meuPers.id, ui.meuPers.dados)) await salvarCombate();
       await enviar("rolagem", null, { titulo: `★ ${h.nome}`, detalhe: `${R.dado} [${v}]`,
         extra: `${op.n} — dura ${turnos} turno(s).` });
+      await marcarUso();
       return render();
     }
     if (R?.tipo === "cura") {             // Cura Genética: dado + atributo, com crítico e falha
@@ -980,7 +1154,7 @@ export function wireFicha(ctx) {
         await salvarFicha(ui.meuPers.id, ui.meuPers.dados); }
       return render();
     }
-    if (R?.tipo === "salvaguarda") {      // Fogo de Supressão, Grito de Saqueador, Sinfonia do Inverno
+    if (R?.tipo === "salvaguarda") {      // Fogo de Supressão, Grito de Saqueador, Sinfonia do Inverno, Teorema do Colapso, Bandeira Negra
       const ok = await aplicarEmAlvos({ titulo: `★ ${h.nome}`, origem: `${ui.meuPers.nome} — ${h.nome}`,
         dado: R.dado || null, atributo: R.atributo || null, cd: R.atributo ? dcSalvaguarda(k, R.atributo) : null,
         cond: R.cond || null, turnos: R.turnos || 2, area: !!R.area, raio: R.raio || null,
@@ -1008,7 +1182,7 @@ export function wireFicha(ctx) {
       let escolha = null;
       if (R.opcoes) {
         const r2 = await modalForm({ titulo: `★ ${h.nome}`, descricao: h.d,
-          campos: [{ k: "op", label: "O que criar", tipo: "select", opcoes: R.opcoes.map((o) => ({ v: o.n, l: `${o.n} — ${o.d}` })) }], okLabel: "Criar" });
+          campos: [{ k: "op", label: R.tipo === "criar" ? "O que criar" : "Qual efeito", tipo: "select", opcoes: R.opcoes.map((o) => ({ v: o.n, l: `${o.n} — ${o.d}` })) }], okLabel: R.tipo === "criar" ? "Criar" : "Ativar" });
         if (!r2?.op) return; escolha = r2.op;
       } else if (!(await confirmModal(`Usar ${h.nome}?\n\n${h.d}${turnos ? `\n\nDura ${turnos} turno(s).` : ""}${R.aviso ? `\n\n⚠ ${R.aviso}` : ""}`, { okLabel: "Ativar" }))) return;
       const modos = { ...(ui.meuPers.dados.modos || {}), [h.nome]: escolha || "ativo" };
@@ -1017,6 +1191,7 @@ export function wireFicha(ctx) {
       await salvarFicha(ui.meuPers.id, ui.meuPers.dados);
       if (sincronizarCdCombate(ui.meuPers.id, ui.meuPers.dados)) await salvarCombate();
       await enviar("sistema", `★ ${ui.meuPers.nome} ativa **${h.nome}**${escolha ? `: ${escolha}` : ""} — ${h.d}${turnos ? ` (${turnos} turnos)` : ""}${R.aviso ? ` ⚠ ${R.aviso}` : ""}`);
+      await marcarUso();
       return render();
     }
 

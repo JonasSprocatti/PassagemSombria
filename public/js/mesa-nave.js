@@ -13,7 +13,7 @@
 import { NAVES, ESTACOES, REGRAS_NAVE, UPGRADES_NAVE } from "./dados-jogo.js";
 import {
   d, sign, parseDice, rollNd, danoCritico, novaFichaDados, aplicarCond, distCombate,
-  capacidadeArma, municaoDe, descontarMunicao, recarregarArma,
+  capacidadeArma, municaoDe, descontarMunicao, recarregarArma, podeAgirAgora,
 } from "./regras.js";
 import { modalForm, confirmModal } from "./ui.js";
 import {
@@ -235,7 +235,8 @@ export function wireNave(ctx) {
     // a bordo. Mesmo padrão de turno/ação de [data-atq] (mesa-ficha.js): só o
     // dono da vez age (Mestre sempre pode forçar), e gastarAcao já é um no-op
     // fora de combate.
-    if (camp.combate?.ativo && !ui.souMestre && camp.combate.ordem[camp.combate.turno]?.personagem_id !== ui.meuPers.id)
+    if (camp.combate?.ativo && !ui.souMestre
+        && !podeAgirAgora(camp.combate, camp.combate.ordem.find((x) => x.personagem_id === ui.meuPers?.id)))
       return alert(`Não é o seu turno (vez de ${camp.combate.ordem[camp.combate.turno]?.nome || "outro combatente"}).`);
     if (!(await gastarAcao("Ação Principal", `usar o posto: ${acao.n}`))) return;
     const nt = (camp.combate.nave = camp.combate.nave || naveTaticaVazia());

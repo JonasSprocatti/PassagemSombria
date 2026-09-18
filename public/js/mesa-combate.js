@@ -18,7 +18,7 @@ import { NIVEIS_AMEACA } from "./dados-bestiario.js";
 import {
   d, sign, parseDice, rollNd, danoCritico, aplicarCond, novaFichaDados, calc,
   CONDICOES_INFO, infoCond, distCombate, posInicial, tipoDanoAtaque, alcanceDaArma,
-  CAMPO_LARGURA, CAMPO_PISTAS, PISTA_M, ALCANCE_CAC, municaoDe, descontarMunicao,
+  CAMPO_LARGURA, CAMPO_PISTAS, PISTA_M, ALCANCE_CAC, municaoDe, descontarMunicao, podeAgirAgora,
 } from "./regras.js";
 import { modalForm, confirmModal, somDado } from "./ui.js";
 import {
@@ -146,7 +146,7 @@ export function renderCombate(ctx) {
                   if (px < -4 || px > 104) return "";
                   const meu = c.personagem_id && c.personagem_id === ui.meuPers?.id;
                   const vez = camp.combate.ordem[camp.combate.turno]?.id === c.id;
-                  const movivel = ui.souMestre || (meu && vez);
+                  const movivel = ui.souMestre || (meu && podeAgirAgora(camp.combate, c));
                   const lado = (c.tipo === "inimigo" || c.lado === "inimiga") ? "inim" : "aliado";
                   const dSel = tokenSelObj && tokenSelObj.id !== c.id ? distCombate(tokenSelObj, c) : null;
                   const rel = dSel == null ? "" : (dSel <= alcanceSel ? "perto" : "longe");

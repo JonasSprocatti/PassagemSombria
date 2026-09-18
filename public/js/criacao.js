@@ -65,7 +65,7 @@ export function abrirCriacao({ onCriar, onCancelar, abrirSistemaSolar }) {
       return `<div class="cri-detalhe">
         <h4>${esc(r.nome)} — ${esc(r.titulo)}</h4>
         <p>${esc(r.lore)}</p>
-        <p class="regra">❤ Vida inicial 4d6 (tira o menor) ${sign(r.vidaMod)} · dado por nível 1d${r.dadoVida}${r.livre ? " · +4 pontos livres e +3 perícias" : ""}</p>
+        <p class="regra">❤ Vida inicial 4d6 (tira o menor) ${sign(r.vidaMod)} · dado por nível 1d${r.dadoVida} + Con até +2${r.livre ? " · +4 pontos livres (máx. +2 cada) e +3 perícias" : ""}</p>
         ${(r.habilidades || []).map((h) => `<p class="regra"><b class="tech-c">${esc(h.n)}:</b> ${esc(h.d)}</p>`).join("")}
       </div>`; })() : ""}`;
 

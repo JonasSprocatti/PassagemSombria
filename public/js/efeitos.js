@@ -77,6 +77,59 @@ export const EFEITOS = {
   vantagem_cura: { rotulo: () => "Vantagem nos dados de cura",
     ficha: (e, k) => { k.vantagemCura = true; } },
 
+  // { tipo:"ataque_extra", valor:1 } — ataques a mais dentro da MESMA Ação
+  // Principal (Rajada Disciplinada, Não Recuar). gastarAcao conta os ataques
+  // feitos na ação e só a dá por gasta quando estouram k.ataquesPorAcao.
+  ataque_extra: { rotulo: (e) => `+${e.valor} ataque(s) por Ação Principal`,
+    ficha: (e, k) => { k.ataquesPorAcao = (k.ataquesPorAcao || 1) + (e.valor || 1); } },
+
+  // { tipo:"tiro_perfeito" } — o próximo disparo com arma de fogo acerta sem
+  // rolagem, ignora alcance e cobertura e causa o dano máximo ×2 (Um Tiro).
+  // Vive dentro de um modo: o [data-atq] desliga o modo assim que ele é usado.
+  tiro_perfeito: { rotulo: () => "próximo disparo: acerto automático, dano máximo ×2",
+    ficha: (e, k) => { k.tiroPerfeito = true; } },
+
+  // { tipo:"marca_em_area" } — a Marca do Caçador pega todos os inimigos de uma vez.
+  marca_em_area: { rotulo: () => "a Marca do Caçador pega todos os inimigos em cena",
+    ficha: (e, k) => { k.marcaEmArea = true; } },
+
+  // { tipo:"bonus_marca", dado:"1d4" } — dano extra de QUALQUER aliado contra
+  // quem esta ficha marcou (Predador Paciente, O Território é Meu). Fontes não
+  // somam: fica o dado de maior face.
+  bonus_marca: { rotulo: (e) => `aliados causam +${e.dado} contra quem você marcou`,
+    ficha: (e, k) => { const f0 = +(String(k.bonusMarca || "").split("d")[1] || 0), f1 = +(String(e.dado).split("d")[1] || 0);
+      if (f1 > f0) k.bonusMarca = e.dado; } },
+
+  // { tipo:"exposto_cargas", valor:2 } — quantos ataques do grupo aproveitam a
+  // Vulnerabilidade Exposta antes dela se esgotar (99 = o combate inteiro).
+  exposto_cargas: { rotulo: (e) => e.valor >= 99 ? "Vulnerabilidade Exposta vale o combate inteiro" : `Vulnerabilidade Exposta vale ${e.valor} ataques`,
+    ficha: (e, k) => { k.expostoCargas = Math.max(k.expostoCargas || 1, e.valor || 1); } },
+
+  // { tipo:"acao_de", hab:"Foco à Distância", acao:"Ação de Movimento" } — muda o
+  // custo de ação de uma habilidade (as Veteranas que "viram Ação de Movimento").
+  acao_de: { rotulo: (e) => `${e.hab} passa a custar ${e.acao}`,
+    ficha: (e, k) => { (k.acaoDe = k.acaoDe || {})[e.hab] = e.acao; } },
+
+  // { tipo:"aura", alvo:"aliados"|"inimigos", acerto?, defesa?, raio, inquebravel? }
+  // Aura de JOGADOR (a Frequência do Músico). Quem ataca consulta as auras de
+  // todas as fichas em combate: aliado dentro do raio soma `acerto`; inimigo
+  // dentro do raio tem a Defesa somada de `defesa` (negativo = mais fácil).
+  aura: { rotulo: (e) => `aura ${e.raio} m: ${e.alvo === "aliados" ? `aliados ${e.acerto >= 0 ? "+" : ""}${e.acerto} no acerto` : `inimigos ${e.defesa >= 0 ? "+" : ""}${e.defesa} na Defesa`}` },
+
+  // { tipo:"sustenta_aura", pericia:"Performance / Arte", cd:12 } — ao sofrer
+  // dano, a aura não cai sozinha: rola a perícia contra a CD pra mantê-la.
+  sustenta_aura: { rotulo: (e) => `ao sofrer dano, ${e.pericia} CD ${e.cd} mantém a aura`,
+    ficha: (e, k) => { k.sustentaAura = { pericia: e.pericia, cd: e.cd }; } },
+
+  // { tipo:"aura_inquebravel" } — a aura nunca cai por dano (Sinfonia Total).
+  aura_inquebravel: { rotulo: () => "a aura não é interrompida por dano",
+    ficha: (e, k) => { k.auraInquebravel = true; } },
+
+  // { tipo:"desconto_loja", pct:50 } — 1x/sessão, uma compra na loja sai com
+  // desconto (Dono do Contrato). O uso é rastreado pelo id da habilidade.
+  desconto_loja: { rotulo: (e) => `1x/sessão: uma compra na loja com ${e.pct}% de desconto`,
+    ficha: (e, k) => { k.descontoLoja = Math.max(k.descontoLoja || 0, e.pct || 0); } },
+
   // { tipo:"conjuracao", valor:1 }
   conjuracao: { rotulo: (e) => `${sinal(e.valor)} na Conjuração`,
     ficha: (e, k) => { k.conj += e.valor; } },
@@ -118,7 +171,15 @@ export const EFEITOS = {
   // { tipo:"chance_extra", dado:"1d6", minimo:4, oque:"item valioso" }
   chance_extra: {
     rotulo: (e) => `${e.dado}: com ${e.minimo}+ acha ${e.oque}`,
-    saque: (e, ctx) => { (ctx.rolagens = ctx.rolagens || []).push(e); } },
+    // Fontes da MESMA chance (mesmo dado e mesmo achado) não empilham rolagem:
+    // fica a de menor mínimo. É o que deixa a progressão do Catador (4-6 → 3-6
+    // → 2-6) ser declarada em três fontes sem a ficha rolar três d6.
+    saque: (e, ctx) => {
+      ctx.rolagens = ctx.rolagens || [];
+      const ja = ctx.rolagens.find((r) => r.dado === e.dado && r.oque === e.oque);
+      if (!ja) ctx.rolagens.push({ ...e });
+      else if (e.minimo < ja.minimo) ja.minimo = e.minimo;
+    } },
 
   // { tipo:"reducao_dano", valor:2 } — abate dano físico recebido (Endurecer)
   reducao_dano: {
@@ -226,9 +287,13 @@ export class FichaEfeitos {
     if (r) fontes.push(new Portador(r.nome, r, "raça"));
     const c = CLASSES[f.classe];
     if (c) fontes.push(new Portador(f.classe, c, "classe"));
-    // A Veterana só entra a partir do nível 5; a Lendária da raça, no 10.
+    // A Veterana só entra a partir do nível 5; a Lendária da raça e o Marco da
+    // classe, no 10 — os dois coexistem na mesma ficha, por isso são fontes
+    // separadas com origens distintas.
     if (c?.vet && (f.nivel || 1) >= 5 && c.vet.efeitos)
       fontes.push(new Portador(c.vet.n, { efeitos: c.vet.efeitos }, "veterana"));
+    if (c?.lendaria && (f.nivel || 1) >= 10 && c.lendaria.efeitos)
+      fontes.push(new Portador(c.lendaria.n, { efeitos: c.lendaria.efeitos }, "marco de classe"));
     if (r?.lendaria && (f.nivel || 1) >= 10 && r.lendaria.efeitos)
       fontes.push(new Portador(r.lendaria.n, { efeitos: r.lendaria.efeitos }, "lendária"));
     const fi = FILOSOFIAS[f.filosofia];
@@ -328,6 +393,10 @@ export class FichaEfeitos {
   // Perícias que rolam com Vantagem por efeito declarado (Rosto na Multidão do
   // Espião, Braço Mecânico Hidráulico, Código Corporativo…). Devolve o nome da
   // fonte pra quem for rolar poder dizer de onde veio a Vantagem.
+  // Auras de jogador declaradas nesta ficha (Frequência do Músico).
+  auras() {
+    return this.fontes.flatMap((x) => x.efeitos.filter((e) => e.tipo === "aura").map((e) => ({ ...e, fonte: x.nome })));
+  }
   vantagensPericia() {
     return this.fontes.flatMap((x) => x.efeitos
       .filter((e) => e.tipo === "vantagem" && e.em === "pericia" && e.pericia)

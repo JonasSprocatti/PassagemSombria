@@ -85,7 +85,7 @@ function fichaRacaHTML(r, plan) {
       </div>
     </div>
     <div class="ss-attrs">${attrs}</div>
-    <p class="ss-vida">❤ Vida inicial: 4d6 (tira o menor) ${sign(r.vidaMod)} · Por nível: 1d${r.dadoVida} (fixo ${r.vidaFixa}) + Con · Deslocamento base ${r.nome === "Mercusys" ? "dobrado" : "9m"}${r.livre ? " · +4 pontos livres, +3 perícias" : ""}</p>
+    <p class="ss-vida">❤ Vida inicial: 4d6 (tira o menor) ${sign(r.vidaMod)} · Por nível: 1d${r.dadoVida} (fixo ${r.vidaFixa}) + Con até +2 · Deslocamento base ${r.nome === "Mercusys" ? "dobrado" : "9m"}${r.livre ? " · +4 pontos livres (máx. +2 cada), +3 perícias" : ""}</p>
     <div class="ss-lore"><p>${esc(r.lore)}</p></div>
     <div class="ss-habs">${habs}${lend}</div>`;
 }

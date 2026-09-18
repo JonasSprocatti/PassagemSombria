@@ -18,7 +18,7 @@ import { NIVEIS_AMEACA } from "./dados-bestiario.js";
 import { PAPEIS } from "./dados-npcs.js";
 import {
   sign, CONDICOES_INFO, CAMPO_LARGURA, CAMPO_PISTAS, PISTA_M,
-  ALCANCE_CAC, ALCANCE_ARMA, TIPOS_DANO,
+  ALCANCE_CAC, ALCANCE_ARMA, TIPOS_DANO, CON_PV_NIVEL_MAX,
 } from "./regras.js";
 import {
   shell, esc, img, imgFig, extras, escalaTabela, etiquetasKw,
@@ -57,7 +57,7 @@ export function telaBiblioteca(aba = "racas") {
       ${(c.habs || []).filter((h) => !h.efeito).map((h) => `<p><b class="tech-c">✦ ${esc(h.n)}:</b> ${esc(h.d)}</p>`).join("")}</details>`; };
   if (aba === "racas") corpo = RACAS.map((r) => `<details class="det grande"><summary><b>${esc(r.nome)}</b> (${r.planeta}) — ${esc(r.titulo)}</summary>
     <p>${esc(r.lore)}</p>
-    <p class="regra">Vida 4d6 (tira o menor) ${sign(r.vidaMod)} · ${["For","Des","Con","Int","Sab","Car"].map((a) => `${a} ${sign(r.attrs[a])}`).join(" · ")}</p>
+    <p class="regra">Vida 4d6 (tira o menor) ${sign(r.vidaMod)} · por nível 1d${r.dadoVida} (fixo ${r.vidaFixa}) + Con até +${CON_PV_NIVEL_MAX} · ${["For","Des","Con","Int","Sab","Car"].map((a) => `${a} ${sign(r.attrs[a])}`).join(" · ")}</p>
     ${r.habilidades.map((h) => `<p><b class="tech-c">${esc(h.n)}:</b> ${esc(h.d)}</p>`).join("")}
     ${r.lendaria ? `<p><b class="sombra-c">★ Lendária (NV10) — ${esc(r.lendaria.n)}:</b> ${esc(r.lendaria.d)}</p>` : ""}</details>`).join("");
   if (aba === "classes") corpo = Object.entries(CLASSES).map(([n, c]) => `<details class="det grande"><summary><b>${esc(n)}</b>${c.titulo ? ` <i class="dim">${esc(c.titulo)}</i>` : ""} — Vida +${c.pv}</summary>
@@ -65,6 +65,7 @@ export function telaBiblioteca(aba = "racas") {
     <p class="regra">Perícias: ${Object.entries(c.pericias).map(([p, v]) => `${p} +${v}`).join(", ")}</p>
     ${c.hab.map((h) => `<p><b class="tech-c">${h.tipo} — ${esc(h.n)}:</b> ${esc(h.d)}</p>`).join("")}
     <p><b class="chrome">★ Veterana (NV5) — ${esc(c.vet.n)}:</b> ${esc(c.vet.d)}</p>
+    ${c.lendaria ? `<p><b class="sombra-c">★★ Marco de classe (NV10) — ${esc(c.lendaria.n)}:</b> ${esc(c.lendaria.d)}</p>` : ""}
     ${c.equipamento ? `<p class="regra"><b>Equipamento inicial:</b> ${esc(c.equipamento)}</p>` : ""}</details>`).join("");
   if (aba === "armas") corpo = ["branca", "fogo"].map((t) => `<h3 class="sub">${t === "branca" ? "⚔ Armas Brancas (1d20 + For + Armas Brancas)" : "🔫 Armas de Fogo (1d20 + Des + Armas de Fogo)"}</h3>` +
     todasArmas().filter((a) => a.tipo === t).map((a) => `<details class="det grande"><summary>${img(a.n)}<b>${esc(a.n)}</b> · <b class="chrome">${a.dano}${a.escala ? "↗" : ""}</b>${a.preco ? ` · ${a.preco} CG` : ""}${a._ajustado ? ` <span class="best-tag" style="color:var(--chrome);border-color:var(--chrome)">ajustada</span>` : ""}</summary>

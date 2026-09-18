@@ -50,6 +50,15 @@ export const rolaVidaInicial = (raca) => {
   const soma3 = ds.reduce((a, b) => a + b, 0) - menor;
   return { ds, menor, soma3, subtotal: soma3 + (raca?.vidaMod || 0) };
 };
+// Constituição que conta no ganho de PV POR NÍVEL — limitada a [0, +2].
+// Con entra inteira na vida inicial E de novo a cada nível, então sem teto ela
+// compõe ×10: Marciano (Con +3, d10) chegava ao nível 10 com 3,3× o PV de um
+// Proturno (Con −1, d6), porque `dadoVida` e Con apontam para o mesmo lado em
+// vez de se compensarem. Com o teto o leque fecha em ~2×, a proporção normal
+// entre tanque e conjurador frágil. O piso 0 existe porque Con negativa já
+// pesou uma vez na vida inicial — cobrar de novo a cada nível é dobrar a pena.
+export const CON_PV_NIVEL_MAX = 2;
+export const conPorNivel = (con) => Math.min(CON_PV_NIVEL_MAX, Math.max(0, con || 0));
 // Crítico (regra da mesa): soma dados + qualquer bônus PRIMEIRO, só depois multiplica
 // o total por `mult` (2 no crítico comum, 4 quando algo dobra o crítico por cima).
 // NUNCA dobrar a quantidade de dados rolados — isso deixa o bônus fixo de fora da
@@ -78,7 +87,8 @@ export const CONTEUDO_EXTRA = { implantes: [], armaduras: [], armas: [], consumi
 export function modosAtivosDe(f) {
   const out = [];
   const raca = RACAS.find((r) => r.nome === f.raca), classe = CLASSES[f.classe];
-  const fontes = [...(raca?.habilidades || []), ...(classe?.hab || []), ...(classe?.vet ? [classe.vet] : []), ...(raca?.lendaria ? [raca.lendaria] : [])];
+  const fontes = [...(raca?.habilidades || []), ...(classe?.hab || []), ...(classe?.vet ? [classe.vet] : []),
+    ...(classe?.lendaria ? [classe.lendaria] : []), ...(raca?.lendaria ? [raca.lendaria] : [])];
   for (const [id, escolha] of Object.entries(f.modos || {})) {
     const h = fontes.find((x) => x.n === id);
     if (!h) continue;
@@ -200,10 +210,11 @@ export const dcSalvaguarda = (k, atributo) => 8 + ((k?.attr?.[atributo]) || 0);
 // O que se ganha ao subir para o nível n (para o preview e o registro)
 export function ganhosDoNivel(n, f) {
   const c = CLASSES[f.classe], r = RACAS.find((x) => x.nome === f.raca);
-  const g = ["+1 Ponto de Atributo (teto natural +6)", "Vida: role 1d" + (r?.dadoVida || 6) + " (ou pegue a média fixa " + (r?.vidaFixa || 3) + ") + Con", "+1 Ponto de Perícia"];
+  const g = ["+1 Ponto de Atributo (teto natural +6)", "Vida: role 1d" + (r?.dadoVida || 6) + " (ou pegue a média fixa " + (r?.vidaFixa || 3) + ") + Con (no máximo +" + CON_PV_NIVEL_MAX + ", nunca negativa)", "+1 Ponto de Perícia"];
   if ([3, 5, 7, 9].includes(n)) g.push("+1 Slot de RAM (nível ímpar)");
   if (n === 5) { g.push("Teto de perícias sobe para +7"); if (c) g.push(`★ Especialização Veterana — ${c.vet.n}: ${c.vet.d}`); }
   if (n === 10 && r?.lendaria) g.push(`★★ Lendária da raça — ${r.lendaria.n}: ${r.lendaria.d}`);
+  if (n === 10 && c?.lendaria) g.push(`★★ Marco de classe — ${c.lendaria.n}: ${c.lendaria.d}`);
   return g;
 }
 
@@ -228,8 +239,19 @@ export const CONDICOES_INFO = [
   { n: "Subsistema off", ic: "🔌", dano: null, d: "Um sistema da nave está desativado." },
   { n: "Enfraquecido", ic: "💔", dano: null,  d: "Causa metade do dano em ataques físicos." },
   { n: "Silenciado",   ic: "🔇", dano: null,  d: "Não conjura Scripts nem usa habilidades que exijam fala." },
+  { n: "Na Lista",     ic: "📜", dano: null,  d: "O nome está na lista de um Assassino: todo ataque dele contra este alvo conta como Ataque Furtivo." },
+  { n: "Exposto",      ic: "🔬", dano: null,  d: "A fraqueza foi revelada: ataques contra o alvo causam +1d6 de dano." },
 ];
 export const CONDICOES = CONDICOES_INFO.map((c) => c.n);
+
+// Pode esta linha do rastreador agir agora? O turno normal da ordem OU um turno
+// extra concedido neste exato momento (É Agora ou Nunca do Starlord). O turno
+// extra vale só enquanto o combate não avança — `#cb-prox` muda rodada/turno e
+// ele expira sozinho, sem precisar de limpeza. Usado em todo gate de "não é o
+// seu turno" (ataque, apagar fogo, levantar, posto de nave, arrastar token).
+export const podeAgirAgora = (combate, linha) => !!linha && !!combate && (
+  combate.ordem?.[combate.turno]?.id === linha.id
+  || (!!linha.turnoExtra && linha.turnoExtra.rodada === combate.rodada && linha.turnoExtra.turno === combate.turno));
 export const infoCond = (nome) => CONDICOES_INFO.find((c) => c.n.toLowerCase() === String(nome || "").toLowerCase());
 // Aplica uma condição a um combatente do rastreador seguindo a regra da mesa:
 // - condição com dano contínuo: se já ativa, empilha +1 turno (nunca o dano);

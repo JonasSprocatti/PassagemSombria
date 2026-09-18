@@ -8,8 +8,9 @@ import {
   tipoDanoArma, tipoDanoAtaque, imuneAoDano, alcanceDaArma,
   ALCANCE_CAC, ALCANCE_ARMA, PISTA_M, CAMPO_LARGURA, CONDICOES_INFO,
   capacidadeArma, municaoDe, descontarMunicao, recarregarArma,
+  conPorNivel, CON_PV_NIVEL_MAX, podeAgirAgora,
 } from "../public/js/regras.js";
-import { FILOSOFIAS } from "../public/js/dados-jogo.js";
+import { FILOSOFIAS, RACAS, CLASSES } from "../public/js/dados-jogo.js";
 
 describe("danoCritico", () => {
   // Regressão do bug relatado em produção: "1d6+3 crítico" saía rolando DOIS d6 (o dado
@@ -241,6 +242,228 @@ describe("Filosofias — efeitos declarados", () => {
     for (const nome of ["Caminho da Espiral", "Código Corporativo", "Código do Cético", "Código da Fronteira"])
       assert.equal(FILOSOFIAS[nome].tipo, "Passiva", `${nome} deveria ser Passiva`);
   });
+});
+
+describe("Balanceamento — Con por nível e a curva de PV", () => {
+  test("conPorNivel limita a +2 e nunca deixa negativo", () => {
+    assert.equal(conPorNivel(-1), 0);
+    assert.equal(conPorNivel(0), 0);
+    assert.equal(conPorNivel(2), 2);
+    assert.equal(conPorNivel(3), CON_PV_NIVEL_MAX);
+    assert.equal(conPorNivel(5), CON_PV_NIVEL_MAX);
+  });
+
+  // Guarda da intenção de design: tanque e frágil podem ser MUITO diferentes,
+  // mas não 3x diferentes. Antes deste ajuste o leque no nível 10 era 3,3x,
+  // porque Con contava na vida inicial E em todo nível, e `dadoVida` andava
+  // junto com Con em vez de compensá-la.
+  const MEDIA_4D6_TIRA_MENOR = 12;   // só para comparar curvas entre si
+  const pvNivel10 = (raca, pvClasse) => {
+    const r = RACAS.find((x) => x.nome === raca);
+    const con = calc({ ...novaFichaDados(), raca }).attr.Con;
+    const pv1 = MEDIA_4D6_TIRA_MENOR + r.vidaMod + con + pvClasse;
+    return pv1 + 9 * (r.vidaFixa + conPorNivel(con));
+  };
+
+  test("nenhuma combinação de raça e classe passa de 2,5x a mais frágil no nível 10", () => {
+    const todos = RACAS.flatMap((r) => Object.values(CLASSES).map((c) => pvNivel10(r.nome, c.pv)));
+    const maior = Math.max(...todos), menor = Math.min(...todos);
+    assert.ok(maior / menor <= 2.5,
+      `leque de PV no nível 10 chegou a ${(maior / menor).toFixed(2)}x (${menor}–${maior})`);
+  });
+
+  test("o ganho por nível de nenhuma raça passa de 2x o da mais fraca", () => {
+    const ganhos = RACAS.map((r) => r.vidaFixa + conPorNivel(calc({ ...novaFichaDados(), raca: r.nome }).attr.Con));
+    assert.ok(Math.max(...ganhos) / Math.min(...ganhos) <= 2.4,
+      `ganho por nível varia ${(Math.max(...ganhos) / Math.min(...ganhos)).toFixed(2)}x`);
+  });
+
+  test("vidaMod de todas as raças está na faixa [-2,+2]", () => {
+    for (const r of RACAS)
+      assert.ok(r.vidaMod >= -2 && r.vidaMod <= 2, `${r.nome} tem vidaMod ${r.vidaMod}`);
+  });
+
+  test("todas as raças continuam somando exatamente +4 em atributos", () => {
+    for (const r of RACAS) {
+      const soma = ["For", "Des", "Con", "Int", "Sab", "Car"].reduce((s, a) => s + r.attrs[a], 0);
+      assert.equal(soma, 4, `${r.nome} soma ${soma}`);
+    }
+  });
+
+  test("todas as classes continuam concedendo exatamente 12 pontos de perícia", () => {
+    for (const [nome, c] of Object.entries(CLASSES)) {
+      const soma = Object.values(c.pericias).reduce((s, v) => s + v, 0);
+      assert.equal(soma, 12, `${nome} concede ${soma}`);
+    }
+  });
+});
+
+describe("Balanceamento — outliers aparados", () => {
+  test("Conjupitero dá +1 de CD, não +2", () => {
+    const k = calc({ ...novaFichaDados(), raca: "Conjupitero" });
+    // Des -2 com armadura leve: 10 - 2 + 1 = 9
+    assert.equal(k.cd, 9);
+  });
+
+  test("Conjupitero dá +1 em Pilotagem e Mecânica", () => {
+    const k = calc({ ...novaFichaDados(), raca: "Conjupitero" });
+    assert.equal(k.per["Pilotagem"], 1);
+    assert.equal(k.per["Mecânica"], 1);
+  });
+
+  // O estouro do teto de perícia vinha daqui: classe 5 + raça 2 = 7 no nível 1,
+  // quando o teto do nível 1 é +5 (e +7 só a partir do 5).
+  test("Conjupitero Mecânico não passa do teto de perícia do nível 5", () => {
+    const k = calc({ ...novaFichaDados(), raca: "Conjupitero", classe: "Mecânico" });
+    assert.equal(k.per["Mecânica"], 6);
+    assert.ok(k.per["Mecânica"] <= 7);
+  });
+
+  test("Terráqueo ganha +3 de PV máximo pela Resiliência Terráquea", () => {
+    const k = calc({ ...novaFichaDados(), raca: "Terráqueo", pvMax: 20 });
+    assert.equal(k.pvMax, 23);
+  });
+
+  test("Fúria do Infimor não mexe mais em Destreza (não vaza para CD nem deslocamento)", () => {
+    const base = calc({ ...novaFichaDados(), raca: "Infimor" });
+    const furia = calc({ ...novaFichaDados(), raca: "Infimor", modos: { "Fúria dos Desclassificados": "" } });
+    assert.equal(furia.attr.For, base.attr.For + 2);
+    assert.equal(furia.attr.Con, base.attr.Con + 2);
+    assert.equal(furia.attr.Des, base.attr.Des);
+    assert.equal(furia.cd, base.cd);
+    assert.equal(furia.deslocamento, base.deslocamento);
+  });
+
+  test("Fúria soma +2 no acerto e no dano, não +3", () => {
+    const k = calc({ ...novaFichaDados(), raca: "Infimor", modos: { "Fúria dos Desclassificados": "" } });
+    const m = k.efeitos.modificarAtaque({ acerto: 0, dano: 0 });
+    assert.equal(m.acerto, 2);
+    assert.equal(m.dano, 2);
+  });
+});
+
+describe("Marco de classe (NV10)", () => {
+  test("toda classe tem um marco de NV10 com nome e descrição", () => {
+    for (const [nome, c] of Object.entries(CLASSES)) {
+      assert.ok(c.lendaria?.n, `${nome} sem marco de NV10`);
+      assert.ok(c.lendaria?.d, `${nome}: marco sem descrição`);
+    }
+  });
+
+  test("o efeito do marco só entra a partir do nível 10", () => {
+    const nv9 = calc({ ...novaFichaDados(), classe: "Prospector", nivel: 9 });
+    const nv10 = calc({ ...novaFichaDados(), classe: "Prospector", nivel: 10 });
+    assert.equal(nv9.efeitos.aoSaquear().pct, 30);    // +20 da passiva, +10 da Veterana
+    assert.equal(nv10.efeitos.aoSaquear().pct, 50);   // +20 do marco
+    assert.equal(calc({ ...novaFichaDados(), classe: "Prospector", nivel: 4 }).efeitos.aoSaquear().pct, 20);
+  });
+
+  test("Piloto Fantasma soma ao Instinto Evasivo: +6 no veículo", () => {
+    const k = calc({ ...novaFichaDados(), classe: "Piloto", nivel: 10 });
+    assert.equal(k.efeitos.defesaVeiculo(), 6);
+  });
+
+  // Marco que é modo (liga por N turnos) precisa aparecer em modosAtivosDe,
+  // senão ativar pela mesa não aplicaria nada.
+  test("Singularidade do Cinético, ligada, dá +5 de RAM e +3 de conjuração", () => {
+    const base = calc({ ...novaFichaDados(), classe: "Cinético", nivel: 10 });
+    const on = calc({ ...novaFichaDados(), classe: "Cinético", nivel: 10,
+      modos: { "Singularidade de Carne e Código": "" } });
+    assert.equal(on.ramMax, base.ramMax + 5);
+    assert.equal(on.conj, base.conj + 3);
+  });
+
+  test("Não Recuar do Soldado, ligado, reduz 3 de dano", () => {
+    const k = calc({ ...novaFichaDados(), classe: "Soldado", nivel: 10, modos: { "Não Recuar": "" } });
+    assert.equal(k.efeitos.aoSofrer().reducao, 3);
+  });
+
+  // Regra do usuário: nenhum marco pode ser só texto. Todo marco tem que
+  // declarar um `resolve` (vira botão que resolve sozinho) ou `efeitos`.
+  test("nenhum marco de NV10 é só narrado", () => {
+    for (const [nome, c] of Object.entries(CLASSES))
+      assert.ok(c.lendaria.resolve || c.lendaria.efeitos?.length, `${nome}: marco sem resolve nem efeitos`);
+  });
+
+  test("marcos em área usam salvaguarda com raio declarado", () => {
+    for (const nome of ["Estudioso", "Pirata"]) {
+      const R = CLASSES[nome].lendaria.resolve;
+      assert.equal(R.tipo, "salvaguarda");
+      assert.ok(R.area && R.raio > 0, `${nome}: área sem raio`);
+    }
+  });
+});
+
+describe("Mecanismos dos marcos (antes narrados)", () => {
+  const nv = (classe, nivel, extra = {}) => calc({ ...novaFichaDados(), classe, nivel, ...extra });
+
+  test("chance_extra de várias fontes não empilha rolagem: fica o menor mínimo", () => {
+    const r1 = nv("Catador", 1).efeitos.aoSaquear().rolagens;
+    const r5 = nv("Catador", 5).efeitos.aoSaquear().rolagens;
+    const r10 = nv("Catador", 10).efeitos.aoSaquear().rolagens;
+    assert.equal(r1.length, 1); assert.equal(r1[0].minimo, 4);
+    assert.equal(r5.length, 1); assert.equal(r5[0].minimo, 3);
+    assert.equal(r10.length, 1); assert.equal(r10[0].minimo, 2);
+  });
+
+  test("Rajada Disciplinada e Não Recuar dão 2 ataques por Ação Principal enquanto ligados", () => {
+    assert.equal(nv("Soldado", 5).ataquesPorAcao, undefined);
+    assert.equal(nv("Soldado", 5, { modos: { "Rajada Disciplinada": "ativo" } }).ataquesPorAcao, 2);
+    assert.equal(nv("Soldado", 10, { modos: { "Não Recuar": "ativo" } }).ataquesPorAcao, 2);
+  });
+
+  test("Um Tiro, ligado, marca o próximo disparo como perfeito", () => {
+    assert.notEqual(nv("Franco-atirador", 10).tiroPerfeito, true);
+    assert.equal(nv("Franco-atirador", 10, { modos: { "Um Tiro": "ativo" } }).tiroPerfeito, true);
+  });
+
+  test("Frequência: cada opção é uma aura de 10 m; Sinfonia Total põe as duas a 20 m, inquebráveis", () => {
+    const insp = nv("Músico", 1, { modos: { "Frequência de Inspiração/Ressonância": "Inspiração" } }).efeitos.auras();
+    assert.deepEqual(insp.map((a) => [a.alvo, a.raio]), [["aliados", 10]]);
+    const k10 = nv("Músico", 10);
+    assert.equal(k10.efeitos.auras().filter((a) => a.raio === 20).length, 2);
+    assert.equal(k10.auraInquebravel, true);
+  });
+
+  test("Maestro de Guerra sustenta a aura com Performance CD 12", () => {
+    assert.deepEqual(nv("Músico", 5).sustentaAura, { pericia: "Performance / Arte", cd: 12 });
+  });
+
+  test("dado da Marca do Caçador sobe de 1d4 (NV5) para 1d6 (NV10), sem somar", () => {
+    assert.equal(nv("Batedor", 1).bonusMarca, undefined);
+    assert.equal(nv("Batedor", 5).bonusMarca, "1d4");
+    assert.equal(nv("Batedor", 10).bonusMarca, "1d6");
+    assert.equal(nv("Batedor", 10).marcaEmArea, true);
+  });
+
+  test("Vulnerabilidade Exposta: 1 ataque, depois 2 e Ação de Movimento, depois o combate todo", () => {
+    assert.equal(nv("Explorador", 1).expostoCargas, undefined);
+    const k5 = nv("Explorador", 5);
+    assert.equal(k5.expostoCargas, 2);
+    assert.equal(k5.acaoDe["Vulnerabilidade Exposta"], "Ação de Movimento");
+    assert.equal(nv("Explorador", 10).expostoCargas, 99);
+  });
+
+  test("Eu Sou Qualquer Um: +2 e Vantagem em Enganação", () => {
+    const base = nv("Espião", 9), k10 = nv("Espião", 10);
+    assert.equal(k10.per["Enganação"], base.per["Enganação"] + 2);
+    assert.ok(k10.efeitos.vantagensPericia().some((v) => v.pericia === "Enganação"));
+  });
+
+  test("Dono do Contrato dá desconto de 50% na loja", () => {
+    assert.equal(nv("Prospector", 10).descontoLoja, 50);
+    assert.equal(nv("Prospector", 9).descontoLoja, undefined);
+  });
+});
+
+describe("podeAgirAgora — turno normal e turno extra", () => {
+  const combate = { rodada: 2, turno: 0, ordem: [{ id: "a" }, { id: "b" }, { id: "c" }] };
+  test("quem está na vez pode agir", () => assert.equal(podeAgirAgora(combate, combate.ordem[0]), true));
+  test("quem não está na vez, não", () => assert.equal(podeAgirAgora(combate, combate.ordem[1]), false));
+  test("turno extra concedido agora libera", () =>
+    assert.equal(podeAgirAgora(combate, { id: "b", turnoExtra: { rodada: 2, turno: 0 } }), true));
+  test("turno extra expira assim que o combate avança", () =>
+    assert.equal(podeAgirAgora(combate, { id: "b", turnoExtra: { rodada: 1, turno: 0 } }), false));
 });
 
 describe("Ven'y — Argônio reduz dano, não sobe Defesa", () => {
