@@ -33,6 +33,7 @@ export const CONDICOES_ALVO = {
   em_nave: { rot: "dentro de naves e espaços confinados" },
   disfarcado: { rot: "quando disfarçado" },
   social: { rot: "em cena social" },
+  isolado: { rot: "sem aliados a 5 m de você" },
 };
 
 // ---------------------------------------------------------------------------
@@ -62,6 +63,19 @@ export const EFEITOS = {
   // { tipo:"pericia", pericia:"Mecânica", valor:2 }
   pericia: { rotulo: (e) => `${sinal(e.valor)} em ${e.pericia}`,
     ficha: (e, k) => { k.per[e.pericia] = (k.per[e.pericia] || 0) + e.valor; } },
+
+  // { tipo:"alcance_cac", valor:10 } — alcance natural de corpo a corpo, em
+  // metros (Braços Telescópicos do Infimor). NÃO soma com a palavra-chave
+  // Alcance nem com outra fonte: vale sempre o maior, porque braço não empilha.
+  // Guarda 0 como "nada declarado" para não precisar importar ALCANCE_CAC de
+  // regras.js aqui (regras.js importa este arquivo — seria import circular).
+  alcance_cac: { rotulo: (e) => `alcance corpo a corpo de ${e.valor} m`,
+    ficha: (e, k) => { k.alcanceCac = Math.max(k.alcanceCac || 0, e.valor); } },
+
+  // { tipo:"vantagem_cura" } — rola dados de cura com Vantagem (Caminho da
+  // Espiral). Vale nos dois sentidos: quem aplica o Kit e quem recebe.
+  vantagem_cura: { rotulo: () => "Vantagem nos dados de cura",
+    ficha: (e, k) => { k.vantagemCura = true; } },
 
   // { tipo:"conjuracao", valor:1 }
   conjuracao: { rotulo: (e) => `${sinal(e.valor)} na Conjuração`,
@@ -311,6 +325,14 @@ export class FichaEfeitos {
     return this.fontes.flatMap((x) => x.efeitos.filter((e) => e.tipo === "recurso")
       .map((e) => ({ ...e, fonte: x.nome })));
   }
+  // Perícias que rolam com Vantagem por efeito declarado (Rosto na Multidão do
+  // Espião, Braço Mecânico Hidráulico, Código Corporativo…). Devolve o nome da
+  // fonte pra quem for rolar poder dizer de onde veio a Vantagem.
+  vantagensPericia() {
+    return this.fontes.flatMap((x) => x.efeitos
+      .filter((e) => e.tipo === "vantagem" && e.em === "pericia" && e.pericia)
+      .map((e) => ({ pericia: e.pericia, fonte: x.nome })));
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -331,6 +353,7 @@ export function validarEfeitos(efs) {
     // ficava inerte pra sempre, sem avisar ninguém.
     if (e.tipo === "imunidade" && (!e.a || e.a === "__outro__")) erros.push("imunidade não diz a quê");
     if (e.tipo === "resistencia" && (!e.a || e.a === "__outro__")) erros.push("resistência não diz a quê");
+    if (e.tipo === "alcance_cac" && !(e.valor > 0)) erros.push("alcance corpo a corpo precisa de um valor em metros maior que zero");
     if (e.tipo === "pv_max" && typeof e.valor !== "number") erros.push("PV máximo extra sem valor numérico");
     if (e.tipo === "escudo_max" && typeof e.valor !== "number") erros.push("escudo extra sem valor numérico");
     if (e.tipo === "multiplicar_dano" && !e.fator) erros.push("multiplicar dano sem fator");

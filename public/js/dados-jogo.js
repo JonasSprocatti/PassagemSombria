@@ -85,7 +85,7 @@ export const RACAS = [
      { "n": "Nitrogénio", "ic": "❄", "d": "Esfria o corpo: resistência a dano de fogo.",
        "efeitos": [{ "tipo": "imunidade", "a": "dano de fogo (resistência)" }] },
      { "n": "Argônio", "ic": "🛡", "d": "A pele resiste a impactos: −2 de dano físico recebido.",
-       "efeitos": [{ "tipo": "defesa", "valor": 2 }] },
+       "efeitos": [{ "tipo": "reducao_dano", "valor": 2, "momento": "ao_sofrer" }] },
      { "n": "Criptônio", "ic": "☠", "d": "Armadilha ambiental: −2 em todas as rolagens e status. Use com cuidado.",
        "efeitos": [{ "tipo": "acerto", "valor": -2, "momento": "ao_atacar" }] },
      { "n": "Radônio", "ic": "👂", "d": "Audição amplificada: Vantagem em testes de Percepção baseados em som.",
@@ -391,7 +391,7 @@ export const RACAS = [
    ,
     "tipo": "Passiva",
     "freq": "passiva",
-    "efeitos": [{"tipo":"acerto","valor":0,"momento":"ao_atacar"}]
+    "efeitos": [{"tipo":"alcance_cac","valor":10}]
    },
    {
     "n": "Fúria dos Desclassificados",
@@ -1077,13 +1077,13 @@ export const FILOSOFIAS = {
  "Caminho da Voz":{categoria:"Caminho",freq:"longo",d:"1x/desc. longo: Desvantagem à resistência do alvo num teste de Carisma — ou finge-se de morto perfeitamente.",lore:"Originária de seitas diplomáticas e cortes de Netuno, prega o controle absoluto do próprio biometabolismo e a imposição da vontade sobre os outros através de frequências sub-vocais quase impercetíveis.",apelido:"A Mente Sobre a Carne"},
  "Caminho da Ressonância":{categoria:"Caminho",freq:"curto",d:"1x/desc. curto: 1 turno ignorando escuridão; sente seres vivos a 10m através de fumaça e paredes finas.",lore:"A crença de que tudo, vivo ou morto, está conectado por cordas gravitacionais invisíveis. Eles não precisam ver o universo; eles sentem o peso das coisas ao seu redor.",apelido:"A Gravidade Universal"},
  "Caminho da Engrenagem":{categoria:"Caminho",freq:"longo",d:"1x/desc. longo: transforma uma Falha Crítica (fogo, pilotagem, Tecnomancia) em falha comum.",lore:"A carne é falha, fraca e corrompível pelo Vazio. O metal, a engrenagem e o código binário são a verdadeira salvação. Tratam a manutenção de equipamentos como uma liturgia sagrada.",apelido:"O Código-Deus"},
- "Caminho da Espiral":{categoria:"Caminho",freq:"passiva",d:"Rola dados de cura com Vantagem (kits e descansos curtos).",lore:"A adaptação genética é a única muralha contra a extinção. Veneram a evolução, o DNA e a mutação, focando na excelência física para superar qualquer ambiente hostil.",apelido:"A Biologia Perfeita"},
+ "Caminho da Espiral":{categoria:"Caminho",tipo:"Passiva",freq:"passiva",d:"Rola dados de cura com Vantagem (kits e descansos curtos).",efeitos:[{tipo:"vantagem_cura"}],lore:"A adaptação genética é a única muralha contra a extinção. Veneram a evolução, o DNA e a mutação, focando na excelência física para superar qualquer ambiente hostil.",apelido:"A Biologia Perfeita"},
  "Caminho do Anel":{categoria:"Caminho",freq:"longo",d:"1x/desc. longo: ao cair a 0 PV, fica com 1 PV até o fim do próximo turno.",lore:"Com fortes raízes na cultura Sata de Saturno, baseia-se na paciência milenar e no ciclo inevitável de retorno. Eles sabem que tudo o que cai, mais cedo ou mais tarde, volta a subir.",apelido:"O Ciclo Eterno"},
  "Caminho do Ocaso":{categoria:"Caminho",freq:"combate",d:"1x/combate: sofre 1d4 Verdadeiro para somar 1d4 a uma rolagem recém-feita.",lore:"Uma seita sombria, muitas vezes banida, que vê a Passagem Sombria não como uma invasão, mas como purificação. A dor é apenas uma ponte para a assimilação cósmica.",apelido:"O Culto ao Vazio"},
- "Código do Sobrevivente":{categoria:"Código",freq:"longo",d:"+2 Iniciativa. 1x/desc. longo: age normalmente em rodada surpresa.",lore:"O universo ativamente quer matá-lo, e confiar nos outros é um luxo que você não pode pagar. A sua fé está apenas no seu instinto de preservação.",apelido:"A Paranoia Ativa"},
- "Código Corporativo":{categoria:"Código",freq:"passiva",d:"Vantagem para avaliar preços, achar saque e negociar pagamentos.",lore:"Deuses não pagam as contas, e a lealdade é uma mercadoria barata. Tudo no Sistema Solar tem um preço, e os contratos são a única verdade absoluta.",apelido:"A Lei do Crédito"},
- "Código do Cético":{categoria:"Código",freq:"passiva",d:"+2 CD contra psíquico, leitura e controle mental.",lore:"Rejeição absoluta ao misticismo, telepatia e aos sussurros cósmicos. A sua mente é inteiramente lógica, o que cria um cofre blindado contra influências externas.",apelido:"A Fortaleza Racional"},
- "Código da Fronteira":{categoria:"Código",freq:"passiva",d:"+1 em Ataques sem aliados num raio de 5m.",lore:"Você trabalha melhor quando não há ninguém no seu caminho de tiro. No vácuo profundo, depender do suporte dos outros é um convite para a morte.",apelido:"O Lobo Solitário"},
+ "Código do Sobrevivente":{categoria:"Código",freq:"longo",d:"+2 Iniciativa. 1x/desc. longo: age normalmente em rodada surpresa.",efeitos:[{tipo:"iniciativa",valor:2},{tipo:"imunidade",a:"ser surpreendido na rodada surpresa"}],lore:"O universo ativamente quer matá-lo, e confiar nos outros é um luxo que você não pode pagar. A sua fé está apenas no seu instinto de preservação.",apelido:"A Paranoia Ativa"},
+ "Código Corporativo":{categoria:"Código",tipo:"Passiva",freq:"passiva",d:"Vantagem para avaliar preços, achar saque e negociar pagamentos.",efeitos:[{tipo:"vantagem",em:"pericia",pericia:"Lábia / Persuasão"}],lore:"Deuses não pagam as contas, e a lealdade é uma mercadoria barata. Tudo no Sistema Solar tem um preço, e os contratos são a única verdade absoluta.",apelido:"A Lei do Crédito"},
+ "Código do Cético":{categoria:"Código",tipo:"Passiva",freq:"passiva",d:"Vantagem em testes de resistência contra psíquico, leitura e controle mental.",efeitos:[{tipo:"resistencia",a:"psíquico"},{tipo:"resistencia",a:"Dominado"}],lore:"Rejeição absoluta ao misticismo, telepatia e aos sussurros cósmicos. A sua mente é inteiramente lógica, o que cria um cofre blindado contra influências externas.",apelido:"A Fortaleza Racional"},
+ "Código da Fronteira":{categoria:"Código",tipo:"Passiva",freq:"passiva",d:"+1 em Ataques sem aliados num raio de 5m.",efeitos:[{tipo:"acerto",valor:1,quando:"isolado",momento:"ao_atacar"}],lore:"Você trabalha melhor quando não há ninguém no seu caminho de tiro. No vácuo profundo, depender do suporte dos outros é um convite para a morte.",apelido:"O Lobo Solitário"},
  "Código da Caserna":{categoria:"Código",freq:"curto",d:"1x/desc. curto: Reação para receber o dano no lugar de aliado adjacente.",lore:"Ninguém fica para trás. A unidade tática é sagrada e o indivíduo é sacrificável se isso significar a sobrevivência do esquadrão.",apelido:"O Dever Militar"},
  "Código do Vira-Lata":{categoria:"Código",freq:"combate",d:"1x/combate: distrai inimigo a 3m; primeiro ataque contra ele com Vantagem.",lore:"A honra não para disparos de plasma e não o protege do frio do espaço. Vença. Sobreviva a qualquer custo, mesmo que para isso tenha de morder, cegar ou fugir.",apelido:"A Luta Suja"},
 };

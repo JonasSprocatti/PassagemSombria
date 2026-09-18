@@ -79,7 +79,12 @@ export function telaBiblioteca(aba = "racas") {
   if (aba === "implantes") corpo = todosImplantes().map((i) => `<div class="det"><b>${esc(i.n)}</b> · <b class="chrome">${i.p} CG</b> <span class="dim">(${i.g})</span> — ${esc(i.e)}</div>`).join("");
   if (aba === "scripts") corpo = SCRIPTS.map((s) => `<details class="det grande"><summary><b>${esc(s.n)}</b> <i class="sombra-c">${s.c}◈ ${esc(s.a)}</i></summary><p class="regra"><b>Efeito:</b> ${esc(s.d)}</p>${s.lore ? `<p>${esc(s.lore)}</p>` : ""}</details>`).join("");
   if (aba === "filosofias") corpo = ["Caminho", "Código"].map((cat) => `<h3 class="sub">${cat === "Caminho" ? "🌌 Os Caminhos — místicos e religiosos, focados em intuição, manipulação do ambiente e superação física pela fé" : "⚙️ Os Códigos — seculares e pragmáticos, focados em treinamento militar, lógica, malícia das ruas e sobrevivência crua"}</h3>` +
-    Object.entries(FILOSOFIAS).filter(([, x]) => x.categoria === cat).map(([n, x]) => `<details class="det grande"><summary><b>${esc(n)}</b>${x.apelido ? ` <i class="dim">${esc(x.apelido)}</i>` : ""}${x.freq ? ` <span class="best-tag">1x/desc. ${esc(x.freq)}</span>` : ""}</summary>${x.lore ? `<p>${esc(x.lore)}</p>` : ""}<p class="regra"><b class="tech-c">Mecânica:</b> ${esc(x.d)}</p></details>`).join("")).join("");
+    Object.entries(FILOSOFIAS).filter(([, x]) => x.categoria === cat).map(([n, x]) => {
+      // "1x/desc. passiva" não quer dizer nada: cada freq tem o seu rótulo.
+      const etq = { passiva: "passiva", combate: "1x/combate", curto: "1x/desc. curto", longo: "1x/desc. longo" }[x.freq] || x.freq;
+      const auto = (x.efeitos || []).length;
+      return `<details class="det grande"><summary><b>${esc(n)}</b>${x.apelido ? ` <i class="dim">${esc(x.apelido)}</i>` : ""}${etq ? ` <span class="best-tag">${esc(etq)}</span>` : ""}${auto ? ` <span class="auto-tag" title="O app aplica sozinho no momento certo">automático</span>` : ""}</summary>${x.lore ? `<p>${esc(x.lore)}</p>` : ""}<p class="regra"><b class="tech-c">Mecânica:</b> ${esc(x.d)}</p></details>`;
+    }).join("")).join("");
   if (aba === "naves") corpo = `<p class="regra">${esc(REGRAS_NAVE.defesa)}<br>${esc(REGRAS_NAVE.dobra)}<br>${esc(REGRAS_NAVE.critico)}</p>` +
     todasNaves().map((n) => `<details class="det grande"><summary><b>${esc(n.n)}</b> · Casco ${n.casco} · Escudos ${n.escudos} · Manobra ${sign(n.manobra)} · Dano ${n.dano}</summary>
     <p>${esc(n.desc)}</p><p class="regra">Tripulação: ${esc(n.trip)}</p></details>`).join("") +
@@ -182,7 +187,7 @@ export function telaBiblioteca(aba = "racas") {
       <p>O campo tem <b class="chrome">${CAMPO_LARGURA} m</b> de frente e <b>${CAMPO_PISTAS} pistas</b> de profundidade (frente / meio / fundo), com ${m(PISTA_M)} m entre pistas. Arraste o seu token no seu turno — mover gasta a Ação de Movimento.</p>
       <p class="regra"><b>Quanto você anda:</b> o seu Deslocamento (9 m de base, 18 m para Mercusys, + 2 m por ponto de Destreza). <b>Metade</b> se estiver Caído, com Motor Travado, ou se tentou apagar fogo neste turno. <b>Zero</b> se estiver Paralisado, Congelado ou Lento.</p>
       <h4 class="sub">Alcance das armas</h4>
-      <p class="regra"><b>Corpo a corpo:</b> ${m(ALCANCE_CAC)} m — o comprimento real de um braço com lâmina. A palavra-chave <b>Alcance</b> estende para 3 m.</p>
+      <p class="regra"><b>Corpo a corpo:</b> ${m(ALCANCE_CAC)} m — o comprimento real de um braço com lâmina. A palavra-chave <b>Alcance</b> estende para 3 m, e quem tem alcance natural declarado (os Braços Telescópicos do Infimor chegam a 10 m) usa o maior dos dois — alcance não empilha.</p>
       <p class="regra"><b>Fogo:</b> curto <b>${ALCANCE_ARMA.curto} m</b> · médio <b>${ALCANCE_ARMA.medio} m</b> (Alcance Maior) · longo <b>${ALCANCE_ARMA.longo} m</b> (Mira Telescópica).</p>
       <p class="regra">Fora do alcance, o tiro <b>nem acontece</b> — você não gasta munição. O seletor de alvo só lista quem dá para acertar. O Mestre enxerga todo mundo e pode forçar, e aí o log registra "não alcança".</p>
       <h4 class="sub">Área e empurrão</h4>

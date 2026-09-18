@@ -284,6 +284,15 @@ export function habilidadesAtivas(f) {
   if (classe?.vet && f.nivel >= 5) add("vet", classe.vet, `${f.classe} · Veterana`);
   (raca?.habilidades || []).forEach((h, i) => add(`ra${i}`, h, raca.nome));
   if (raca?.lendaria && f.nivel >= 10) add("lend", raca.lendaria, `${raca.nome} · Lendária`);
+  // A filosofia também vira botão na mesa. As 4 passivas (Espiral, Corporativo,
+  // Cético, Fronteira) declaram tipo:"Passiva" e o próprio `add` as ignora —
+  // elas já agem sozinhas pelos efeitos declarados. Sobram as 8 que exigem o
+  // jogador declarar o uso, incluindo Ocaso e Vira-Lata (1x/combate), que antes
+  // não apareciam em lugar nenhum e dependiam da memória da mesa.
+  // O id "filo" é o mesmo que abilidadesDeDescanso usa, então o consumo de uso
+  // e a reposição no descanso já conversam entre si sem código novo.
+  if (f.filosofia && FILOSOFIAS[f.filosofia])
+    add("filo", { ...FILOSOFIAS[f.filosofia], n: f.filosofia }, "Filosofia");
   return out;
 }
 
@@ -321,7 +330,8 @@ function aplicarDescanso(f, tipo) {
   if (f.pvTemp) { notas.push(`${f.pvTemp} PV Temporário se dissolve`); f.pvTemp = 0; }
   // PV máximo EFETIVO (base salva + qualquer bônus de item/implante/modo em vigor),
   // não o valor bruto — senão quem tem vida máxima extra não conseguia usá-la no descanso.
-  const pvMaxEf = calc(f).pvMax;
+  const kDesc = calc(f);
+  const pvMaxEf = kDesc.pvMax;
   if (tipo === "longo") {
     pvRec = Math.max(0, pvMaxEf - (f.pvAtual || 0));
     f.pvAtual = pvMaxEf;
@@ -334,7 +344,15 @@ function aplicarDescanso(f, tipo) {
     cat.filter((a) => a.freq === "curto").forEach((a) => { if (f.usos[a.id]) { delete f.usos[a.id]; habsReset++; } });
     const nCurto = cat.filter((a) => a.freq === "curto").length;
     notas.push(`${nCurto} habilidade(s) de descanso curto reiniciada(s)`);
-    if (f.raca === "Mercusys") { const cura = d(4); pvRec = Math.min(cura, Math.max(0, pvMaxEf - (f.pvAtual || 0))); f.pvAtual = Math.min(pvMaxEf, (f.pvAtual || 0) + cura); notas.push(`regeneração Mercusys +${cura} PV`); }
+    if (f.raca === "Mercusys") {
+      // Caminho da Espiral rola os dados de cura com Vantagem — e a regeneração
+      // do descanso curto é um dado de cura como qualquer outro.
+      const vant = !!kDesc.vantagemCura;
+      const cura = vant ? Math.max(d(4), d(4)) : d(4);
+      pvRec = Math.min(cura, Math.max(0, pvMaxEf - (f.pvAtual || 0)));
+      f.pvAtual = Math.min(pvMaxEf, (f.pvAtual || 0) + cura);
+      notas.push(`regeneração Mercusys +${cura} PV${vant ? " (Vantagem — Caminho da Espiral)" : ""}`);
+    }
     else notas.push("PV: use Kits Médicos");
     notas.push(`${reporPentes(f)} pente(s) repostos`);
   }

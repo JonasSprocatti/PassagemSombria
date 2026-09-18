@@ -140,11 +140,15 @@ export function calc(f, opcoes = {}) {
   const placas = implantesAtivos.includes("Placas Subdérmicas de Titânio") ? 1 : 0;
   const cd = 10 + desAdj + (armRef?.cd || 0) + placas + (f.cdExtra || 0);
   const deckMax = Math.max(3, f.nivel + per["Tecnomancia"]);
-  const iniBonus = (f.classe === "Batedor" ? 2 : 0) + (f.filosofia === "Código do Sobrevivente" ? 2 : 0);
-  const iniciativa = attr.Des + iniBonus;
+  // A Iniciativa parte só da Destreza. Todo bônus (Sentidos Alertas do Batedor,
+  // Código do Sobrevivente) chega por efeito declarado, aplicado logo abaixo —
+  // antes, o Batedor somava +2 aqui no nome E +2 pelo efeito da própria
+  // habilidade, ficando com +4 onde livro e Biblioteca prometem +2.
+  const desBase = attr.Des;
+  const iniciativa = desBase;
   const deslocBase = f.raca === "Mercusys" ? 18 : 9;
   const deslocamento = deslocBase + 2 * attr.Des;
-  const k = { attr, per, isCin, limite, limiteOrg, carga, ramMax, ramLivre, conj, cd, armRef, deckMax, pontosDireito, pontosGastos, perDireito, perGastas, iniciativa, iniBonus, deslocBase, deslocamento };
+  const k = { attr, per, isCin, limite, limiteOrg, carga, ramMax, ramLivre, conj, cd, armRef, deckMax, pontosDireito, pontosGastos, perDireito, perGastas, iniciativa, iniBonus: 0, deslocBase, deslocamento };
   // Efeitos declarados (implantes, filosofias, raças, classes, armaduras) entram
   // por cima. É aditivo: o cálculo clássico acima continua valendo, e conteúdo
   // novo passa a funcionar sem precisar de código.
@@ -166,6 +170,10 @@ export function calc(f, opcoes = {}) {
   fe.aplicarNaFicha(k, { implantes: implantesAtivos, nivel: f.nivel || 1 });
   k.implantesInertes = semImplantes && (f.implantes || []).length > 0;
   k.ramLivre = Math.max(0, k.ramMax - (f.ramGasta || 0));   // recalcula após os efeitos
+  // Quanto da Iniciativa não veio da Destreza — só para a ficha exibir a conta.
+  // Calculado contra a Destreza de ANTES dos efeitos, senão um modo que sobe Des
+  // (Fúria do Infimor) apareceria como se fosse bônus de classe/filosofia.
+  k.iniBonus = k.iniciativa - desBase;
   // Pentes que a pessoa carrega: 5 + mod de Força (1 no cano + o resto na reserva).
   k.pentesMax = Math.max(2, 5 + (k.attr.For || 0));
   k.pentesReserva = k.pentesMax - 1;
@@ -306,9 +314,12 @@ export function imuneAoDano(habs, tipo) {
 }
 // Até onde a arma chega, em metros. Branca fica no corpo-a-corpo (a menos que a
 // palavra-chave Alcance estenda); de fogo vai do curto ao longo conforme a chave.
-export function alcanceDaArma(cat, pr) {
+// `alcanceCac` é o alcance natural de quem empunha (k.alcanceCac — Braços
+// Telescópicos do Infimor, 10 m): vale o MAIOR entre ele e o da arma, nunca a
+// soma — dois alcances não se empilham, o braço é um só.
+export function alcanceDaArma(cat, pr, alcanceCac = 0) {
   const txt = String(pr?.alcanceTxt || "");
-  if (cat?.tipo === "branca") return pr?.alcance ? 3 : ALCANCE_CAC;
+  if (cat?.tipo === "branca") return Math.max(pr?.alcance ? 3 : ALCANCE_CAC, alcanceCac || 0);
   if (!pr?.alcance) return ALCANCE_ARMA.curto;
   if (/longo|telesc/i.test(txt)) return ALCANCE_ARMA.longo;
   return ALCANCE_ARMA.medio;

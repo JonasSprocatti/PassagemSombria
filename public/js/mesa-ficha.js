@@ -15,7 +15,7 @@
 //  contra o rastreador) e `[data-atq]` moram aqui porque são combate PESSOAL do
 //  jogador — não o rastreador do Mestre (isso é mesa-combate.js).
 // ============================================================================
-import { RACAS, CLASSES, SCRIPTS, PERICIAS, propsArma, ehConsumivel, TIPOS_PENTE, PENTE_PADRAO, TIROS_POR_PENTE, custoTiro } from "./dados-jogo.js";
+import { RACAS, CLASSES, FILOSOFIAS, SCRIPTS, PERICIAS, propsArma, ehConsumivel, TIPOS_PENTE, PENTE_PADRAO, TIROS_POR_PENTE, custoTiro } from "./dados-jogo.js";
 import { NIVEIS_AMEACA } from "./dados-bestiario.js";
 import {
   d, sign, parseDice, rollNd, danoCritico, aplicarCond, novaFichaDados, calc,
@@ -314,7 +314,17 @@ export function wireFicha(ctx) {
   $("#rolar-per").onclick = () => { const pn = $("#sel-per").value; const at = PERICIAS.find(([x]) => x === pn)[1];
     const condsSelf = (minhaLinhaCb()?.cond || []).map((c) => c.n.toLowerCase());
     const desv = desvPorTeste(condsSelf, pn);
-    rolarEEnviar(`Teste de ${pn}${desv ? " (Desvantagem)" : ""}`, k.attr[at] + k.per[pn], {}, desv ? -1 : undefined); };
+    // Vantagem declarada para ESTA perícia (Rosto na Multidão do Espião, Braço
+    // Mecânico Hidráulico, Radônio do Ven'y, Código Corporativo). O efeito
+    // existia desde sempre, mas nada o consultava na hora de rolar — só virava
+    // rótulo no painel de efeitos.
+    const vantFonte = (k.efeitos?.vantagensPericia?.() || []).find((v) => v.pericia === pn);
+    // Soma todas as fontes e reduz a −1/0/+1, igual ao [data-atq] faz.
+    const soma = (ui.vantagem || 0) + (vantFonte ? 1 : 0) - (desv ? 1 : 0);
+    const vv = soma > 0 ? 1 : soma < 0 ? -1 : 0;
+    const marcas = [vantFonte ? vantFonte.fonte : "", desv ? "condição" : ""].filter(Boolean).join(", ");
+    const rot = vv === 0 ? "" : ` (${vv > 0 ? "Vantagem" : "Desvantagem"}${marcas ? ` — ${marcas}` : ""})`;
+    rolarEEnviar(`Teste de ${pn}${rot}`, k.attr[at] + k.per[pn], {}, vv); };
   // Teste oposto genérico: Furtividade vs Percepção, Enganação vs Intuição, etc.
   $("#teste-oposto").onclick = async () => {
     const cands = (camp.combate?.ativo ? camp.combate.ordem.filter((x) => !ehNave(x) && !foraDeCombate(x) && x.personagem_id !== ui.meuPers.id) : [])
@@ -405,7 +415,7 @@ export function wireFicha(ctx) {
     const pr = propsArma(cat);
     // Alcance da arma: quem está longe demais nem entra na mira (e a munição
     // nem chega a ser gasta). O Mestre ainda pode mirar fora do alcance.
-    const alcance = alcanceDaArma(cat, pr);
+    const alcance = alcanceDaArma(cat, pr, k.alcanceCac);
     const minhaLinhaAtq = minhaLinhaCb();
     const podeMirarAtq = !!(camp.combate?.ativo && (ui.souMestre || camp.combate.ordem[camp.combate.turno]?.personagem_id === ui.meuPers.id));
     const candidatos = podeMirarAtq
@@ -532,6 +542,15 @@ export function wireFicha(ctx) {
     // "Ferramenta" (+2 dano contra robôs/sintéticos) nunca aplicavam nada,
     // silenciosamente, em ataque nenhum. Era bug real, não só duplicata de nome.
     const alvoParaEfeitos = alvoCombatente || alvoNave || null;
+    // Código da Fronteira: +1 no acerto quando não há nenhum ALIADO vivo a 5 m.
+    // Exige posição no campo tático dos dois lados — fora de combate rastreado
+    // não dá pra saber quem está perto, e aí o bônus não entra (o Mestre
+    // adjudica), em vez de ser concedido no escuro.
+    const isolado = !!minhaLinhaAtq?.pos && !(camp.combate?.ordem || []).some((x) =>
+      x.id !== minhaLinhaAtq.id && !ehNave(x) && !foraDeCombate(x)
+      && x.tipo !== "inimigo" && x.lado !== "inimiga"
+      && (distCombate(minhaLinhaAtq, x) ?? 999) <= 5);
+    const situacaoAtq = { desprevenido: !!furtivo, em_nave: !!camp.combate?.naveEmCena, isolado };
     // Pesada: −2 no acerto de verdade — a passiva "Memória Muscular" do
     // Soldado (imunidade a "penalidade de -2 com armas Pesadas") já prometia
     // anular isso, mas nada aplicava a penalidade até agora.
@@ -541,10 +560,10 @@ export function wireFicha(ctx) {
       + (furtivo && pr.oculta ? 2 : 0)          // Oculta: +2 no furtivo
       + (alvoMarcado ? 2 : 0)                   // alvo Marcado
       + penalidadePesada
-      + (k.efeitos ? k.efeitos.modificarAtaque({ acerto: 0, dano: 0, arma: cat, alvo: alvoParaEfeitos, situacao: { desprevenido: !!furtivo, em_nave: !!camp.combate?.naveEmCena } }).acerto : 0)
+      + (k.efeitos ? k.efeitos.modificarAtaque({ acerto: 0, dano: 0, arma: cat, alvo: alvoParaEfeitos, situacao: situacaoAtq }).acerto : 0)
       + (cat._efeitos || []).filter((e) => e.momento === "ao_atacar" && e.tipo === "acerto").reduce((x, e) => x + (e.valor || 0), 0);
     // Vantagem/desvantagem líquida: soma as fontes e reduz a −1 / 0 / +1.
-    const vantEfeito = !!(k.efeitos && k.efeitos.modificarAtaque({ acerto: 0, dano: 0, arma: cat, alvo: alvoParaEfeitos, situacao: { desprevenido: !!furtivo, em_nave: !!camp.combate?.naveEmCena } }).vantagem);
+    const vantEfeito = !!(k.efeitos && k.efeitos.modificarAtaque({ acerto: 0, dano: 0, arma: cat, alvo: alvoParaEfeitos, situacao: situacaoAtq }).vantagem);
     const vantSoma = (ui.vantagem || 0) + (vantEfeito ? 1 : 0) + (alvoAberto ? 1 : 0) - (desvPorCond ? 1 : 0);
     const vantAtaque = vantSoma > 0 ? 1 : vantSoma < 0 ? -1 : 0;
     const marcasVant = [vantEfeito ? "efeito" : "", alvoAberto ? "alvo exposto" : "", desvPorCond ? "condição" : ""].filter(Boolean).join(", ");
@@ -554,7 +573,7 @@ export function wireFicha(ctx) {
     const danoBase = danoArma(cat, f.nivel);
     const pd = parseDice(danoBase);
     // dobra o dano por Crítico (20) e/ou Ataque Furtivo do Assassino (cada um adiciona um conjunto de dados)
-    const situacaoPre = { desprevenido: !!furtivo, em_nave: !!camp.combate?.naveEmCena };
+    const situacaoPre = situacaoAtq;
     const modAtqPre = k.efeitos ? k.efeitos.modificarAtaque({ acerto: 0, dano: 0, arma: cat, alvo: alvoParaEfeitos, situacao: situacaoPre }) : { acerto: 0, dano: 0, multDano: 1 };
     // Rola o dano UMA vez; crítico e multiplicadores de classe multiplicam o
     // total depois (dados + bônus), conforme a regra da mesa.
@@ -830,7 +849,14 @@ export function wireFicha(ctx) {
     if (trvH) return alert(`${ui.meuPers.nome} está ${trvH.n} e não pode usar ${h.nome} neste turno.`);
     const hRaw = (() => {   // a declaração completa, com resolve/duracao
       const raca = RACAS.find((r) => r.nome === f.raca), cl = CLASSES[f.classe];
-      return [...(raca?.habilidades || []), ...(cl?.hab || []), cl?.vet, raca?.lendaria]
+      // A filosofia entra aqui pelo mesmo caminho das outras fontes. Hoje
+      // nenhuma declara resolve/acao/duracao, então isto não muda nada sozinho —
+      // é a tomada para quando alguma declarar (ex. a Reação do Código da
+      // Caserna). Sem ela, hRaw ficaria undefined e a habilidade nunca poderia
+      // custar ação nem resolver sozinha.
+      const fi = FILOSOFIAS[f.filosofia];
+      return [...(raca?.habilidades || []), ...(cl?.hab || []), cl?.vet, raca?.lendaria,
+        fi ? { ...fi, n: f.filosofia } : null]
         .filter(Boolean).find((x) => x.n === h.nome);
     })();
     const turnos = duracaoDe(hRaw, f.nivel);
@@ -1043,10 +1069,23 @@ export function wireFicha(ctx) {
     await salvarFicha(ui.meuPers.id, ui.meuPers.dados);
 
     if (cfg.efeito === "cura") {
-      const pd = parseDice(cfg.dado); const ds = rollNd(pd.n, pd.f);
+      const pd = parseDice(cfg.dado);
+      // Caminho da Espiral: rola os dados de cura duas vezes e fica com a melhor
+      // soma. Vale para os DOIS lados — quem aplica o Kit e quem recebe (decisão
+      // da mesa: evita discutir de quem era a filosofia no meio do combate).
+      const vantCura = !!k.vantagemCura
+        || !!calc({ ...novaFichaDados(), ...(alvo.dados || {}) }).vantagemCura;
+      let ds = rollNd(pd.n, pd.f);
+      let det = `${cfg.dado} [${ds.join(", ")}]`;
+      if (vantCura) {
+        const ds2 = rollNd(pd.n, pd.f);
+        const soma = (l) => l.reduce((x, y) => x + y, 0);
+        det = `${cfg.dado} [${ds.join(", ")}] vs [${ds2.join(", ")}] — Vantagem (Caminho da Espiral)`;
+        if (soma(ds2) > soma(ds)) ds = ds2;
+      }
       const val = ds.reduce((x, y) => x + y, 0) + pd.mod;
       await enviar("cura", null, { alvo_id: alvo.id, alvo_nome: alvo.nome, valor: val,
-        origem: `${cfg.ic} ${cfg.n} de ${ui.meuPers.nome}`, detalhe: `${cfg.dado} [${ds.join(", ")}]`, aplicado: false });
+        origem: `${cfg.ic} ${cfg.n} de ${ui.meuPers.nome}`, detalhe: det, aplicado: false });
     } else if (cfg.efeito === "ram") {
       const dd = { ...novaFichaDados(), ...alvo.dados };
       dd.ramGasta = Math.max(0, (dd.ramGasta || 0) - (cfg.valor || 1));

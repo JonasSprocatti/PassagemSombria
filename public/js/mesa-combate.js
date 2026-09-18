@@ -45,7 +45,7 @@ const ataquesDoCombatente = (pers, c) => {
     const cm = armaMontada(cb, w); const pr = propsArma(cm);
     const aa = pr.agil ? (kk.attr.Des >= kk.attr.For ? "Des" : "For") : cm.attr;
     const bd = kk.attr[aa] || 0; const base = danoArma(cm, dd.nivel || 1);
-    return { n: w.nome, bonus: kk.attr[aa] + kk.per[cm.per], alcance: alcanceDaArma(cm, pr),
+    return { n: w.nome, bonus: kk.attr[aa] + kk.per[cm.per], alcance: alcanceDaArma(cm, pr, kk.alcanceCac),
       dano: (bd && /^\d*d\d+$/i.test(String(base).trim())) ? `${base}${bd > 0 ? "+" : ""}${bd}` : base,
       extra: cm.kw ? `${cm.kw}: ${pr.efeito}` : "" };
   }).filter(Boolean);
@@ -72,6 +72,16 @@ const estaABordoDeNave = (c, pers, membros) => {
 
 export function renderCombate(ctx) {
   const { ui, camp, membros, pers, f, k, tokenSelObj, vistaCampo, vistaLarg, pctX, defesaNaveParty, bonusDefVeiculo, aurasAtivas } = ctx;
+  // Alcance corpo a corpo de quem está selecionado no campo. Quase sempre é o
+  // ALCANCE_CAC padrão, mas quem tem alcance natural declarado (Braços
+  // Telescópicos do Infimor, 10 m) precisa ver a faixa e os marcadores ⚔ com o
+  // alcance de verdade — senão a tela diz 1,5 m e o ataque acerta a 10 m.
+  const alcanceSel = (() => {
+    const pj = tokenSelObj?.personagem_id && (pers || []).find((p) => p.id === tokenSelObj.personagem_id);
+    if (!pj) return ALCANCE_CAC;
+    return Math.max(ALCANCE_CAC, calc({ ...novaFichaDados(), ...pj.dados }).alcanceCac || 0);
+  })();
+  const alcanceSelTxt = String(alcanceSel).replace(".", ",");
   return `
           <div class="mesa-painel" ${ui.abaMesa === "combate" ? "" : "hidden"}>
           ${(camp.combate.ativo || ui.souMestre) ? `<section class="sec combate-sec">
@@ -120,9 +130,9 @@ export function renderCombate(ctx) {
                 ${tokenSelObj ? `<button id="cb-limpar-sel" class="mini" title="Limpar seleção">✕ ${esc(tokenSelObj.nome.slice(0, 12))}</button>` : ""}
               </div>
               ${tokenSelObj?.pos ? (() => {
-                const a = Math.max(vistaCampo.ini, tokenSelObj.pos.x - ALCANCE_CAC);
-                const b2 = Math.min(vistaCampo.fim, tokenSelObj.pos.x + ALCANCE_CAC);
-                return b2 > a ? `<div class="cb-alcance" style="left:${pctX(a).toFixed(2)}%;width:${(pctX(b2) - pctX(a)).toFixed(2)}%" title="Alcance corpo-a-corpo de ${esc(tokenSelObj.nome)} — ${String(ALCANCE_CAC).replace(".", ",")} m"></div>` : "";
+                const a = Math.max(vistaCampo.ini, tokenSelObj.pos.x - alcanceSel);
+                const b2 = Math.min(vistaCampo.fim, tokenSelObj.pos.x + alcanceSel);
+                return b2 > a ? `<div class="cb-alcance" style="left:${pctX(a).toFixed(2)}%;width:${(pctX(b2) - pctX(a)).toFixed(2)}%" title="Alcance corpo-a-corpo de ${esc(tokenSelObj.nome)} — ${alcanceSelTxt} m"></div>` : "";
               })() : ""}
               ${Array.from({ length: CAMPO_PISTAS }, (_, lane) => {
                 const naPista = camp.combate.ordem.filter((c) => !estaABordoDeNave(c, pers, membros) && (c.pos?.lane ?? 1) === lane)
@@ -139,7 +149,7 @@ export function renderCombate(ctx) {
                   const movivel = ui.souMestre || (meu && vez);
                   const lado = (c.tipo === "inimigo" || c.lado === "inimiga") ? "inim" : "aliado";
                   const dSel = tokenSelObj && tokenSelObj.id !== c.id ? distCombate(tokenSelObj, c) : null;
-                  const rel = dSel == null ? "" : (dSel <= ALCANCE_CAC ? "perto" : "longe");
+                  const rel = dSel == null ? "" : (dSel <= alcanceSel ? "perto" : "longe");
                   return `<span class="cb-token ${lado} ${ehNave(c) ? "nave-tok" : ""} ${foraDeCombate(c) ? "morto" : ""} ${vez ? "vez" : ""} ${movivel ? "movivel" : ""} ${c.id === ui.tokenSel ? "sel" : ""} ${rel}" data-token="${c.id}" style="left:${px.toFixed(2)}%;--stack:${stack}" title="${esc(c.nome)} · x ${(c.pos?.x ?? 20).toFixed(1).replace(".", ",")} m · pista ${(c.pos?.lane ?? 1) + 1}${dSel != null ? ` · ${dSel.toFixed(1).replace(".", ",")} m de ${esc(tokenSelObj.nome)}` : ""}">${ehNave(c) ? "🚀" : esc(c.nome.replace(/ #\d+$/, "").slice(0, 5))}${c.qtd > 1 ? `×${c.qtd}` : ""}</span>`;
                 }).join("")}</div>`;
               }).join("")}
@@ -148,11 +158,11 @@ export function renderCombate(ctx) {
                   out.push(`<span class="${m % 5 === 0 ? "maior" : ""}" style="left:${pctX(m).toFixed(2)}%">${m}</span>`);
                 return out.join(""); })()}</div>
             </div>
-            ${tokenSelObj ? `<div class="cb-distancias"><b class="chrome">${esc(tokenSelObj.nome)}</b> <span class="dim">corpo-a-corpo ${String(ALCANCE_CAC).replace(".", ",")} m</span>
+            ${tokenSelObj ? `<div class="cb-distancias"><b class="chrome">${esc(tokenSelObj.nome)}</b> <span class="dim">corpo-a-corpo ${alcanceSelTxt} m</span>
               ${camp.combate.ordem.filter((c) => !estaABordoDeNave(c, pers, membros) && c.id !== tokenSelObj.id && !foraDeCombate(c))
                 .map((c) => ({ c, dd: distCombate(tokenSelObj, c) })).filter((o) => o.dd != null)
                 .sort((a, b2) => a.dd - b2.dd)
-                .map(({ c, dd }) => `<span class="cb-dist ${dd <= ALCANCE_CAC ? "ok" : ""}">${dd <= ALCANCE_CAC ? "⚔" : "·"} ${esc(c.nome.replace(/ #\d+$/, "").slice(0, 14))} <b>${dd.toFixed(1).replace(".", ",")}</b></span>`).join("")
+                .map(({ c, dd }) => `<span class="cb-dist ${dd <= alcanceSel ? "ok" : ""}">${dd <= alcanceSel ? "⚔" : "·"} ${esc(c.nome.replace(/ #\d+$/, "").slice(0, 14))} <b>${dd.toFixed(1).replace(".", ",")}</b></span>`).join("")
                 || `<span class="dim">ninguém mais de pé no campo</span>`}</div>`
               : `<p class="regra cb-campo-dica">Clique num token para ver o alcance corpo-a-corpo e a distância para os outros.</p>`}` : ""}
             <div class="cb-lista">${camp.combate.ordem.map((c, i) => `
@@ -237,8 +247,7 @@ export function wireCombate(ctx) {
       if (c2.personagem_id) {
         const pj = (pers || []).find((p2) => p2.id === c2.personagem_id);
         if (pj) { const dd = { ...novaFichaDados(), ...pj.dados }; const kk = calc(dd);
-          imune = dd.filosofia === "Código do Sobrevivente"
-            || (kk.efeitos?.imunidades?.() || []).some((i2) => /surpres/i.test(i2)); }
+          imune = (kk.efeitos?.imunidades?.() || []).some((i2) => /surpres/i.test(i2)); }
       }
       if (imune) imunes.push(c2.nome); else { aplicarCond(c2, "Surpreso", 1); pegos.push(c2.nome); }
     }

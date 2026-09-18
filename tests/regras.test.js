@@ -9,6 +9,7 @@ import {
   ALCANCE_CAC, ALCANCE_ARMA, PISTA_M, CAMPO_LARGURA, CONDICOES_INFO,
   capacidadeArma, municaoDe, descontarMunicao, recarregarArma,
 } from "../public/js/regras.js";
+import { FILOSOFIAS } from "../public/js/dados-jogo.js";
 
 describe("danoCritico", () => {
   // Regressão do bug relatado em produção: "1d6+3 crítico" saía rolando DOIS d6 (o dado
@@ -163,6 +164,93 @@ describe("tipos de dano e alcance", () => {
   });
   test("arma de fogo sem chave de alcance é curto", () => {
     assert.equal(alcanceDaArma({ tipo: "fogo" }, {}), ALCANCE_ARMA.curto);
+  });
+  // Braços Telescópicos do Infimor: 10 m naturais de corpo a corpo. Antes o
+  // efeito declarado era {acerto:0} — um no-op que não fazia absolutamente nada.
+  test("alcance natural de quem empunha estende o corpo-a-corpo", () => {
+    assert.equal(alcanceDaArma({ tipo: "branca" }, {}, 10), 10);
+  });
+  test("alcance natural NÃO soma com a chave Alcance — vale o maior", () => {
+    assert.equal(alcanceDaArma({ tipo: "branca" }, { alcance: true }, 10), 10);
+    assert.equal(alcanceDaArma({ tipo: "branca" }, { alcance: true }, 2), 3);
+  });
+  test("alcance natural não afeta arma de fogo", () => {
+    assert.equal(alcanceDaArma({ tipo: "fogo" }, {}, 10), ALCANCE_ARMA.curto);
+  });
+});
+
+describe("Iniciativa — bônus de classe e filosofia", () => {
+  // Regressão: o Batedor somava +2 por hardcode em calc() E +2 pelo efeito
+  // declarado em Sentidos Alertas, terminando com +4 onde o livro promete +2.
+  test("Batedor soma +2, não +4", () => {
+    const f = { ...novaFichaDados(), classe: "Batedor" };
+    assert.equal(calc(f).iniciativa, calc(novaFichaDados()).iniciativa + 2);
+  });
+
+  test("Código do Sobrevivente soma +2 por efeito declarado", () => {
+    const f = { ...novaFichaDados(), filosofia: "Código do Sobrevivente" };
+    assert.equal(calc(f).iniciativa, calc(novaFichaDados()).iniciativa + 2);
+  });
+
+  test("Batedor + Código do Sobrevivente empilham para +4", () => {
+    const f = { ...novaFichaDados(), classe: "Batedor", filosofia: "Código do Sobrevivente" };
+    assert.equal(calc(f).iniciativa, calc(novaFichaDados()).iniciativa + 4);
+  });
+
+  test("k.iniBonus mostra só o que não veio da Destreza", () => {
+    const f = { ...novaFichaDados(), raca: "Mercusys", classe: "Batedor" };  // Des +3
+    const k = calc(f);
+    assert.equal(k.attr.Des, 3);
+    assert.equal(k.iniBonus, 2);
+    assert.equal(k.iniciativa, 5);
+  });
+});
+
+describe("Filosofias — efeitos declarados", () => {
+  test("Código do Sobrevivente declara imunidade a surpresa (usada pelo #cb-surpresa)", () => {
+    const k = calc({ ...novaFichaDados(), filosofia: "Código do Sobrevivente" });
+    assert.ok(k.efeitos.imunidades().some((i) => /surpres/i.test(i)));
+  });
+
+  test("Código do Cético dá resistência a psíquico e a Dominado", () => {
+    const k = calc({ ...novaFichaDados(), filosofia: "Código do Cético" });
+    assert.ok(k.efeitos.resistencias().includes("psíquico"));
+    assert.ok(k.efeitos.resistencias().includes("dominado"));
+  });
+
+  test("Caminho da Espiral marca a Vantagem nos dados de cura", () => {
+    assert.equal(calc({ ...novaFichaDados(), filosofia: "Caminho da Espiral" }).vantagemCura, true);
+    assert.notEqual(calc(novaFichaDados()).vantagemCura, true);
+  });
+
+  test("Código Corporativo declara Vantagem em Lábia / Persuasão", () => {
+    const k = calc({ ...novaFichaDados(), filosofia: "Código Corporativo" });
+    assert.ok(k.efeitos.vantagensPericia().some((v) => v.pericia === "Lábia / Persuasão"));
+  });
+
+  // Fronteira é condicional: só vale quando a situação `isolado` é verdadeira,
+  // calculada pelo campo tático na hora do ataque.
+  test("Código da Fronteira só soma +1 no acerto quando isolado", () => {
+    const k = calc({ ...novaFichaDados(), filosofia: "Código da Fronteira" });
+    assert.equal(k.efeitos.modificarAtaque({ situacao: { isolado: true } }).acerto, 1);
+    assert.equal(k.efeitos.modificarAtaque({ situacao: { isolado: false } }).acerto, 0);
+    assert.equal(k.efeitos.modificarAtaque({}).acerto, 0);
+  });
+
+  test("as 4 passivas não viram botão de habilidade ativa (tipo Passiva)", () => {
+    for (const nome of ["Caminho da Espiral", "Código Corporativo", "Código do Cético", "Código da Fronteira"])
+      assert.equal(FILOSOFIAS[nome].tipo, "Passiva", `${nome} deveria ser Passiva`);
+  });
+});
+
+describe("Ven'y — Argônio reduz dano, não sobe Defesa", () => {
+  // O texto sempre prometeu "−2 de dano físico recebido", mas o efeito declarado
+  // era {tipo:"defesa"} (+2 de CD) — mecânica diferente do que estava escrito.
+  test("o gás Argônio entra como redução de dano", () => {
+    const f = { ...novaFichaDados(), raca: "Ven'y", modos: { "Air Shifter": "Argônio" } };
+    const k = calc(f);
+    assert.equal(k.efeitos.aoSofrer().reducao, 2);
+    assert.equal(k.cd, calc({ ...novaFichaDados(), raca: "Ven'y" }).cd);
   });
 });
 
