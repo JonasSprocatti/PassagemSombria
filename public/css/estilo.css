@@ -1508,3 +1508,39 @@ html,body{max-width:100%;overflow-x:hidden}
   .bancada{border-radius:10px}.bc-slots{grid-template-columns:1fr}
   .bc-arma{gap:11px}.bc-silhueta{width:70px;height:70px}.bc-ic{font-size:32px}
 }
+
+/* ---- SOCIAL (amigos, chat geral, conversas, trechos) ---- */
+.soc-abas{margin-bottom:12px;flex-wrap:wrap}
+.soc-abas .mini{text-decoration:none}
+.soc-badge{display:inline-block;min-width:16px;padding:0 5px;border-radius:9px;background:var(--perigo);color:#fff;
+  font-size:10px;line-height:16px;text-align:center;font-family:'IBM Plex Mono',monospace;vertical-align:middle}
+.soc-badge[hidden]{display:none}
+.soc-av{width:28px;height:28px;border-radius:50%;object-fit:cover;flex:0 0 auto;border:1px solid var(--line)}
+.soc-av.grande{width:44px;height:44px}
+.soc-av-letra{display:inline-flex;align-items:center;justify-content:center;background:var(--panel2);color:var(--tech);
+  font-family:'Chakra Petch',sans-serif;font-weight:700;font-size:13px}
+.soc-linha{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.soc-acoes{margin-left:auto;display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.soc-acoes .mini{text-decoration:none}
+.soc-conversa{text-decoration:none;color:inherit}
+.soc-conversa > span{display:flex;flex-direction:column;min-width:0}
+.soc-recado{flex:1 1 100%;margin:4px 0 0;font-style:italic}
+.soc-perfil header{gap:10px}
+.soc-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-top:10px}
+.soc-stat{border:1px solid var(--line);border-radius:8px;padding:10px;display:flex;flex-direction:column;gap:2px;background:var(--panel2)}
+.soc-stat b{font-family:'Chakra Petch',sans-serif;font-size:24px;color:var(--chrome)}
+.soc-stat span{font-size:11px;text-transform:uppercase;letter-spacing:.05em}
+.soc-stat i{font-size:10px;color:var(--dim);font-style:normal}
+.soc-log{max-height:55vh;overflow-y:auto;display:flex;flex-direction:column;gap:8px;padding:6px 2px;margin-bottom:10px}
+.soc-log-livre{max-height:none}
+.soc-msg{display:flex;gap:8px;align-items:flex-start;max-width:85%}
+.soc-msg > div{border:1px solid var(--line);border-radius:10px;padding:7px 11px;background:var(--panel2);min-width:0}
+.soc-msg p{margin:3px 0 0;overflow-wrap:anywhere}
+.soc-msg.minha{align-self:flex-end;flex-direction:row-reverse}
+.soc-msg.minha > div{border-color:var(--tech)}
+.soc-msg.sistema{max-width:100%}.soc-msg.sistema > div{background:none;border-style:dashed}
+/* Apagar fica visível-mas-discreto em repouso: sem :hover no celular (CLAUDE.md). */
+.soc-apagar{opacity:.5;margin-left:6px;padding:0 6px}.soc-apagar:hover{opacity:1}
+.soc-link{width:100%;font-family:'IBM Plex Mono',monospace;font-size:11px}
+.soc-espectador{border:1px dashed var(--tech);border-radius:8px;padding:8px 10px;margin:8px 0 0}
+@media(max-width:720px){ .soc-msg{max-width:100%} }

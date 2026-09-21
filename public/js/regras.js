@@ -177,6 +177,12 @@ export function calc(f, opcoes = {}) {
   // os quatro implantes que já estavam no cálculo clássico não podem contar duas vezes
   const jaContados = ["Chip de Expansão de RAM", "Placas Subdérmicas de Titânio"];
   fe.fontes = fe.fontes.filter((x) => !jaContados.includes(x.nome));
+  // Operador de Máquinas Pesadas (Mecânico): as penalidades da armadura PESADA
+  // (perícia ou deslocamento negativos) não se aplicam. Os Portadores são
+  // criados de novo a cada calc(), então filtrar aqui não vaza pra outra ficha.
+  if (armRef?.t === "pesada" && fe.imunidades().some((i) => /armaduras pesadas/i.test(i || "")))
+    for (const x of fe.fontes) if (x.origem === "armadura")
+      x.efeitos = x.efeitos.filter((e) => !((e.tipo === "pericia" || e.tipo === "deslocamento") && (e.valor || 0) < 0));
   fe.aplicarNaFicha(k, { implantes: implantesAtivos, nivel: f.nivel || 1 });
   k.implantesInertes = semImplantes && (f.implantes || []).length > 0;
   k.ramLivre = Math.max(0, k.ramMax - (f.ramGasta || 0));   // recalcula após os efeitos
@@ -241,6 +247,10 @@ export const CONDICOES_INFO = [
   { n: "Silenciado",   ic: "🔇", dano: null,  d: "Não conjura Scripts nem usa habilidades que exijam fala." },
   { n: "Na Lista",     ic: "📜", dano: null,  d: "O nome está na lista de um Assassino: todo ataque dele contra este alvo conta como Ataque Furtivo." },
   { n: "Exposto",      ic: "🔬", dano: null,  d: "A fraqueza foi revelada: ataques contra o alvo causam +1d6 de dano." },
+  { n: "Ponto Fraco",  ic: "📐", dano: null,  d: "O ponto estrutural foi achado: o próximo ataque que acertar causa o dano máximo dos dados, sem rolar." },
+  { n: "Em Foco",      ic: "🔭", dano: null,  d: "Na mira de quem analisou: o próximo ataque dessa pessoa rola acerto E dano com Vantagem." },
+  { n: "Oculto",       ic: "👤", dano: null,  d: "Fora do campo de visão: o próximo ataque de quem está Oculto é furtivo; ataques contra ele têm Desvantagem." },
+  { n: "Ponto Cego",   ic: "🫥", dano: null,  d: "Misturado ao ambiente: os inimigos o ignoram e escolhem outros alvos até ele atacar." },
 ];
 export const CONDICOES = CONDICOES_INFO.map((c) => c.n);
 

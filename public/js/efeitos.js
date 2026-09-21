@@ -34,6 +34,7 @@ export const CONDICOES_ALVO = {
   disfarcado: { rot: "quando disfarçado" },
   social: { rot: "em cena social" },
   isolado: { rot: "sem aliados a 5 m de você" },
+  alvo_amedrontado: { rot: "contra alvo Amedrontado" },
 };
 
 // ---------------------------------------------------------------------------
@@ -129,6 +130,58 @@ export const EFEITOS = {
   // desconto (Dono do Contrato). O uso é rastreado pelo id da habilidade.
   desconto_loja: { rotulo: (e) => `1x/sessão: uma compra na loja com ${e.pct}% de desconto`,
     ficha: (e, k) => { k.descontoLoja = Math.max(k.descontoLoja || 0, e.pct || 0); } },
+
+  // ---- Modificadores de UMA habilidade (as Veteranas que "melhoram" a do NV1) ----
+  // Todos indexados pelo nome da habilidade: o handler lê k.<mapa>[h.nome].
+
+  // { tipo:"cargas_de", hab:"“Deixem isto comigo!”", valor:2 } — quantas vezes
+  // o efeito deixado pela habilidade vale antes de se gastar.
+  cargas_de: { rotulo: (e) => `${e.hab} vale ${e.valor} vezes`,
+    ficha: (e, k) => { const m = (k.cargasDe = k.cargasDe || {}); m[e.hab] = Math.max(m[e.hab] || 1, e.valor || 1); } },
+
+  // { tipo:"area_de", hab:"Fogo de Supressão", raio:5 } — alvo único vira área.
+  area_de: { rotulo: (e) => `${e.hab} passa a pegar uma área de ${e.raio} m`,
+    ficha: (e, k) => { (k.areaDe = k.areaDe || {})[e.hab] = Math.max(k.areaDe[e.hab] || 0, e.raio || 0); } },
+
+  // { tipo:"save_desvantagem", hab:"Grito de Saqueador" } — os alvos rolam o
+  // teste de resistência contra essa habilidade com Desvantagem.
+  save_desvantagem: { rotulo: (e) => `alvos testam contra ${e.hab} com Desvantagem`,
+    ficha: (e, k) => { (k.saveDesv = k.saveDesv || {})[e.hab] = true; } },
+
+  // { tipo:"gratis_por_combate", hab:"Ponto Estrutural Crítico" } — 1x por
+  // combate essa habilidade sai sem o custo/requisito dela (RAM, dano na nave,
+  // precisar ter derrubado alguém…). O uso grátis mora na linha do rastreador.
+  gratis_por_combate: { rotulo: (e) => `1x/combate: ${e.hab} sem custo`,
+    ficha: (e, k) => { (k.gratisPorCombate = k.gratisPorCombate || {})[e.hab] = true; } },
+
+  // { tipo:"cond_persiste", cond:"Ponto Cego", turnos:1 } — a condição que o
+  // próprio ataque desfaria em você dura mais N turnos em vez de sumir na hora.
+  cond_persiste: { rotulo: (e) => `${e.cond} persiste ${e.turnos} turno(s) depois de atacar`,
+    ficha: (e, k) => { (k.condPersiste = k.condPersiste || {})[e.cond] = e.turnos || 1; } },
+
+  // { tipo:"critico_em", valor:19, quando:"desprevenido" } — margem de crítico maior.
+  critico_em: { rotulo: (e) => `crítico com ${e.valor}–20${e.quando ? ` ${CONDICOES_ALVO[e.quando]?.rot || ""}` : ""}`,
+    ficha: (e, k) => { (k.criticoEm = k.criticoEm || []).push({ valor: e.valor, quando: e.quando || null }); } },
+
+  // { tipo:"catalogar" } — ao expor o ponto fraco de um inimigo, o TIPO dele
+  // entra no catálogo da ficha (f.catalogo) e o grupo inteiro passa a causar
+  // +1 de dano contra essa criatura, para sempre.
+  catalogar: { rotulo: () => "fraquezas expostas entram no catálogo: +1 de dano do grupo contra o tipo",
+    ficha: (e, k) => { k.catalogar = true; } },
+
+  // { tipo:"rouba_modulo" } — o Desmanche arranca uma peça de bancada inteira,
+  // que vai pra f.pecasSalvas e se instala de graça na bancada.
+  rouba_modulo: { rotulo: () => "o Desmanche arranca um módulo de arma que fica com você",
+    ficha: (e, k) => { k.roubaModulo = true; } },
+
+  // { tipo:"disparo_sem_cobertura" } — o próximo disparo ignora cobertura (em
+  // modo; o [data-atq] desliga o modo depois do tiro, igual ao tiro_perfeito).
+  disparo_sem_cobertura: { rotulo: () => "próximo disparo ignora qualquer cobertura",
+    ficha: (e, k) => { k.disparoSemCobertura = true; } },
+
+  // { tipo:"opcao_ataque", id, rot, d, multDano?, cond?, turnos? } — um checkbox
+  // a mais na barra de ataque (Tiro Incapacitante: metade do dano, alvo Lento).
+  opcao_ataque: { rotulo: (e) => `opção de ataque: ${e.rot}` },
 
   // { tipo:"conjuracao", valor:1 }
   conjuracao: { rotulo: (e) => `${sinal(e.valor)} na Conjuração`,
@@ -393,6 +446,10 @@ export class FichaEfeitos {
   // Perícias que rolam com Vantagem por efeito declarado (Rosto na Multidão do
   // Espião, Braço Mecânico Hidráulico, Código Corporativo…). Devolve o nome da
   // fonte pra quem for rolar poder dizer de onde veio a Vantagem.
+  // Checkboxes extras da barra de ataque (Tiro Incapacitante).
+  opcoesAtaque() {
+    return this.fontes.flatMap((x) => x.efeitos.filter((e) => e.tipo === "opcao_ataque").map((e) => ({ ...e, fonte: x.nome })));
+  }
   // Auras de jogador declaradas nesta ficha (Frequência do Músico).
   auras() {
     return this.fontes.flatMap((x) => x.efeitos.filter((e) => e.tipo === "aura").map((e) => ({ ...e, fonte: x.nome })));

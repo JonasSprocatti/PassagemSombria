@@ -24,6 +24,17 @@ import {
 
 const $ = (s) => document.querySelector(s);
 
+// Munição de UMA arma de nave, em texto curto: "∞ energia", "4/6 tiros",
+// "1/2 mísseis". É o que aparece no painel, no aviso sem alvo e no log do tiro.
+const TIPO_ARMA_NAVE = { energia: { ic: "⚡", rot: "energia" }, balistica: { ic: "🔩", rot: "balística" }, missil: { ic: "🚀", rot: "míssil" } };
+const textoMunicao = (nave, a) => {
+  const cap = capacidadeArma(a);
+  if (cap == null) return "∞ (energia)";
+  return `${municaoDe(nave, a)}/${cap} ${a.tipo === "missil" ? "unid." : "tiros"}`;
+};
+// Resumo do armamento inteiro — usado quando não há alvo, pra ninguém atirar às cegas.
+const resumoArmamento = (nave) => (nave?.armas || []).map((a) => `${TIPO_ARMA_NAVE[a.tipo]?.ic || "⚔"} ${a.n}: ${textoMunicao(nave, a)}`).join("\n");
+
 export function renderNave(ctx) {
   const { ui, camp, membros, nave, cbn, meuPosto, f, defesaNaveParty, bonusDefVeiculo } = ctx;
   return `
@@ -36,10 +47,21 @@ export function renderNave(ctx) {
                 <div class="barra"><span>Escudos ${nave.escudos}/${nave.escudos_max}</span><div><i style="width:${nave.escudos_max ? (100 * nave.escudos / nave.escudos_max) | 0 : 0}%;background:var(--tech)"></i></div></div>
               </div>
               <p class="regra">Defesa ${defesaNaveParty()}${bonusDefVeiculo() ? ` (10 + Manobra + ${bonusDefVeiculo()} do Piloto)` : ""} · ${esc(REGRAS_NAVE.defesa)}</p>
-              ${nave.armas?.length ? `<p class="regra">${nave.armas.map((a) => { const cap = capacidadeArma(a);
-                return `<b class="chrome">${esc(a.n)}</b> ${esc(a.dano)}${a.area && a.raio ? ` ◎ raio ${a.raio}m` : ""}${cap == null ? " (energia)" : ` — ${municaoDe(nave, a)}/${cap} ${a.tipo === "missil" ? "unid." : "tiros"}`}`; }).join(" · ")}</p>` : ""}
-              <label>Meu posto<select id="sel-posto"><option value="">— fora da nave —</option>
-                ${Object.entries(ESTACOES).map(([pk, e]) => `<option value="${pk}" ${meuPosto === pk ? "selected" : ""}>${e.n}</option>`).join("")}</select></label>
+              ${nave.armas?.length ? `<h4 class="sub" style="margin-top:10px">Armamento</h4>
+                <div class="mun-armas">${nave.armas.map((a) => {
+                  const cap = capacidadeArma(a), resta = cap == null ? null : municaoDe(nave, a);
+                  const t = TIPO_ARMA_NAVE[a.tipo] || { ic: "⚔", rot: a.tipo || "arma" };
+                  const nivel = cap == null ? "" : resta === 0 ? "vazio" : resta <= Math.ceil(cap / 3) ? "baixo" : "";
+                  // Pips até 12 unidades; acima disso só o número, pra não virar uma régua.
+                  const pips = cap != null && cap <= 12 ? `<div class="pips">${Array.from({ length: cap }, (_, i) => `<i class="pip ${i < resta ? "cheio" : ""}"></i>`).join("")}</div>` : "";
+                  return `<div class="municao-box ${nivel}">
+                    <div class="municao-cab"><span class="mun-arma-n" title="${esc(a.n)}">${t.ic} ${esc(a.n)}</span>
+                      <b>${cap == null ? "∞" : `${resta}<span class="dim">/${cap}</span>`}</b></div>
+                    ${pips}
+                    <p class="municao-msg">${esc(a.dano)} · ${t.rot}${a.area && a.raio ? ` · ◎ raio ${a.raio} m` : ""}${a.tipo === "balistica" ? " · recarrega no posto" : a.tipo === "missil" ? " · não recarrega em combate" : ""}${cap != null && resta === 0 ? " — <b>sem munição</b>" : ""}</p>
+                  </div>`; }).join("")}</div>` : ""}
+              ${ui.espectador ? "" : `<label>Meu posto<select id="sel-posto"><option value="">— fora da nave —</option>
+                ${Object.entries(ESTACOES).map(([pk, e]) => `<option value="${pk}" ${meuPosto === pk ? "selected" : ""}>${e.n}</option>`).join("")}</select></label>`}
               ${meuPosto && f ? `<div class="acoes-mesa">${ESTACOES[meuPosto].acoes.map((a, i) => `<button class="mini" data-est="${i}" title="${esc(a.d)}">${esc(a.n)}</button>`).join("")}</div>` : ""}
               ${(cbn.avarias || []).length ? `<div class="avarias">${cbn.avarias.map((av, ai) => `<div class="avaria"><b>⚠ ${esc(av.n)}</b> <span class="regra">${esc(av.e)}</span>${ui.souMestre ? `<button class="mini rm" data-av-fix="${ai}" title="Consertar">✔</button>` : ""}</div>`).join("")}</div>` : ""}
               ${ui.souMestre ? `<div class="acoes-mesa"><input id="nave-dano" type="number" placeholder="dano" style="width:70px"/><button id="nave-hit" class="mini dano">💥 NAVE SOFRE</button><button id="nave-upg" class="mini">🔧 Upgrades</button><button id="nave-repar" class="mini eq">🛠 Estaleiro</button></div>` : ""}
@@ -238,6 +260,16 @@ export function wireNave(ctx) {
     if (camp.combate?.ativo && !ui.souMestre
         && !podeAgirAgora(camp.combate, camp.combate.ordem.find((x) => x.personagem_id === ui.meuPers?.id)))
       return alert(`Não é o seu turno (vez de ${camp.combate.ordem[camp.combate.turno]?.nome || "outro combatente"}).`);
+    // Disparo sem alvo válido ou sem munição: avisa ANTES de gastar a ação e
+    // mostra o armamento inteiro — antes o posto rolava o d20 e não dizia nem
+    // qual arma, nem quanto sobrava de cada.
+    if (acao.danoNave) {
+      if (!camp.nave) return alert("A tripulação ainda não tem nave definida.");
+      const temAlvo = !!camp.combate?.ativo && camp.combate.ordem.some((x) => (x.tipo === "inimigo" || x.lado === "inimiga") && !foraDeCombate(x));
+      const comMunicao = (camp.nave.armas || []).some((a) => municaoDe(camp.nave, a) > 0);
+      if (!temAlvo || ((camp.nave.armas || []).length && !comMunicao))
+        return alert(`${!temAlvo ? "Nenhum alvo inimigo vivo no rastreador — nada foi disparado e a ação não foi gasta." : "Nenhuma arma com munição."}\n\nArmamento de ${camp.nave.nome_batismo || camp.nave.modelo}:\n${resumoArmamento(camp.nave) || "(só os canhões padrão)"}`);
+    }
     if (!(await gastarAcao("Ação Principal", `usar o posto: ${acao.n}`))) return;
     const nt = (camp.combate.nave = camp.combate.nave || naveTaticaVazia());
     let mexeuNaTatica = false;
@@ -391,7 +423,7 @@ export function wireNave(ctx) {
             linhas.push(`${alvoX.nome}: ${rd.msg}${alvoX.hp <= 0 ? " 💀 CAIU!" : ""}`);
           }
         }
-        extra = `${atkNave.n} [${atkNave.dano}] explode num raio de ${atkNave.raio} m em torno de ${epi.nome}${marcasBase.length ? "  ·  " + marcasBase.join(" · ") : ""}: ${linhas.join("  ·  ")}`;
+        extra = `${atkNave.n} [${atkNave.dano}] explode num raio de ${atkNave.raio} m em torno de ${epi.nome}${marcasBase.length ? "  ·  " + marcasBase.join(" · ") : ""}: ${linhas.join("  ·  ")}  ·  🎒 ${atkNave.n}: ${textoMunicao(camp.nave, atkNave)}`;
         camp.combate.agiram = [...new Set([...(camp.combate.agiram || []), meuPosto])];
         await salvarCamp({ combate: camp.combate, nave: camp.nave }, "salvar a ação do posto");
         if (mexeuNaTatica) await salvarCamp({ combate: camp.combate }, "salvar o estado tático");
@@ -433,6 +465,7 @@ export function wireNave(ctx) {
         }
         if (marcas.length) extra += `  ·  ${marcas.join(" · ")}`;
       } else extra = `Errou — Defesa ${def} da ${alvoObj.nome}.${marcas.length ? "  ·  " + marcas.join(" · ") : ""}`;
+      extra += `  ·  🎒 ${atkNave.n}: ${textoMunicao(camp.nave, atkNave)}`;
       camp.combate.agiram = [...new Set([...(camp.combate.agiram || []), meuPosto])];
       await salvarCamp({ combate: camp.combate, nave: camp.nave }, "salvar a ação do posto");
     } else if (camp.combate?.ativo) {

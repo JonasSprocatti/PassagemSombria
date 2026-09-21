@@ -15,11 +15,12 @@
 //  contra o rastreador) e `[data-atq]` moram aqui porque são combate PESSOAL do
 //  jogador — não o rastreador do Mestre (isso é mesa-combate.js).
 // ============================================================================
-import { RACAS, CLASSES, FILOSOFIAS, SCRIPTS, PERICIAS, propsArma, ehConsumivel, TIPOS_PENTE, PENTE_PADRAO, TIROS_POR_PENTE, custoTiro } from "./dados-jogo.js";
+import { RACAS, CLASSES, FILOSOFIAS, SCRIPTS, PERICIAS, MODS_ARMA, propsArma, ehConsumivel, TIPOS_PENTE, PENTE_PADRAO, TIROS_POR_PENTE, custoTiro } from "./dados-jogo.js";
 import { NIVEIS_AMEACA } from "./dados-bestiario.js";
 import {
   d, sign, parseDice, rollNd, danoCritico, aplicarCond, novaFichaDados, calc,
   distCombate, tipoDanoArma, alcanceDaArma, empurrarDe, dcSalvaguarda, podeAgirAgora, modosAtivosDe,
+  infoCond, ALCANCE_CAC,
 } from "./regras.js";
 import { modalForm, confirmModal, efeitoMatrix } from "./ui.js";
 import {
@@ -48,6 +49,11 @@ const armasEqDe = (f, semImplantes) => f ? [
   ...(semImplantes ? [] : (f.implantes || [])).filter((nome) => implanteComoArma(nome))
     .map((nome) => ({ nome, tipo: "arma", equip: true, _implante: true })),
 ] : [];
+// A habilidade já foi gasta? Descanso e sessão marcam em `f.usos`; 1x/combate
+// marca na própria linha do rastreador (`usosCombate`), que nasce vazia a cada
+// combate novo — não precisa de nenhuma limpeza no fim do combate.
+const usoGasto = (h, f, linha) => ((h.descanso || h.sessao) && !!f.usos?.[h.id])
+  || (h.porCombate && !!linha?.usosCombate?.[h.id]);
 // Resistência (mais fraca que imunidade): não anula nada, só dá Vantagem no
 // teste de resistência contra aquele tipo de dano/condição.
 const temResistencia = (kAlvo, chave) => !!(kAlvo?.efeitos && chave && kAlvo.efeitos.resistencias().includes(String(chave).toLowerCase()));
@@ -95,6 +101,7 @@ const rotuloAcao = (ac, f) => !ac ? "— livre —"
 export function renderFicha(ctx) {
   const { id, ui, f, k, camp, pers, meus, semImplantes, minhaLinhaCb } = ctx;
   const armasEq = armasEqDe(f, semImplantes);
+  const habUsada = (h) => usoGasto(h, f, minhaLinhaCb());
   return `
           <div class="mesa-painel" ${ui.abaMesa === "ficha" ? "" : "hidden"}>
           <section class="sec"><header><span class="tag">◈</span><h2>Meu personagem</h2></header>
@@ -128,10 +135,10 @@ export function renderFicha(ctx) {
                 const tp = TIPOS_PENTE[e2.tipo] || TIPOS_PENTE.padrao;
                 const seco = e2.tiros === 0 && totalReserva === 0;
                 const nivel = seco ? "vazio" : e2.tiros === 0 ? "critico" : totalReserva === 0 ? "baixo" : "";
-                const pips = Array.from({ length: TIROS_POR_PENTE }, (_, i2) => `<i class="pip ${i2 < e2.tiros ? "cheio" : ""}" style="${i2 < e2.tiros ? `background:${tp.cor};border-color:${tp.cor}` : ""}"></i>`).join("");
+                const pips = Array.from({ length: e2.cap }, (_, i2) => `<i class="pip ${i2 < e2.tiros ? "cheio" : ""}" style="${i2 < e2.tiros ? `background:${tp.cor};border-color:${tp.cor}` : ""}"></i>`).join("");
                 return `<div class="municao-box ${nivel}" style="${e2.tipo !== "padrao" ? `border-color:${tp.cor}` : ""}">
                   <div class="municao-cab"><span class="mun-arma-n" title="${esc(it.nome)}">${esc(it.nome.slice(0, 22))}</span>
-                    <b style="color:${tp.cor}">${e2.tiros}<span class="dim">/${TIROS_POR_PENTE}</span></b>
+                    <b style="color:${tp.cor}">${e2.tiros}<span class="dim">/${e2.cap}</span></b>
                     <button class="mini" data-trocar="${esc(it.nome)}" ${totalReserva <= 0 ? "disabled" : ""}>↻</button></div>
                   <div class="pips">${pips}</div>
                   <p class="municao-msg">${tp.ic} ${esc(tp.n)}${e2.tiros === 0 ? " — <b>pente vazio, troque!</b>" : ""}</p>
@@ -155,19 +162,21 @@ export function renderFicha(ctx) {
               <button id="teste-oposto" class="mini" title="Teste oposto: você e um alvo rolam perícias diferentes e o maior vence">⚖ OPOSTO</button>
               ${armasEq.length ? `<label class="chk" style="margin:0" title="Ataque furtivo: +2 no acerto (armas Ocultas / Assassino) e dano DOBRADO para o Assassino."><input type="checkbox" id="atq-furtivo"/> 🥷 Furtivo</label>` : ""}
               ${armasEq.some((a) => propsArma(catDoAtaque(a.nome) || {}).descarrega) ? `<label class="chk" style="margin:0" title="Esvazia o pente inteiro num tiro só — dado de dano extra por bala gasta além do custo normal (só armas com a palavra-chave Descarregar)."><input type="checkbox" id="atq-descarregar"/> 🔫 Descarregar</label>` : ""}
+              ${armasEq.length ? (k.efeitos?.opcoesAtaque?.() || []).map((o) => `<label class="chk" style="margin:0" title="${esc(o.d || "")}"><input type="checkbox" data-opc-atq="${esc(o.id)}"/> ${esc(o.rot)}</label>`).join("") : ""}
               ${armasEq.map((a, i) => { const cat = catDoAtaque(a.nome); const pr = cat ? propsArma(cat) : {};
                 const tip = [a._implante ? "Ataque de implante" : "", cat?.kw ? `${cat.kw}: ${pr.efeito}` : "", pr.area ? `Área: ${pr.areaTxt}` : "", pr.alcance ? `Alcance: ${pr.alcanceTxt}` : "", pr.agil ? "Ágil (Des)" : ""].filter(Boolean).join(" · ");
                 return `<button class="mini atq" data-atq="${i}" title="${esc(tip)}">${a._implante ? "⧉" : "⚔"} ${esc(a.nome)} (${cat ? danoArma(cat, f.nivel) : "—"})${pr.area ? " ◎" : ""}${pr.agil ? " ⚡" : ""}${pr.aoAcertar?.length ? " 🏷" : ""}${pr.ignoraArmadura ? " 🗡" : ""}</button>`; }).join("")}
               <select id="sel-scr">${(f.deck.length ? SCRIPTS.filter((s) => f.deck.includes(s.n)) : SCRIPTS.filter((s) => s.c === 0)).map((s) => `<option>${esc(s.n)}</option>`).join("")}</select>
               <button id="conjurar" class="mini">⚡ CONJURAR</button>
               ${(() => { const ats = habilidadesAtivas(f);
-                return ats.map((h) => { const usada = h.descanso && f.usos?.[h.id];
+                return ats.map((h) => { const usada = habUsada(h);
                   const modo = f.modos?.[h.nome];
                   const resta = f.modosAte?.[h.nome];
                   const op = modo && (h.opcoes?.find((o) => o.n === modo) || { ic: "★", n: h.nome.slice(0, 16), d: "" });
+                  const recarga = h.descanso ? `1×/descanso ${h.descanso}` : h.sessao ? "1×/sessão" : h.porCombate ? "1×/combate" : "";
                   return `<button class="mini hab-ativa ${usada ? "gasta" : ""} ${op ? "ligada" : ""}" data-hab-usar="${h.id}"
-                    title="${esc(h.origem)} · ${esc(h.d)}${h.descanso ? ` (1×/descanso ${h.descanso})` : ""}${op ? `\nAtivo: ${esc(op.n)} — ${esc(op.d)}` : ""}"
-                    ${usada ? "disabled" : ""}>${op ? `${op.ic} ${esc(op.n)}` : `★ ${esc(h.nome.slice(0, 20))}`}${modo && resta && resta < 90 ? ` <b>${resta}t</b>` : ""}${h.descanso ? (usada ? " ✓" : " ⟳") : ""}</button>`; }).join(""); })()}
+                    title="${esc(h.origem)} · ${esc(h.d)}${recarga ? ` (${recarga})` : ""}${op ? `\nAtivo: ${esc(op.n)} — ${esc(op.d)}` : ""}"
+                    ${usada ? "disabled" : ""}>${op ? `${op.ic} ${esc(op.n)}` : `★ ${esc(h.nome.slice(0, 20))}`}${modo && resta && resta < 90 ? ` <b>${resta}t</b>` : ""}${recarga ? (usada ? " ✓" : " ⟳") : ""}</button>`; }).join(""); })()}
               ${(f.inventario || []).filter((it) => ehConsumivel(it.nome) && (it.qtd || 1) > 0)
                 .map((it) => { const c = ehConsumivel(it.nome);
                   return `<button class="mini item-usa" data-item="${esc(it.nome)}" title="${esc(c.d)} · ${esc(c.acao)}">${c.ic} ${esc(it.nome.replace(/ de Batalha| de Campo| de Nanofibra|Kit de |Granada de |Granada /i, "").slice(0, 16))} <b>×${it.qtd || 1}</b></button>`; }).join("")}
@@ -229,7 +238,9 @@ export function wireFicha(ctx) {
   //  area + raio → escolhe um epicentro no campo e pega todo mundo dentro do raio
   // `empurrao`: metros que o alvo atingido é jogado para longe do epicentro (ou de
   // quem conjurou, quando não há epicentro) no campo tático — Repulsão Cinética e afins.
-  const aplicarEmAlvos = async ({ titulo, origem, dado = null, acerto = null, atributo = null, pericia = null, cd = null, cond = null, turnos = 2, area = false, raio = null, tipoDano = "físico", empurrao = 0 }) => {
+  // `desvSave`: os alvos rolam o teste de resistência com Desvantagem (Terror
+  // Nominal). Com resistência do alvo ao mesmo tempo, uma cancela a outra.
+  const aplicarEmAlvos = async ({ titulo, origem, dado = null, acerto = null, atributo = null, pericia = null, cd = null, cond = null, turnos = 2, area = false, raio = null, tipoDano = "físico", empurrao = 0, desvSave = false }) => {
     if (!camp.combate?.ativo || !camp.combate.ordem.length) {
       await enviar("sistema", `★ ${origem}: sem combate no rastreador — o Mestre resolve.${dado ? ` (dano ${dado})` : ""}${cond ? ` (${cond} ${turnos}t)` : ""}`);
       return true;   // narrado; não é cancelamento
@@ -288,10 +299,11 @@ export function wireFicha(ctx) {
         } else bo = NIVEIS_AMEACA[alvo.ameaca]?.ordem ?? Math.max(0, defesa - 10);
         const rot = pericia || atributo;
         const temRes = temResistencia(kA, cond) || temResistencia(kA, tipoDano);
-        const natS = temRes ? Math.max(d(20), d(20)) : d(20);
+        const saldo = (temRes ? 1 : 0) - (desvSave ? 1 : 0);
+        const natS = saldo > 0 ? Math.max(d(20), d(20)) : saldo < 0 ? Math.min(d(20), d(20)) : d(20);
         const tot = natS + bo;
         pegou = tot < cd;
-        det = ` [${rot} ${natS}${sign(bo)}=${tot}${temRes ? " (resistência: Vant.)" : ""} vs CD ${cd} — ${pegou ? "falhou" : "resistiu"}]`;
+        det = ` [${rot} ${natS}${sign(bo)}=${tot}${saldo > 0 ? " (resistência: Vant.)" : saldo < 0 ? " (Desv.)" : ""} vs CD ${cd} — ${pegou ? "falhou" : "resistiu"}]`;
       }
       let danoMsg = "";
       if (pegou && rolDano) { const rd = await aplicarDanoAlvo(alvo, rolDano, tipoDano); danoMsg = ` ${rd.msg}`; if (rd.imune) pegou = false; }
@@ -539,8 +551,25 @@ export function wireFicha(ctx) {
     // todo ataque é furtivo — mesmo sem o checkbox, mesmo com o alvo alerta.
     const condsAlvoObjs = alvoCombatente?.cond || [];
     const naLista = condsAlvoObjs.some((c) => c.n === "Na Lista" && c.origemId && c.origemId === minhaLinhaAtq?.id);
-    const alvoRealmenteDesprevenido = !alvoCombatente || condsAlvo.includes("surpreso") || alvoAindaNaoAgiu || naLista;
-    const furtivo = !!((furtivoMarcado || naLista) && alvoRealmenteDesprevenido);
+    // Oculto (Desaparecer nas Sombras): quem ataca de fora do campo de visão é
+    // furtivo por definição — igual à Na Lista, não precisa marcar o checkbox.
+    const souOculto = condsMinhas.includes("oculto");
+    const alvoRealmenteDesprevenido = !alvoCombatente || condsAlvo.includes("surpreso") || alvoAindaNaoAgiu || naLista || souOculto;
+    const furtivo = !!((furtivoMarcado || naLista || souOculto) && alvoRealmenteDesprevenido);
+    // Em Foco (Foco à Distância): o próximo ataque de QUEM analisou rola acerto
+    // e dano com Vantagem. Ponto Fraco (Ponto Estrutural): o próximo acerto de
+    // qualquer um causa dano máximo. Os dois se gastam neste ataque.
+    const emFocoObj = condsAlvoObjs.find((c) => c.n === "Em Foco" && c.origemId && c.origemId === minhaLinhaAtq?.id);
+    const pontoFracoObj = condsAlvoObjs.find((c) => c.n === "Ponto Fraco");
+    // "Deixem isto comigo!": carga deixada por OUTRO jogador (não por quem ataca).
+    const insp = camp.combate?.inspiracao;
+    const inspirado = !!(insp?.cargas > 0 && minhaLinhaAtq && insp.origemId !== minhaLinhaAtq.id);
+    // Opções de ataque marcadas (Tiro Incapacitante).
+    const opcoesMarcadas = (k.efeitos?.opcoesAtaque?.() || []).filter((o) => document.querySelector(`[data-opc-atq="${o.id}"]`)?.checked);
+    const multOpcoes = opcoesMarcadas.reduce((x, o) => x * (o.multDano ?? 1), 1);
+    // Análise em Cascata: +1 de dano do grupo contra tipos já catalogados por qualquer ficha.
+    const tipoAlvo = alvoCombatente && !alvoCombatente.personagem_id ? String(alvoCombatente.nome || "").replace(/ #\d+$/, "") : null;
+    const catalogado = !!tipoAlvo && (pers || []).some((p2) => (p2.id === ui.meuPers.id ? f.catalogo : p2.dados?.catalogo)?.includes(tipoAlvo));
     // Auras de JOGADOR (Frequência do Músico, Sinfonia Total): cada ficha em
     // combate declara as suas; aliado dentro do raio soma acerto, inimigo dentro
     // do raio perde Defesa. Sem posição no campo, vale pro combate inteiro — o
@@ -584,7 +613,10 @@ export function wireFicha(ctx) {
       x.id !== minhaLinhaAtq.id && !ehNave(x) && !foraDeCombate(x)
       && x.tipo !== "inimigo" && x.lado !== "inimiga"
       && (distCombate(minhaLinhaAtq, x) ?? 999) <= 5);
-    const situacaoAtq = { desprevenido: !!furtivo, em_nave: !!camp.combate?.naveEmCena, isolado };
+    const situacaoAtq = { desprevenido: !!furtivo, em_nave: !!camp.combate?.naveEmCena, isolado,
+      alvo_amedrontado: condsAlvo.includes("amedrontado") };   // Terror Nominal: +2 de dano contra Amedrontado
+    // Geometria da Morte: o próximo disparo com arma de fogo ignora cobertura.
+    const semCobertura = !!k.disparoSemCobertura && cat.tipo === "fogo";
     // Pesada: −2 no acerto de verdade — a passiva "Memória Muscular" do
     // Soldado (imunidade a "penalidade de -2 com armas Pesadas") já prometia
     // anular isso, mas nada aplicava a penalidade até agora.
@@ -599,9 +631,11 @@ export function wireFicha(ctx) {
       + (cat._efeitos || []).filter((e) => e.momento === "ao_atacar" && e.tipo === "acerto").reduce((x, e) => x + (e.valor || 0), 0);
     // Vantagem/desvantagem líquida: soma as fontes e reduz a −1 / 0 / +1.
     const vantEfeito = !!(k.efeitos && k.efeitos.modificarAtaque({ acerto: 0, dano: 0, arma: cat, alvo: alvoParaEfeitos, situacao: situacaoAtq }).vantagem);
-    const vantSoma = (ui.vantagem || 0) + (vantEfeito ? 1 : 0) + (alvoAberto ? 1 : 0) - (desvPorCond ? 1 : 0);
+    const vantSoma = (ui.vantagem || 0) + (vantEfeito ? 1 : 0) + (alvoAberto ? 1 : 0) - (desvPorCond ? 1 : 0)
+      + (emFocoObj ? 1 : 0) + (inspirado ? 1 : 0);
     const vantAtaque = vantSoma > 0 ? 1 : vantSoma < 0 ? -1 : 0;
-    const marcasVant = [vantEfeito ? "efeito" : "", alvoAberto ? "alvo exposto" : "", desvPorCond ? "condição" : ""].filter(Boolean).join(", ");
+    const marcasVant = [vantEfeito ? "efeito" : "", alvoAberto ? "alvo exposto" : "", desvPorCond ? "condição" : "",
+      emFocoObj ? "Em Foco" : "", inspirado ? `ordem de ${insp.nome}` : ""].filter(Boolean).join(", ");
     let nat, detVant = "";
     if (vantAtaque !== 0) { const r1 = d(20), r2 = d(20); nat = vantAtaque > 0 ? Math.max(r1, r2) : Math.min(r1, r2); detVant = ` [${vantAtaque > 0 ? "vant" : "desv"}${marcasVant ? ` (${marcasVant})` : ""} ${r1}/${r2}]`; } else nat = d(20);
     // Um Tiro não rola acerto. nat=20 só mantém os ramos "não é falha" de pé —
@@ -624,7 +658,10 @@ export function wireFicha(ctx) {
     // some um dado extra de dano por bala gasta além do custo normal do tiro.
     if (dadosExtraDescarregar > 0) dados = [...dados, ...rollNd(dadosExtraDescarregar, pd.f)];
     // Um Tiro: todo dado da arma na face máxima.
-    if (tiroPerfeito) dados = dados.map(() => pd.f);
+    // Em Foco: o dano também com Vantagem — rola de novo e fica com a maior soma.
+    if (emFocoObj && !tiroPerfeito) { const d2 = rollNd(dados.length, pd.f); if (d2.reduce((x, y) => x + y, 0) > dados.reduce((x, y) => x + y, 0)) dados = d2; }
+    // Um Tiro e Ponto Fraco: todo dado da arma na face máxima.
+    if (tiroPerfeito || pontoFracoObj) dados = dados.map(() => pd.f);
     // Dados extras que dependem do ALVO (Marca do Caçador, Exposto). Entram no
     // mesmo monte antes do crítico, pela regra "soma tudo, depois multiplica".
     // Só com alvo único: numa área o mesmo dano vai pra todo mundo pego, e o
@@ -641,7 +678,8 @@ export function wireFicha(ctx) {
     const modKw = [...(pr.efeitos || []), ...modsAtq].filter((e) => e.momento === "ao_atacar" && e.tipo === "dano" && !e.contra)
       .reduce((x, e) => x + (e.valor || 0), 0);
     const modAcertoPecas = modsAtq.filter((e) => e.tipo === "acerto").reduce((x, e) => x + (e.valor || 0), 0);
-    const danoMod = k.attr[atkAttr] + modKw + modAtq.dano + (cat.tipo === "branca" && f.implantes.includes("Braço Mecânico Hidráulico") ? 2 : 0);
+    const danoMod = k.attr[atkAttr] + modKw + modAtq.dano + (cat.tipo === "branca" && f.implantes.includes("Braço Mecânico Hidráulico") ? 2 : 0)
+      + (catalogado ? 1 : 0);   // Análise em Cascata: tipo catalogado
     // Paralisado (regra da mesa): qualquer ataque a até 2m dele que acerte é
     // Crítico automático — não só Vantagem. `alvoAberto` já cobre a Vantagem;
     // isto soma o multiplicador que faltava quando o alvo está perto o bastante.
@@ -653,15 +691,19 @@ export function wireFicha(ctx) {
     const semCriticoAlvo = alvoCombatente?.personagem_id
       ? !!calc({ ...novaFichaDados(), ...(pers.find((p2) => p2.id === alvoCombatente.personagem_id)?.dados || {}) }).efeitos?.aoSofrer?.().semCritico
       : false;
-    const critAuto = !tiroPerfeito && !semCriticoAlvo && (nat === 20 || (paralisadoPerto && nat !== 1));   // 1 natural ainda falha, mesmo contra alvo Paralisado
+    // Margem de crítico ampliada (Anatomia Comparada: 19–20 quando furtivo).
+    const margemCrit = Math.min(20, ...(k.criticoEm || []).filter((c) => !c.quando || situacaoAtq[c.quando]).map((c) => c.valor));
+    const critAuto = !tiroPerfeito && !semCriticoAlvo && ((nat >= margemCrit && nat !== 1) || (paralisadoPerto && nat !== 1));   // 1 natural ainda falha, mesmo contra alvo Paralisado
     // Multiplicador final: ×2 no crítico, ×2 no furtivo do Assassino — e o
     // Assassino veterano acumula os dois, chegando a ×4. Um Tiro é o seu próprio ×2.
     const multCrit = (critAuto ? 2 : 1) * (modAtq.multDano || 1) * (tiroPerfeito ? 2 : 1);
     const somaDados = dados.reduce((x, y) => x + y, 0);
-    const danoFinal = Math.floor(danoCritico(somaDados, danoMod, multCrit) * (enfraquecido ? 0.5 : 1));   // Enfraquecido: metade
+    const danoFinal = Math.floor(danoCritico(somaDados, danoMod, multCrit) * (enfraquecido ? 0.5 : 1) * multOpcoes);   // Enfraquecido / Tiro Incapacitante: metade
     const seriaCritico = !tiroPerfeito && (nat === 20 || (paralisadoPerto && nat !== 1));   // pra mostrar que a armadura bloqueou, não só omitir
     const marcadores = [tiroPerfeito ? "🎯 UM TIRO — acerto automático, dano máximo ×2" : "",
-      naLista ? "📜 Nome na Lista — furtivo" : "", auraAcerto ? `🎵 aura +${auraAcerto}` : "",
+      naLista ? "📜 Nome na Lista — furtivo" : "", souOculto ? "👤 ataca das sombras — furtivo" : "", auraAcerto ? `🎵 aura +${auraAcerto}` : "",
+      pontoFracoObj ? "📐 Ponto Fraco — dano máximo" : "", emFocoObj ? "🔭 Em Foco — vantagem no acerto e no dano" : "",
+      semCobertura ? "📏 ignora cobertura" : "", catalogado ? "📚 catalogado +1" : "", ...opcoesMarcadas.map((o) => o.rot),
       ...extrasAlvo.map((x) => `${x.rot} [${x.v}]`),
       critAuto && nat === 20 ? "CRÍTICO ×2" : critAuto ? "CRÍTICO automático (alvo Paralisado ≤2m) ×2" : (semCriticoAlvo && seriaCritico) ? "🛡 armadura anticrítica bloqueia o crítico" : "", furtivo && assassino ? "FURTIVO ×2" : furtivo ? "furtivo +2 acerto" : furtivoNegado ? "🥷 furtivo NÃO vale — alvo não está desprevenido" : "", pr.agil ? `Ágil (${atkAttr})` : "", pr.brutal ? "Brutal (vantagem)" : "", enfraquecido ? "Enfraquecido ½" : "", alvoMarcado ? "alvo Marcado +2" : "", penalidadePesada ? "Pesada −2" : (pr.pesada ? "Pesada (Memória Muscular anula)" : ""), pr.confiavel ? "Confiável (mín. garantido)" : "", dadosExtraDescarregar > 0 ? `Descarregou +${dadosExtraDescarregar}d${pd.f}` : ""].filter(Boolean).join(" · ");
     // Palavras-chave declaradas: condições ao acertar e perfuração de armadura.
@@ -702,13 +744,29 @@ export function wireFicha(ctx) {
       ...(pr.ignoraArmadura ? { ignoraArmadura: pr.ignoraArmadura } : {}),
       ...(alvoNave || alvoCombatente ? { alvo_resolvido: true } : {}),
       extra: [`Dano: ${danoFinal}${multCrit > 1 ? ` (${somaDados} + ${danoMod} × ${multCrit})` : ""}`, marcadores, efeitoKw, efeitoMun, infoArma].filter(Boolean).join("  —  ") });
-    // Um Tiro é UM tiro: desliga o modo que o concedeu assim que dispara.
-    if (tiroPerfeito) {
+    // Modos de UM disparo (Um Tiro, Geometria da Morte): desliga o modo que
+    // concedeu o efeito assim que ele é usado.
+    const efeitosDeUmTiro = [tiroPerfeito ? "tiro_perfeito" : "", semCobertura ? "disparo_sem_cobertura" : ""].filter(Boolean);
+    if (efeitosDeUmTiro.length) {
       const modos = { ...(ui.meuPers.dados.modos || {}) }, ate = { ...(ui.meuPers.dados.modosAte || {}) };
       for (const mo of modosAtivosDe(ui.meuPers.dados))
-        if (mo.efeitos.some((e) => e.tipo === "tiro_perfeito")) { const chave = mo.nome.split(": ")[0]; delete modos[chave]; delete ate[chave]; }
+        if (mo.efeitos.some((e) => efeitosDeUmTiro.includes(e.tipo))) { const chave = mo.nome.split(": ")[0]; delete modos[chave]; delete ate[chave]; }
       ui.meuPers.dados = { ...ui.meuPers.dados, modos, modosAte: ate }; f.modos = modos;
-      await salvarFicha(ui.meuPers.id, ui.meuPers.dados, "gastar o Um Tiro");
+      await salvarFicha(ui.meuPers.id, ui.meuPers.dados, "gastar o disparo especial");
+    }
+    // Efeitos que se gastam no ATAQUE (acertando ou não): a carga de "Deixem
+    // isto comigo!", o Em Foco de quem analisou, e o próprio esconderijo —
+    // quem ataca sai do Oculto na hora; o Ponto Cego cai, salvo cond_persiste
+    // (Identidade Profunda), que o segura mais N turnos.
+    if (camp.combate?.ativo) {
+      if (inspirado) { insp.cargas -= 1; if (insp.cargas <= 0) delete camp.combate.inspiracao; }
+      if (emFocoObj) alvoCombatente.cond = alvoCombatente.cond.filter((c) => c !== emFocoObj);
+      if (minhaLinhaAtq?.cond?.length) {
+        const persiste = k.condPersiste?.["Ponto Cego"];
+        minhaLinhaAtq.cond = minhaLinhaAtq.cond.filter((c) => c.n !== "Oculto" && (c.n !== "Ponto Cego" || persiste))
+          .map((c) => c.n === "Ponto Cego" && persiste ? { ...c, turnos: Math.min(c.turnos, persiste + 1) } : c);
+      }
+      if (inspirado || emFocoObj || souOculto || condsMinhas.includes("ponto cego")) await salvarCombate();
     }
     // Sobreaquecimento: num natural 1, a arma superaquece e queima a mão de
     // quem atira — "pode superaquecer se disparada em excesso" virou de fato
@@ -762,7 +820,7 @@ export function wireFicha(ctx) {
       // Atravessa Paredes (pr.ignoraCobertura) ignora a cobertura de qualquer alcance.
       // Marca do Caçador (`ignoraCob` na condição) anula cobertura até o nível dela.
       const nivelCob = alvoCombatente.cobertura || 0;
-      const cob = (cat.tipo === "branca" || pr.ignoraCobertura || tiroPerfeito || nivelCob <= ignoraCobMarca) ? 0 : [0, 2, 5][nivelCob];
+      const cob = (cat.tipo === "branca" || pr.ignoraCobertura || tiroPerfeito || semCobertura || nivelCob <= ignoraCobMarca) ? 0 : [0, 2, 5][nivelCob];
       const defBase = alvoCombatente.cd ?? 10;
       const auraDef = auraDefDe(alvoCombatente);   // Ressonância de um Músico: −2
       const def = Math.max(0, defBase + cob - (pr.ignoraArmadura || 0) + auraDef);
@@ -787,6 +845,15 @@ export function wireFicha(ctx) {
           expostoObj.cargas = (expostoObj.cargas ?? 1) - 1;
           if (expostoObj.cargas <= 0) alvoCombatente.cond = (alvoCombatente.cond || []).filter((c) => c !== expostoObj);
         }
+        // Ponto Fraco se gasta no primeiro acerto.
+        if (pontoFracoObj) alvoCombatente.cond = (alvoCombatente.cond || []).filter((c) => c !== pontoFracoObj);
+        // Opções de ataque com condição (Tiro Incapacitante → Lento).
+        for (const o of opcoesMarcadas) if (o.cond && !rd.absorvido && !rd.imune) {
+          aplicarCond(alvoCombatente, o.cond, o.turnos || 1, minhaLinhaAtq?.id || null);
+          conds.push(`${o.rot}: ${o.cond} ${o.turnos || 1}t`);
+        }
+        // Abate registrado no turno — é o requisito do Desaparecer nas Sombras.
+        if (foraDeCombate(alvoCombatente) && minhaLinhaAtq) minhaLinhaAtq.abateEm = { rodada: camp.combate.rodada, turno: camp.combate.turno };
         await salvarCombate();
         await enviar("sistema", `🎯 ${ui.meuPers.nome} acerta ${alvoCombatente.nome} com ${a.nome} (${defTxt}${txtDist}): ${rd.msg}.${foraDeCombate(alvoCombatente) ? " 💀 CAIU!" : ""}${conds.length ? `  —  ${conds.join(" · ")}` : ""}${pr.empurrao ? " ↗ empurrado" : ""}`);
       } else {
@@ -853,7 +920,10 @@ export function wireFicha(ctx) {
     const inv = dd1.inventario || [];
     const ix = inv.findIndex((x) => x.nome === nomeArma && x.equip);
     if (ix < 0) return;
-    if (!(await gastarAcao("Ação de Movimento", `recarregar ${nomeArma}`))) return;
+    // Alimentador Duplo (_trocaLivre): a troca de pente dessa arma vira Ação Livre.
+    const e0 = estadoArma(dd1, inv[ix]);
+    const trocaLivre = !!armaMontada(e0?.cat, inv[ix])?._trocaLivre;
+    if (!trocaLivre && !(await gastarAcao("Ação de Movimento", `recarregar ${nomeArma}`))) return;
     const res = normalizaPentes(dd1);
     const disp = Object.entries(res).filter(([, q]) => q > 0);
     if (!disp.length) { await enviar("sistema", `🔫 ${ui.meuPers.nome} procura um pente e não acha nenhum.`); return render(); }
@@ -871,12 +941,12 @@ export function wireFicha(ctx) {
     const it = inv[ix]; const e2 = estadoArma(dd1, it);
     if (e2.tiros > 0 && e2.tipo !== escolha) res[e2.tipo] = (res[e2.tipo] || 0) + 1;   // o pente cheio volta
     res[escolha] -= 1;
-    const novoInv = inv.map((x, i2) => i2 === ix ? { ...x, tiros: TIROS_POR_PENTE, tipoPente: escolha } : x);
+    const novoInv = inv.map((x, i2) => i2 === ix ? { ...x, tiros: e2.cap, tipoPente: escolha } : x);
     ui.meuPers.dados = { ...dd1, inventario: novoInv, pentes: res, __migrouArma: true };
     f.inventario = novoInv; f.pentes = res;
     await salvarFicha(ui.meuPers.id, ui.meuPers.dados);
     const t3 = TIPOS_PENTE[escolha];
-    await enviar("sistema", `🔫 ${ui.meuPers.nome} carrega ${t3.ic} ${t3.n} em ${nomeArma} (Ação de Movimento).`);
+    await enviar("sistema", `🔫 ${ui.meuPers.nome} carrega ${t3.ic} ${t3.n} em ${nomeArma} — ${e2.cap} tiros (${trocaLivre ? "Ação Livre, Alimentador Duplo" : "Ação de Movimento"}).`);
     render();
   };
   document.querySelectorAll("[data-trocar]").forEach((b2) => b2.onclick = () => trocarPenteDe(b2.dataset.trocar, null));
@@ -887,7 +957,7 @@ export function wireFicha(ctx) {
     if (fogo.length > 1) {
       const r = await modalForm({ titulo: "↻ Carregar em qual arma?",
         campos: [{ k: "a", label: "Arma", tipo: "select", opcoes: fogo.map((it) => { const e2 = estadoArma(f, it);
-          return { v: it.nome, l: `${it.nome} — ${e2.tiros}/${TIROS_POR_PENTE}` }; }) }], okLabel: "Carregar" });
+          return { v: it.nome, l: `${it.nome} — ${e2.tiros}/${e2.cap}` }; }) }], okLabel: "Carregar" });
       if (!r?.a) return; alvo = r.a;
     }
     trocarPenteDe(alvo, b2.dataset.carregar);
@@ -914,7 +984,7 @@ export function wireFicha(ctx) {
   document.querySelectorAll("[data-hab-usar]").forEach((bt) => bt.onclick = async () => {
     const ats = habilidadesAtivas(f);
     const h = ats.find((x) => x.id === bt.dataset.habUsar); if (!h) return;
-    if (h.descanso && f.usos?.[h.id]) return;
+    if (usoGasto(h, f, minhaLinhaCb())) return;
     const trvH = minhaTrava(["silenciado"]);
     if (trvH) return alert(`${ui.meuPers.nome} está ${trvH.n} e não pode usar ${h.nome} neste turno.`);
     const hRaw = (() => {   // a declaração completa, com resolve/duracao
@@ -931,18 +1001,175 @@ export function wireFicha(ctx) {
     })();
     const turnos = duracaoDe(hRaw, f.nivel);
     const R = hRaw?.resolve;
+    // Uso grátis 1x/combate (Análise em Cascata, Um com a Máquina, Anatomia
+    // Comparada): a habilidade sai sem o custo/requisito dela uma vez por combate.
+    // Quem decide se QUER gastar é o ramo que resolve (usouGratis = true).
+    const eu0 = minhaLinhaCb();
+    const gratisDisponivel = !!k.gratisPorCombate?.[h.nome] && !!eu0 && !eu0.usosCombate?.[`gratis:${h.id}`];
+    let usouGratis = false;
+    // Custo de RAM declarado (Ponto Estrutural Crítico, Repulsão Cinética). O
+    // campo `ram` existia no dado desde sempre, mas nada cobrava.
+    const custoRam = hRaw?.ram || 0;
+    if (custoRam) {
+      if (gratisDisponivel) usouGratis = true;
+      else if ((k.ramLivre || 0) < custoRam) return alert(`${h.nome} custa ${custoRam} Slot(s) de RAM e você tem ${k.ramLivre || 0} livre(s).`);
+    }
     // Veteranas que "viram Ação de Movimento" declaram isso num efeito acao_de;
     // sem ele, vale o custo escrito na própria habilidade.
     if (!(await gastarAcao(k.acaoDe?.[h.nome] || hRaw?.acao, `usar ${h.nome}`))) return;
-    // Marca o uso de habilidades 1x/descanso. Chamado por TODO ramo que resolve
-    // sozinho — antes os ramos "modo" e "tabela" retornavam sem marcar, e a
-    // Fúria / o Êxtase podiam ser ligados de novo quantas vezes se quisesse.
+    // Ponto ÚNICO de "a habilidade foi usada": marca descanso/sessão em f.usos,
+    // 1x/combate e o uso grátis na linha do rastreador, e cobra a RAM. TODO ramo
+    // que resolve chama isto — antes os ramos "modo" e "tabela" nem marcavam
+    // (Fúria e Êxtase religavam sem limite) e nenhum ramo cobrava RAM.
     const marcarUso = async () => {
-      if (!h.descanso) return;
-      const usos = { ...(ui.meuPers.dados.usos || {}), [h.id]: true };
-      ui.meuPers.dados = { ...ui.meuPers.dados, usos }; f.usos = usos;
-      await salvarFicha(ui.meuPers.id, ui.meuPers.dados);
+      let mudou = false;
+      if (h.descanso || h.sessao) {
+        const usos = { ...(ui.meuPers.dados.usos || {}), [h.id]: true };
+        ui.meuPers.dados = { ...ui.meuPers.dados, usos }; f.usos = usos; mudou = true;
+      }
+      if (custoRam && !usouGratis) {
+        const rg = (ui.meuPers.dados.ramGasta || 0) + custoRam;
+        ui.meuPers.dados = { ...ui.meuPers.dados, ramGasta: rg }; f.ramGasta = rg; mudou = true;
+      }
+      if (mudou) await salvarFicha(ui.meuPers.id, ui.meuPers.dados);
+      const linha = minhaLinhaCb();
+      if (linha && (h.porCombate || usouGratis)) {
+        linha.usosCombate = { ...(linha.usosCombate || {}) };
+        if (h.porCombate) linha.usosCombate[h.id] = true;
+        if (usouGratis) linha.usosCombate[`gratis:${h.id}`] = true;
+        await salvarCombate();
+      }
     };
+
+    // ---- Consulta ao Mestre (Mapa Mental, Cláusula de Contingência) ----
+    // A resposta é do Mestre — o que o app garante é o registro e o limite de uso.
+    if (R?.tipo === "consulta") {
+      const r2 = await modalForm({ titulo: `★ ${h.nome}`, descricao: h.d,
+        campos: [{ k: "q", label: R.pergunta || "Sobre o quê?", tipo: "texto" }], okLabel: "Pedir ao Mestre" });
+      if (!r2?.q?.trim()) return;
+      await marcarUso();
+      await enviar("sistema", `★ ${ui.meuPers.nome} usa **${h.nome}** — "${r2.q.trim()}". 🎲 Mestre: ${h.d}`);
+      return render();
+    }
+
+    // ---- Teste de perícia declarado (Charme Malandro, Sobrecarga de Propulsores) ----
+    if (R?.tipo === "teste") {
+      const at = (PERICIAS.find(([x]) => x === R.pericia) || [])[1];
+      const bo = (k.attr[at] || 0) + (k.per[R.pericia] || 0);
+      const r1 = d(20), r2 = d(20), nat = R.vantagem ? Math.max(r1, r2) : r1;
+      let extra = "";
+      // Custo na estrutura da nave — pulado no uso grátis (Um com a Máquina).
+      if (R.danoNave && camp.nave) {
+        if (gratisDisponivel) { usouGratis = true; extra = "a nave aguenta sem dano (Um com a Máquina)"; }
+        else {
+          const pdN = parseDice(R.danoNave); const vN = rollNd(pdN.n, pdN.f).reduce((x, y) => x + y, 0);
+          camp.nave.casco = Math.max(0, (camp.nave.casco || 0) - vN);
+          await salvarCamp({ nave: camp.nave }, "salvar o casco da nave");
+          extra = `a estrutura sofre ${R.danoNave} [${vN}] (casco ${camp.nave.casco}/${camp.nave.casco_max})`;
+        }
+      }
+      await marcarUso();
+      await enviar("rolagem", null, { titulo: `★ ${ui.meuPers.nome} — ${h.nome}${R.rot ? ` (${R.rot})` : ""}`,
+        detalhe: `d20 [${nat}]${R.vantagem ? ` [vant ${r1}/${r2}]` : ""} ${sign(bo)} ${R.pericia}`,
+        total: nat + bo, crit: nat === 20, fumble: nat === 1, extra });
+      return render();
+    }
+
+    // ---- Deixar Vantagem pro próximo aliado ("Deixem isto comigo!") ----
+    // Mora em camp.combate.inspiracao; o [data-atq] de qualquer OUTRO jogador
+    // consome uma carga e rola com Vantagem.
+    if (R?.tipo === "inspirar") {
+      if (!camp.combate?.ativo || !eu0) return alert(`${h.nome} só funciona em combate, com você no rastreador.`);
+      const cargas = k.cargasDe?.[h.nome] || R.cargas || 1;
+      camp.combate.inspiracao = { cargas, origemId: eu0.id, nome: ui.meuPers.nome };
+      await salvarCombate();
+      await marcarUso();
+      await enviar("sistema", `📣 ${ui.meuPers.nome}: **${h.nome}** — ${cargas > 1 ? `os ${cargas} próximos aliados` : "o próximo aliado"} a atacar ganha Vantagem.`);
+      return render();
+    }
+
+    // ---- Condição em si mesmo (Ponto Cego) ----
+    if (R?.tipo === "condicao_propria") {
+      if (!camp.combate?.ativo || !eu0) return alert(`${h.nome} só funciona em combate, com você no rastreador.`);
+      aplicarCond(eu0, R.cond, R.turnos || 1);
+      await salvarCombate();
+      await marcarUso();
+      await enviar("sistema", `★ ${ui.meuPers.nome} — **${h.nome}**: fica ${R.cond}. ${infoCond(R.cond)?.d || ""}`);
+      return render();
+    }
+
+    // ---- Sumir de vista (Desaparecer nas Sombras) ----
+    // Requisito: ter derrubado alguém NESTE turno (linha.abateEm, gravado pelo
+    // [data-atq]) — ou o uso grátis 1x/combate da Anatomia Comparada.
+    if (R?.tipo === "esconder") {
+      if (!camp.combate?.ativo || !eu0) return alert(`${h.nome} só funciona em combate, com você no rastreador.`);
+      const abateuAgora = eu0.abateEm?.rodada === camp.combate.rodada && eu0.abateEm?.turno === camp.combate.turno;
+      if (R.requerAbate && !abateuAgora) {
+        if (gratisDisponivel) usouGratis = true;
+        else return alert(`${h.nome} só depois de derrubar um inimigo neste turno.`);
+      }
+      const inimigosV = camp.combate.ordem.filter((c2) => !foraDeCombate(c2) && (c2.tipo === "inimigo" || c2.lado === "inimiga"));
+      // CD: o olho mais atento em campo — 10 + a maior ordem de ameaça viva.
+      const cdE = 10 + Math.max(0, ...inimigosV.map((c2) => NIVEIS_AMEACA[c2.ameaca]?.ordem ?? Math.max(0, (c2.cd ?? 10) - 10)));
+      const at = (PERICIAS.find(([x]) => x === R.pericia) || [])[1];
+      const bo = (k.attr[at] || 0) + (k.per[R.pericia] || 0), nat = d(20), tot = nat + bo;
+      const ok = nat !== 1 && tot >= cdE;
+      if (ok) aplicarCond(eu0, "Oculto", 99);
+      await salvarCombate();
+      await marcarUso();
+      await enviar("rolagem", null, { titulo: `★ ${ui.meuPers.nome} — ${h.nome}`,
+        detalhe: `d20 [${nat}] ${sign(bo)} ${R.pericia} vs CD ${cdE}`, total: tot, crit: nat === 20, fumble: nat === 1,
+        extra: ok ? "👤 some do campo de visão — Oculto: o próximo ataque é furtivo, ataques contra ele têm Desvantagem." : "os inimigos ainda o veem." });
+      return render();
+    }
+
+    // ---- Invocar um aliado no rastreador (Torreta de Sucata) ----
+    // A linha é `semTurno` (proximoTurno pula) e `dono` = quem montou: o
+    // #cb-prox faz ela disparar sozinha no início do turno do dono.
+    if (R?.tipo === "invocar_aliado") {
+      if (!camp.combate?.ativo || !eu0) return alert(`${h.nome} só funciona em combate, com você no rastreador.`);
+      const bonus = (k.attr[R.attr] || 0) + (k.per[R.pericia] || 0);
+      snapshot(h.nome);
+      camp.combate.ordem.push({ id: "c" + Math.random().toString(36).slice(2, 8), nome: `${R.nome} (${ui.meuPers.nome})`,
+        ini: 0, hp: R.hp, hp_max: R.hp, cd: R.cd, tipo: "aliado", lado: "aliada", semTurno: true, dono: eu0.id,
+        torreta: { dano: R.dano, alcance: R.alcance, bonus },
+        ...(eu0.pos ? { pos: { x: Math.max(0, eu0.pos.x - 1), lane: eu0.pos.lane } } : {}) });
+      await salvarCombate();
+      await marcarUso();
+      await enviar("sistema", `🔧 ${ui.meuPers.nome} monta uma **${R.nome}** (${R.hp} PV, Def ${R.cd}): dispara ${R.dano} ${sign(bonus)} a até ${R.alcance} m no início de cada turno de ${ui.meuPers.nome}.`);
+      return render();
+    }
+
+    // ---- Arrancar blindagem (Desmanche Rápido) ----
+    if (R?.tipo === "desmanche") {
+      if (!camp.combate?.ativo || !eu0) return alert(`${h.nome} só funciona em combate, com você no rastreador.`);
+      const adj = camp.combate.ordem.filter((c2) => !ehNave(c2) && !foraDeCombate(c2) && (c2.tipo === "inimigo" || c2.lado === "inimiga")
+        && (distCombate(eu0, c2) ?? 0) <= ALCANCE_CAC + 0.01);
+      if (!adj.length) return alert(`${h.nome}: nenhum inimigo adjacente (até ${String(ALCANCE_CAC).replace(".", ",")} m).`);
+      const mecanico = (c2) => /rob|sintét|drone|andr|mec|torret|autômat|ciborg/i.test(`${c2.nome || ""} ${c2.categoria || ""}`);
+      const r2 = await modalForm({ titulo: `★ ${h.nome}`, descricao: h.d,
+        campos: [{ k: "alvo", label: "Arrancar de quem?", tipo: "select",
+          opcoes: adj.map((c2) => ({ v: c2.id, l: `${c2.nome} — Def ${c2.cd ?? 10}${mecanico(c2) ? "" : " ⚠ não parece mecânico"}` })) }], okLabel: "Arrancar" });
+      if (!r2?.alvo) return;
+      const alvo = adj.find((c2) => c2.id === r2.alvo);
+      if (!mecanico(alvo) && !(await confirmModal(`${alvo.nome} não parece mecânico. O Desmanche só funciona em máquina, robô ou objeto.\n\nContinuar assim mesmo?`, { okLabel: "Continuar" }))) return;
+      snapshot(h.nome);
+      const pdD = parseDice(R.dado); const vD = rollNd(pdD.n, pdD.f).reduce((x, y) => x + y, 0);
+      const rd = await aplicarDanoAlvo(alvo, vD, "físico");
+      alvo.cd = Math.max(0, (alvo.cd ?? 10) - (R.reduzCd || 1));
+      let roubou = "";
+      if (k.roubaModulo && MODS_ARMA.length) {
+        const peca = MODS_ARMA[Math.floor(Math.random() * MODS_ARMA.length)];
+        const pecas = [...(ui.meuPers.dados.pecasSalvas || []), peca.n];
+        ui.meuPers.dados = { ...ui.meuPers.dados, pecasSalvas: pecas }; f.pecasSalvas = pecas;
+        await salvarFicha(ui.meuPers.id, ui.meuPers.dados, "guardar a peça arrancada");
+        roubou = ` 🧰 E fica com o módulo **${peca.n}** — instala de graça na bancada.`;
+      }
+      await salvarCombate();
+      await marcarUso();
+      await enviar("sistema", `🔩 ${ui.meuPers.nome} — **${h.nome}** em ${alvo.nome}: ${R.dado} [${vD}] · ${rd.msg} · Defesa cai para ${alvo.cd} (permanente).${roubou}`);
+      return render();
+    }
 
     // ---- Turno extra (Palavra de Capitão, É Agora ou Nunca) ----
     // Dá ações novas (Principal e Movimento) e libera a pessoa pra agir AGORA,
@@ -1006,6 +1233,19 @@ export function wireFicha(ctx) {
         const c3 = alvo.cond.find((c2) => c2.n === R.cond);
         if (R.ignoraCobertura) c3.ignoraCob = R.ignoraCobertura;
         if (R.cond === "Exposto") c3.cargas = k.expostoCargas || 1;
+        else if (R.cargas) c3.cargas = R.cargas;
+      }
+      // Análise em Cascata: o tipo da criatura cujo ponto fraco foi achado entra
+      // no catálogo da ficha — +1 de dano do grupo inteiro contra ela, pra sempre.
+      if (R.cond === "Ponto Fraco" && k.catalogar) {
+        const tipos = alvos.filter((a2) => !a2.personagem_id).map((a2) => String(a2.nome || "").replace(/ #\d+$/, ""));
+        const cat0 = ui.meuPers.dados.catalogo || [];
+        const novos = tipos.filter((t2) => !cat0.includes(t2));
+        if (novos.length) {
+          ui.meuPers.dados = { ...ui.meuPers.dados, catalogo: [...cat0, ...novos] }; f.catalogo = ui.meuPers.dados.catalogo;
+          await salvarFicha(ui.meuPers.id, ui.meuPers.dados, "catalogar a fraqueza");
+          await enviar("sistema", `📚 Catalogado: ${novos.join(", ")} — o grupo causa +1 de dano contra esse tipo daqui em diante.`);
+        }
       }
       await salvarCombate();
       await marcarUso();
@@ -1068,8 +1308,7 @@ export function wireFicha(ctx) {
       }
       await enviar("cura", null, { alvo_id: alvo.id, alvo_nome: alvo.nome, valor: Math.max(0, val),
         origem: `★ ${h.nome} de ${ui.meuPers.nome}`, detalhe: `${R.dado} [${bruto}]${R.attr ? ` + ${R.attr}` : ""}${nota}`, aplicado: false });
-      if (h.descanso) { const usos = { ...(ui.meuPers.dados.usos || {}), [h.id]: true };
-        ui.meuPers.dados = { ...ui.meuPers.dados, usos }; await salvarFicha(ui.meuPers.id, ui.meuPers.dados); }
+      await marcarUso();
       return render();
     }
     if (R?.tipo === "transferir_pv") {    // Emprestar Vitalidade
@@ -1125,9 +1364,7 @@ export function wireFicha(ctx) {
       await enviar("rolagem", null, { titulo: `★ ${h.nome}`,
         detalhe: `${ui.meuPers.nome} d20 [${nat}] ${sign(meuBonus)} = ${meu}  ·  ${alvoNome} d20 [${natA}] ${sign(alvoBonus)} = ${contra}`,
         total: meu, crit: nat === 20, fumble: nat === 1, extra });
-      if (h.descanso) { const usos = { ...(ui.meuPers.dados.usos || {}), [h.id]: true };
-        ui.meuPers.dados = { ...ui.meuPers.dados, usos }; f.usos = usos;
-        await salvarFicha(ui.meuPers.id, ui.meuPers.dados); }
+      await marcarUso();
       return render();
     }
     if (R?.tipo === "pvtemp") {           // Reparo Tático: PV Temporário num aliado
@@ -1138,8 +1375,20 @@ export function wireFicha(ctx) {
       if (!R.proprio) {
         const r2 = await modalForm({ titulo: `★ ${h.nome}`, descricao: h.d,
           campos: [{ k: "alvo", label: "Em quem?", tipo: "select",
-            opcoes: (pers || []).map((p2) => ({ v: p2.id, l: p2.id === ui.meuPers.id ? `${p2.nome} (você)` : p2.nome })) }], okLabel: "Reforçar" });
+            opcoes: [...(pers || []).map((p2) => ({ v: p2.id, l: p2.id === ui.meuPers.id ? `${p2.nome} (você)` : p2.nome })),
+              ...(R.nave && camp.nave ? [{ v: "__nave__", l: `🚀 ${camp.nave.nome || "a nave"} — reforça os escudos` }] : [])] }], okLabel: "Reforçar" });
         if (!r2?.alvo) return;
+        // Nave (Reparo Tático: "aliado ou nave"): o reforço vai pros escudos, até o teto.
+        if (r2.alvo === "__nave__") {
+          const antes = camp.nave.escudos || 0;
+          camp.nave.escudos = Math.min(camp.nave.escudos_max ?? antes + val.total, antes + val.total);
+          await salvarCamp({ nave: camp.nave }, "reforçar os escudos da nave");
+          await marcarUso();
+          await enviar("rolagem", null, { titulo: `★ ${h.nome}`,
+            detalhe: `${R.dado} [${val.ds.join(", ")}]${val.bo ? ` +${val.bo} ${R.pericia || R.attr}` : ""}`,
+            extra: `🛡 escudos da nave ${antes} → ${camp.nave.escudos}/${camp.nave.escudos_max ?? "?"}.` });
+          return render();
+        }
         alvoP = (pers || []).find((p2) => p2.id === r2.alvo) || ui.meuPers;
       }
       const dd3 = { ...novaFichaDados(), ...alvoP.dados };
@@ -1149,20 +1398,19 @@ export function wireFicha(ctx) {
       await enviar("rolagem", null, { titulo: `★ ${h.nome}`,
         detalhe: `${R.dado} [${val.ds.join(", ")}]${val.bo ? ` +${val.bo} ${R.pericia || R.attr}` : ""}`,
         extra: `✚ ${alvoP.nome} fica com ${dd3.pvTemp} PV Temporário (absorve antes do PV, some no descanso).` });
-      if (h.descanso) { const usos = { ...(ui.meuPers.dados.usos || {}), [h.id]: true };
-        ui.meuPers.dados = { ...ui.meuPers.dados, usos }; f.usos = usos;
-        await salvarFicha(ui.meuPers.id, ui.meuPers.dados); }
+      await marcarUso();
       return render();
     }
     if (R?.tipo === "salvaguarda") {      // Fogo de Supressão, Grito de Saqueador, Sinfonia do Inverno, Teorema do Colapso, Bandeira Negra
+      // area_de (Fogo de Supressão no NV5) transforma alvo único em área; e
+      // save_desvantagem (Terror Nominal) faz o alvo rolar o teste com Desvantagem.
+      const raioExtra = k.areaDe?.[h.nome] || 0;
       const ok = await aplicarEmAlvos({ titulo: `★ ${h.nome}`, origem: `${ui.meuPers.nome} — ${h.nome}`,
         dado: R.dado || null, atributo: R.atributo || null, cd: R.atributo ? dcSalvaguarda(k, R.atributo) : null,
-        cond: R.cond || null, turnos: R.turnos || 2, area: !!R.area, raio: R.raio || null,
-        tipoDano: R.tipoDano || "físico", empurrao: R.empurrao || 0 });
+        cond: R.cond || null, turnos: R.turnos || 2, area: !!R.area || !!raioExtra, raio: Math.max(R.raio || 0, raioExtra) || null,
+        tipoDano: R.tipoDano || "físico", empurrao: R.empurrao || 0, desvSave: !!k.saveDesv?.[h.nome] });
       if (ok === false) return;   // cancelou sem mirar: não gasta a habilidade
-      if (h.descanso) { const usos = { ...(ui.meuPers.dados.usos || {}), [h.id]: true };
-        ui.meuPers.dados = { ...ui.meuPers.dados, usos }; f.usos = usos;
-        await salvarFicha(ui.meuPers.id, ui.meuPers.dados); }
+      await marcarUso();
       return render();
     }
     if (R?.tipo === "condicao") {         // Repulsão Cinética: derruba sem causar dano
@@ -1216,11 +1464,7 @@ export function wireFicha(ctx) {
       return render();
     }
     if (!(await confirmModal(`Usar ${h.nome}?\n\n${h.d}${h.descanso ? `\n\nRecarrega no descanso ${h.descanso}.` : ""}`, { okLabel: "Usar" }))) return;
-    if (h.descanso) {                       // marca como gasta até o descanso
-      const usos = { ...(ui.meuPers.dados.usos || {}), [h.id]: true };
-      ui.meuPers.dados = { ...ui.meuPers.dados, usos }; f.usos = usos;
-      await salvarFicha(ui.meuPers.id, ui.meuPers.dados);
-    }
+    await marcarUso();
     await enviar("sistema", `★ ${ui.meuPers.nome} usa **${h.nome}** (${h.origem}) — ${h.d}`);
     render();
   });

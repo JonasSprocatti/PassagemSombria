@@ -456,6 +456,63 @@ describe("Mecanismos dos marcos (antes narrados)", () => {
   });
 });
 
+describe("Habilidades de NV1 e Veteranas mecanizadas", () => {
+  const nv = (classe, nivel, extra = {}) => calc({ ...novaFichaDados(), classe, nivel, ...extra });
+
+  test("Anatomia Comparada: crítico 19–20 só quando furtivo", () => {
+    assert.equal(nv("Assassino", 4).criticoEm, undefined);
+    assert.deepEqual(nv("Assassino", 5).criticoEm, [{ valor: 19, quando: "desprevenido" }]);
+  });
+
+  test("Palavra de Capitão: \"Deixem isto comigo!\" vale 2 cargas", () => {
+    assert.equal(nv("Starlord", 5).cargasDe["“Deixem isto comigo!”"], 2);
+  });
+
+  test("Rajada Disciplinada abre o Fogo de Supressão num cone de 5 m", () => {
+    assert.equal(nv("Soldado", 5).areaDe["Fogo de Supressão"], 5);
+  });
+
+  test("Terror Nominal: Grito com Desvantagem e +2 de dano contra Amedrontado", () => {
+    const k = nv("Pirata", 5);
+    assert.equal(k.saveDesv["Grito de Saqueador"], true);
+    assert.equal(k.efeitos.modificarAtaque({ situacao: { alvo_amedrontado: true } }).dano, 2);
+    assert.equal(k.efeitos.modificarAtaque({ situacao: {} }).dano, 0);
+  });
+
+  test("usos grátis 1x/combate declarados nas Veteranas", () => {
+    assert.ok(nv("Estudioso", 5).gratisPorCombate["Ponto Estrutural Crítico"]);
+    assert.ok(nv("Piloto", 5).gratisPorCombate["Sobrecarga de Propulsores"]);
+    assert.ok(nv("Assassino", 5).gratisPorCombate["Desaparecer nas Sombras"]);
+    assert.equal(nv("Estudioso", 5).catalogar, true);
+  });
+
+  test("Tiro Incapacitante vira opção de ataque: metade do dano, alvo Lento", () => {
+    const o = nv("Franco-atirador", 1).efeitos.opcoesAtaque()[0];
+    assert.equal(o.multDano, 0.5); assert.equal(o.cond, "Lento");
+  });
+
+  test("Identidade Profunda segura o Ponto Cego 1 turno depois de atacar", () => {
+    assert.equal(nv("Espião", 5).condPersiste["Ponto Cego"], 1);
+  });
+
+  test("Olho Clínico arranca módulos no Desmanche", () => {
+    assert.equal(nv("Catador", 5).roubaModulo, true);
+  });
+
+  // A penalidade da armadura pesada agora é efeito declarado; o Mecânico a anula.
+  test("Operador de Máquinas Pesadas anula a penalidade de Furtividade da armadura pesada", () => {
+    const inv = [{ tipo: "armadura", nome: "Armadura Pesada Marciana", equip: true }];
+    assert.equal(nv("Soldado", 1, { inventario: inv }).per["Furtividade"], 1 - 4);
+    assert.equal(nv("Mecânico", 1, { inventario: inv }).per["Furtividade"], 0);
+  });
+
+  test("nenhuma habilidade Ativa de classe fica sem resolve (só texto)", () => {
+    for (const [nome, c] of Object.entries(CLASSES))
+      for (const h of [...c.hab, c.vet].filter((x) => x.tipo !== "Passiva"))
+        assert.ok(h.resolve, `${nome}: "${h.n}" é ativa e não resolve nada`);
+  });
+});
+
 describe("podeAgirAgora — turno normal e turno extra", () => {
   const combate = { rodada: 2, turno: 0, ordem: [{ id: "a" }, { id: "b" }, { id: "c" }] };
   test("quem está na vez pode agir", () => assert.equal(podeAgirAgora(combate, combate.ordem[0]), true));

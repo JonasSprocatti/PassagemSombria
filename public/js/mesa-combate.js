@@ -56,7 +56,9 @@ const ordenarCombate = (cb) => { cb.ordem.sort((a, b) => (b.ini - a.ini) || a.no
 const proximoTurno = (cb) => {
   if (!cb.ordem.length) return cb;
   let i = cb.turno, voltas = 0;
-  do { i++; if (i >= cb.ordem.length) { i = 0; cb.rodada++; voltas++; } } while (cb.ordem[i] && foraDeCombate(cb.ordem[i]) && voltas < 2);
+  // Pula quem está fora de combate e quem não tem turno próprio (a Torreta de
+  // Sucata age no turno do Mecânico, não no dela).
+  do { i++; if (i >= cb.ordem.length) { i = 0; cb.rodada++; voltas++; } } while (cb.ordem[i] && (foraDeCombate(cb.ordem[i]) || cb.ordem[i].semTurno) && voltas < 2);
   cb.turno = i; return cb;
 };
 // Rolagem injetada no motor de efeitos de criatura: ele não conhece o app, só pede um número.
@@ -596,6 +598,24 @@ export function wireCombate(ctx) {
         atual.escudosOff -= 1;
         if (atual.escudosOff <= 0) await enviar("sistema", `📡 Os escudos de ${atual.nome} voltam a responder.`);
       }
+      // Torretas (e afins) do dono deste turno disparam sozinhas no inimigo vivo
+      // mais próximo dentro do alcance. try/catch isolado: não pode derrubar o save.
+      try {
+        for (const tr of camp.combate.ordem.filter((x) => x.torreta && x.dono === atual.id && !foraDeCombate(x))) {
+          const alvosT = camp.combate.ordem.filter((x) => !foraDeCombate(x) && (x.tipo === "inimigo" || x.lado === "inimiga"))
+            .map((x) => ({ x, dist: distCombate(tr, x) }))
+            .filter((o) => o.dist == null || o.dist <= tr.torreta.alcance + 0.01)
+            .sort((p, q) => (p.dist ?? 0) - (q.dist ?? 0));
+          if (!alvosT.length) { await enviar("sistema", `🔧 ${tr.nome}: nenhum inimigo a ${tr.torreta.alcance} m — segura o fogo.`); continue; }
+          const alvoT = alvosT[0].x, natT = d(20), totT = natT + (tr.torreta.bonus || 0);
+          const cobT = [0, 2, 5][alvoT.cobertura || 0], defT = (alvoT.cd ?? 10) + cobT;
+          if (natT === 20 || (natT !== 1 && totT >= defT)) {
+            const pdT = parseDice(tr.torreta.dano); const vT = rollNd(pdT.n, pdT.f).reduce((a, b) => a + b, 0) + pdT.mod;
+            const rdT = await aplicarDanoAlvo(alvoT, natT === 20 ? vT * 2 : vT);
+            await enviar("sistema", `🔧 ${tr.nome} dispara em ${alvoT.nome}: d20 [${natT}] ${sign(tr.torreta.bonus || 0)} = ${totT} vs Def ${defT} — acerta, ${rdT.msg}.${foraDeCombate(alvoT) ? " 💀 CAIU" : ""}`);
+          } else await enviar("sistema", `🔧 ${tr.nome} dispara em ${alvoT.nome}: d20 [${natT}] ${sign(tr.torreta.bonus || 0)} = ${totT} vs Def ${defT} — erra.`);
+        }
+      } catch (eTorreta) { console.error("torreta:", eTorreta); }
       // 0) Efeitos automáticos da própria criatura (regeneração, auras, invocações)
       try {
         if (habsDoCombatente(atual).some((h) => h.efeito)) {
@@ -760,9 +780,14 @@ export function wireCombate(ctx) {
     const alvo = r.alvo ? camp.combate.ordem.find((x) => x.id === r.alvo) : null;
     const distAlvo2 = alvo ? alvos.find((o) => o.x.id === alvo.id)?.dist : null;
     const condsAlvo = (alvo?.cond || []).map((x) => x.n.toLowerCase());
+    // Ponto Cego (Espião): os inimigos o ignoram. Havendo outro alvo, o Mestre
+    // precisa confirmar que quer quebrar a regra.
+    if (alvo && condsAlvo.includes("ponto cego") && alvos.some((o) => o.x.id !== alvo.id && !(o.x.cond || []).some((c) => c.n === "Ponto Cego"))
+        && !(await confirmModal(`${alvo.nome} está no Ponto Cego — os inimigos o ignoram e escolhem outro alvo.\n\nAtacar assim mesmo?`, { okLabel: "Atacar mesmo assim" }))) return;
     const bonusMarcado = condsAlvo.includes("marcado") ? 2 : 0;
     const alvoAberto = condsAlvo.some((n) => /atordoado|paralisado|caído|cego|surpreso/.test(n));
-    const vSoma = (ui.vantagem || 0) + (alvoAberto ? 1 : 0);
+    const alvoOculto = condsAlvo.includes("oculto");   // Desaparecer nas Sombras: Desvantagem contra ele
+    const vSoma = (ui.vantagem || 0) + (alvoAberto ? 1 : 0) - (alvoOculto ? 1 : 0);
     const vv = vSoma > 0 ? 1 : vSoma < 0 ? -1 : 0;
     let nat, detVant = "";
     if (vv !== 0) { const r1 = d(20), r2 = d(20); nat = vv > 0 ? Math.max(r1, r2) : Math.min(r1, r2); detVant = ` [${vv > 0 ? "vant" : "desv"} ${r1}/${r2}]`; } else nat = d(20);

@@ -283,8 +283,14 @@ export function habilidadesAtivas(f) {
   const raca = RACAS.find((r) => r.nome === f.raca), classe = CLASSES[f.classe];
   const add = (id, h, origem) => {
     if (!h || h.tipo === "Passiva") return;
+    // Três relógios de recarga: descanso (curto/longo), sessão (o Mestre abre)
+    // e combate (1x por combate — o uso mora na linha do rastreador, então some
+    // sozinho quando o combate acaba e outra linha é criada no próximo).
+    // `freq:"combate"` no dado NÃO basta: Endurecer, Criogénese e Camuflagem
+    // usam essa marca sem serem 1x/combate no livro. Só conta o texto dizendo.
     out.push({ id, nome: h.n, d: h.d || "", origem, freq: h.freq || "livre",
-               descanso: freqDescanso(h), opcoes: h.opcoes || null });
+               descanso: freqDescanso(h), sessao: h.freq === "sessao",
+               porCombate: /1x\s*\/\s*combate/i.test(h.d || ""), opcoes: h.opcoes || null });
   };
   (classe?.hab || []).forEach((h, i) => add(`cl${i}`, h, f.classe));
   if (classe?.vet && f.nivel >= 5) add("vet", classe.vet, `${f.classe} · Veterana`);
@@ -323,6 +329,9 @@ function reporPentes(f) {
   }
   f.pentes = res;
   f.tirosPente = TIROS_POR_PENTE;
+  // O pente CARREGADO mora em cada arma (item.tiros) — o descanso enche cada um
+  // até a capacidade real dela, peças de bancada incluídas.
+  for (const it of f.inventario || []) { const e = estadoArma(f, it); if (e) it.tiros = e.cap; }
   return Object.values(res).reduce((a, b) => a + b, 0);
 }
 
@@ -520,8 +529,9 @@ function montarA11y() {
 window.addEventListener("hashchange", rotear);
 async function rotear() {
   if (canalMesa) { sb.removeChannel(canalMesa); canalMesa = null; }
-  const [_, rota, arg] = location.hash.split("/");
+  const [_, rota, arg, arg2] = location.hash.split("/");
   if (rota === "p") return telaFichaPublica(arg);           // ficha compartilhada (sem login)
+  if (rota === "t") { const { telaTrecho } = await import("./social.js"); return telaTrecho(arg); }   // trecho de sessão (sem login)
   if (rota === "entrar" && arg) {                          // convite por link
     if (!usuario) { sessionStorage.setItem("ps-convite", arg); return telaLogin(); }
     const { data, error } = await sb.rpc("entrar_campanha", { cod: arg.toUpperCase() });
@@ -535,6 +545,7 @@ async function rotear() {
     case "campanhas": return telaCampanhas();
     case "mesa": return telaMesa(arg);
     case "biblioteca": { const { telaBiblioteca } = await import("./biblioteca.js"); return telaBiblioteca(arg); }
+    case "social": { const { telaSocial } = await import("./social.js"); return telaSocial(arg || "amigos", arg2 || null); }
     default: location.hash = usuario ? "#/hangar" : "#/login";
   }
 }
@@ -594,12 +605,18 @@ export function shell(titulo, corpo, ativo = "") {
         <a href="#/hangar" class="${ativo === "hangar" ? "on" : ""}">◈ Hangar</a>
         <a href="#/campanhas" class="${ativo === "campanhas" ? "on" : ""}">☄ Campanhas</a>
         <a href="#/biblioteca" class="${ativo === "biblioteca" ? "on" : ""}">📖 Biblioteca</a>
-        <span class="menu-user">${esc(perfil?.apelido || "")}</span>
+        <a href="#/social" class="${ativo === "social" ? "on" : ""}">👥 Social <b id="soc-badge" class="soc-badge" hidden></b></a>
+        <a href="#/social/perfil/${usuario.id}" class="menu-user" title="Seu perfil e estatísticas">${esc(perfil?.apelido || "")}</a>
         <button id="sair" class="btn-ghost">SAIR</button>
       </div>
     </nav>` : "";
   app.innerHTML = `<div class="frame">${nav}${corpo}</div>`;
   $("#sair")?.addEventListener("click", async () => { await sb.auth.signOut(); location.hash = "#/login"; });
+  // Contador do 👥 Social (conversas não lidas + pedidos). Assíncrono e à parte:
+  // se falhar (ou o banco ainda não tiver as tabelas), o menu só fica sem número.
+  if (usuario) import("./social.js").then((m) => m.contarPendencias()).then((n) => {
+    const b = $("#soc-badge"); if (b && n) { b.textContent = n > 99 ? "99+" : n; b.hidden = false; }
+  }).catch(() => {});
   const burger = $("#menu-burger"), links = $("#menu-links");
   if (burger && links) {
     burger.onclick = () => {
@@ -698,12 +715,13 @@ function abrirBancada({ f, item, catBase, emCombate, onSalvar }) {
           const opcoes = modsDoSlot(selecionado, catBase.tipo);
           return `<div class="bc-loja"><h4>${IC_SLOT[selecionado]} ${esc(ROT_SLOT[selecionado])} — peças disponíveis</h4>
             ${opcoes.length ? opcoes.map((o) => { const tem = item.mods[selecionado] === o.n;
-              const podePagar = tem || (f.creditos ?? 0) >= o.p;
+              const salva = (f.pecasSalvas || []).includes(o.n);   // arrancada no Desmanche do Catador
+              const podePagar = tem || salva || (f.creditos ?? 0) >= o.p;
               return `<button class="bc-peca ${tem ? "on" : ""}" data-instalar="${esc(o.n)}" ${podePagar ? "" : "disabled"}>
                 <span class="bc-peca-ic">${o.ic}</span>
                 <span class="bc-peca-txt"><b>${esc(o.n)}</b><span class="regra">${esc(o.d)}</span>
                   ${o.kw ? `<span class="auto-tag">adiciona ${esc(o.kw)}</span>` : ""}</span>
-                <span class="bc-peca-preco ${podePagar ? "" : "caro"}">${o.p} CG<i>${o.turnos}t p/ instalar</i></span>
+                <span class="bc-peca-preco ${podePagar ? "" : "caro"}">${salva ? "🧰 sua" : `${o.p} CG`}<i>${o.turnos}t p/ instalar</i></span>
               </button>`; }).join("")
               : `<p class="regra"><i>Nenhuma peça para este slot.</i></p>`}</div>`; })() : ""}
 
@@ -736,11 +754,13 @@ function abrirBancada({ f, item, catBase, emCombate, onSalvar }) {
       if (item.mods[selecionado] === mod.n) return;
       const antigo = acharMod(item.mods[selecionado]);
       const devolve = antigo ? Math.floor(antigo.p / 2) : 0;
-      const liquido = mod.p - devolve;
+      const salva = (f.pecasSalvas || []).includes(mod.n);
+      const liquido = (salva ? 0 : mod.p) - devolve;
       if ((f.creditos ?? 0) < liquido) return alert(`Faltam ${liquido - (f.creditos ?? 0)} CG.`);
       if (!(await confirmModal(`Instalar ${mod.n}?\n\n${mod.d}\n\nCusto: ${mod.p} CG${antigo ? ` (−${devolve} CG pela peça antiga)` : ""}.${emCombate ? `\n\n⚠ Em combate consome ${mod.turnos} turno(s).` : ""}`, { okLabel: "Instalar" }))) return;
       item.mods[selecionado] = mod.n;
       f.creditos = (f.creditos ?? 0) - liquido;
+      if (salva) { const i2 = f.pecasSalvas.indexOf(mod.n); f.pecasSalvas = f.pecasSalvas.filter((_, j) => j !== i2); }
       await onSalvar(`🔧 Instalou ${mod.ic} ${mod.n} em ${catBase.n} (−${liquido} CG).${mod.kw ? ` A arma ganha ${mod.kw}.` : ""}${emCombate ? ` Custou ${mod.turnos} turno(s).` : ""}`);
       selecionado = null; pintar();
     });
@@ -921,12 +941,16 @@ document.addEventListener("pointerdown", (e) => {
 export function estadoArma(f, it) {
   const cat = todasArmas().find((w) => w.n === it.nome);
   if (!cat || cat.tipo !== "fogo") return null;
+  // Capacidade REAL do pente desta arma, com as peças de bancada instaladas
+  // (Pente Estendido 5, Alimentador Duplo 4). Antes todo desenho e recarga
+  // usava a constante TIROS_POR_PENTE (3): a peça era cobrada e nunca aparecia.
+  const cap = capacidadePente(armaMontada(cat, it));
   // migração: fichas antigas tinham um único tirosPente global
   if (it.tiros == null) {
-    it.tiros = (f.tirosPente != null && f.__migrouArma !== true) ? f.tirosPente : TIROS_POR_PENTE;
+    it.tiros = (f.tirosPente != null && f.__migrouArma !== true) ? f.tirosPente : cap;
     it.tipoPente = it.tipoPente || f.tipoPente || PENTE_PADRAO;
   }
-  return { cat, tiros: it.tiros, tipo: it.tipoPente || PENTE_PADRAO };
+  return { cat, tiros: Math.min(it.tiros, cap), cap, tipo: it.tipoPente || PENTE_PADRAO };
 }
 export const armasDeFogo = (f) => (f.inventario || []).filter((it) => it.equip && ARMAS.find((w) => w.n === it.nome && w.tipo === "fogo"));
 
@@ -1409,27 +1433,32 @@ async function telaFicha(id) {
         <span class="extra">o que você leva para o combate</span></header>
         ${(() => {
           const res = normalizaPentes(f);
-          const tipo = f.tipoPente || PENTE_PADRAO, tp = TIPOS_PENTE[tipo] || TIPOS_PENTE.padrao;
-          const noCano = f.tirosPente ?? TIROS_POR_PENTE;
           const total = Object.values(res).reduce((a3, b3) => a3 + b3, 0);
-          const cano = Array.from({ length: TIROS_POR_PENTE }, (_, i2) => `<i class="pip ${i2 < noCano ? "cheio" : ""}" style="${i2 < noCano ? `background:${tp.cor};border-color:${tp.cor}` : ""}"></i>`).join("");
+          // Um bloco por arma de fogo equipada: cada uma tem o próprio pente e a
+          // própria capacidade (peças de bancada contam). Antes aqui aparecia um
+          // "no cano" único e fixo em 3, herdado de quando só existia um pente.
+          const canos = armasDeFogo(f).map((it) => { const e2 = estadoArma(f, it); if (!e2) return "";
+            const tp = TIPOS_PENTE[e2.tipo] || TIPOS_PENTE.padrao;
+            const pips = Array.from({ length: e2.cap }, (_, i2) => `<i class="pip ${i2 < e2.tiros ? "cheio" : ""}" style="${i2 < e2.tiros ? `background:${tp.cor};border-color:${tp.cor}` : ""}"></i>`).join("");
+            return `<div class="sup-carregado" style="border-color:${tp.cor}">
+                <span class="dim">${esc(it.nome)}</span>
+                <b style="color:${tp.cor}">${tp.ic} ${esc(tp.n)}</b>
+                <div class="pips">${pips}</div>
+                <span class="regra">${e2.tiros}/${e2.cap} tiros${e2.cap > TIROS_POR_PENTE ? ` (+${e2.cap - TIROS_POR_PENTE} da bancada)` : ""}</span>
+              </div>`; }).join("") || `<p class="regra dim">Nenhuma arma de fogo equipada.</p>`;
           return `<h4>Munição</h4>
             <div class="sup-mun">
-              <div class="sup-carregado" style="border-color:${tp.cor}">
-                <span class="dim">no cano</span>
-                <b style="color:${tp.cor}">${tp.ic} ${esc(tp.n)}</b>
-                <div class="pips">${cano}</div>
-                <span class="regra">${noCano}/${TIROS_POR_PENTE} tiros</span>
-              </div>
+              <div>${canos}</div>
               <div class="sup-reserva">
                 <span class="dim">reserva (${total}/${k.pentesReserva})</span>
-                ${Object.entries(TIPOS_PENTE).map(([k2, t2]) => `<div class="sup-linha ${res[k2] ? "" : "zerado"} ${k2 === tipo ? "no-cano" : ""}">
-                  <span style="color:${res[k2] ? t2.cor : "var(--dim)"}">${t2.ic} ${esc(t2.n)}${k2 === tipo ? " ▸ no cano" : ""}</span>
+                ${Object.entries(TIPOS_PENTE).map(([k2, t2]) => `<div class="sup-linha ${res[k2] ? "" : "zerado"}">
+                  <span style="color:${res[k2] ? t2.cor : "var(--dim)"}">${t2.ic} ${esc(t2.n)}</span>
                   <b>×${res[k2] || 0}</b>
+                  ${res[k2] ? `<button class="mini rm" data-descartar-pente="${k2}" title="Descartar um pente deste tipo para abrir espaço na mochila">🗑 −1</button>` : ""}
                   <span class="regra">${esc(t2.d)}</span></div>`).join("")}
               </div>
             </div>
-            <p class="regra">Um pente leva ${TIROS_POR_PENTE} tiros. Esgotado, é preciso trocar (Ação de Movimento). Descansos repõem tudo; o Mestre também pode conceder pentes de saque.</p>`;
+            <p class="regra">Cada arma de fogo leva ${TIROS_POR_PENTE} tiros por pente (peças de bancada aumentam). Esgotado, é preciso trocar (Ação de Movimento). A mochila tem limite: descarte pentes (🗑) para abrir espaço para outros tipos. Descansos repõem tudo; o Mestre também pode conceder pentes de saque.</p>`;
         })()}
         <h4 style="margin-top:14px">Itens utilizáveis</h4>
         ${(() => { const cons = (f.inventario || []).filter((it) => ehConsumivel(it.nome) && (it.qtd || 1) > 0);
@@ -1539,6 +1568,18 @@ async function telaFicha(id) {
       if (v > maxEste) { v = maxEste; $("#st").textContent = `Sem pontos de atributo livres (${k.pontosDireito} no total)`; }
       if (v > tetoLivre) { v = tetoLivre; $("#st").textContent = `Pontos livres da raça: no máximo +2 por atributo (+1 por nível acima do 1º).`; }
       f.pontosAttr[a] = v; (autoSalvar(), render());
+    });
+    // Descartar pente da mochila: a reserva tem teto (5 + For − 1), e uma ficha
+    // nova já nasce com ela cheia de munição padrão — sem descartar, não havia
+    // como abrir espaço pra comprar outro tipo.
+    app.querySelectorAll("[data-descartar-pente]").forEach((b) => b.onclick = async () => {
+      const tipo = b.dataset.descartarPente, t2 = TIPOS_PENTE[tipo];
+      const res = normalizaPentes(f);
+      if (!(res[tipo] > 0)) return;
+      if (!(await confirmModal(`Descartar 1 pente ${t2.ic} ${t2.n}?\n\nAbre espaço na mochila. Não devolve créditos.`, { okLabel: "Descartar", perigo: true }))) return;
+      res[tipo] -= 1; f.pentes = res;
+      registrar(`🗑 Descartou 1 pente ${t2.n} (restam ${res[tipo]}).`);
+      autoSalvar(); render();
     });
     app.querySelectorAll(".pt-per").forEach((i) => i.onchange = () => {
       const pn = i.dataset.p;
@@ -1744,7 +1785,10 @@ async function telaCampanhas() {
 async function telaMesa(id) {
   const [{ data: camp }, { data: membros }, { data: pers }, { data: msgsDesc }] = await Promise.all([
     sb.from("campanhas").select("*").eq("id", id).single(),
-    sb.from("campanha_membros").select("perfil_id,posto,perfis(apelido)").eq("campanha_id", id),
+    // `papel` (jogador/espectador) só existe depois de supabase/social.sql: sem a
+    // coluna o select falha inteiro, então tenta com ela e cai pro formato antigo.
+    sb.from("campanha_membros").select("perfil_id,posto,papel,perfis(apelido)").eq("campanha_id", id)
+      .then((r) => r.error ? sb.from("campanha_membros").select("perfil_id,posto,perfis(apelido)").eq("campanha_id", id) : r),
     sb.from("personagens").select("id,nome,dono_id,dados").eq("campanha_id", id),
     // Pega as 120 MAIS RECENTES (desc) e devolve pro chat em ordem cronológica (asc).
     // Antes buscava com .order(asc).limit(120): pegava as 120 mais ANTIGAS, e com
@@ -1765,6 +1809,11 @@ async function telaMesa(id) {
     return meus.find((x) => x.id === salvo) || meus[0] || null;
   })();
   const ehMestreReal = camp.mestre_id === usuario.id;
+  // Espectador (entrou por pedido aceito como "assistir"): vê chat, combate e
+  // mapa ao vivo, mas não rola, não fala e não mexe em nada. O banco também
+  // barra a escrita (políticas restritivas em supabase/social.sql) — esconder
+  // os controles aqui é só pra ninguém clicar num botão que vai dar erro.
+  const ehEspectador = !ehMestreReal && (membros || []).find((m) => m.perfil_id === usuario.id)?.papel === "espectador";
   const chaveModoJog = "ps-modojog-" + id;
   const modoJogadorInicial = localStorage.getItem(chaveModoJog) === "1";
   // `ui`: bag mutável e persistente (SEMPRE a mesma referência, nunca reatribuída
@@ -1784,7 +1833,9 @@ async function telaMesa(id) {
     campoZoom: false,    // false = campo inteiro (40 m) · true = janela de 12 m com grade de 1 m
     pintarMsg: null,     // aponta pro addMsg do render atual (renderização otimista)
     mapaCtrl: null,      // controlador do mapa aberto (para sync via realtime)
-    abaMesa: sessionStorage.getItem("ps-aba-mesa") || "ficha",  // aba ativa da lateral
+    // Espectador não tem ficha na mesa: abre direto no Combate.
+    abaMesa: (() => { const a = sessionStorage.getItem("ps-aba-mesa") || "ficha"; return ehEspectador && a === "ficha" ? "combate" : a; })(),
+    espectador: ehEspectador,   // só leitura: esconde chat de envio, rolagens, ficha e postos
     timerInt: null,      // cronômetro de turno (local)
     vantagem: 0,         // 0 normal · 1 vantagem · -1 desvantagem
     privada: false,      // rolagem/mensagem privada (só Mestre + autor veem)
@@ -2197,7 +2248,7 @@ async function telaMesa(id) {
       <div class="mesa">
         <div class="mesa-lateral">
           <nav class="mesa-abas" role="tablist">
-            <button class="mesa-aba ${ui.abaMesa === "ficha" ? "on" : ""}" data-mesa-aba="ficha" role="tab">◈ <span>Ficha</span></button>
+            ${ui.espectador ? "" : `<button class="mesa-aba ${ui.abaMesa === "ficha" ? "on" : ""}" data-mesa-aba="ficha" role="tab">◈ <span>Ficha</span></button>`}
             <button class="mesa-aba ${ui.abaMesa === "combate" ? "on" : ""}" data-mesa-aba="combate" role="tab">⚔ <span>Combate</span>${camp.combate.ativo ? `<i class="aba-dot"></i>` : ""}</button>
             <button class="mesa-aba ${ui.abaMesa === "nave" ? "on" : ""}" data-mesa-aba="nave" role="tab">🚀 <span>Nave</span>${cbn.ativo ? `<i class="aba-dot"></i>` : ""}</button>
             <button class="mesa-aba ${ui.abaMesa === "mesa" ? "on" : ""}" data-mesa-aba="mesa" role="tab">📋 <span>Mesa</span></button>
@@ -2225,7 +2276,7 @@ async function telaMesa(id) {
               </div>`; }).join("") : `<p class="regra">Nenhum personagem vinculado ainda.</p>`}
           </section>
           <section class="sec"><header><span class="tag">👥</span><h2>Tripulação</h2></header>
-            ${(membros || []).map((m) => `<p class="regra">${esc(m.perfis?.apelido)}${m.posto ? ` · ${ESTACOES[m.posto]?.n}` : ""}${m.perfil_id === camp.mestre_id ? " · MESTRE" : ""}</p>`).join("")}
+            ${(membros || []).map((m) => `<p class="regra">${esc(m.perfis?.apelido)}${m.posto ? ` · ${ESTACOES[m.posto]?.n}` : ""}${m.perfil_id === camp.mestre_id ? " · MESTRE" : ""}${m.papel === "espectador" ? " · 👁 assistindo" : ""}</p>`).join("")}
           </section>
           <section class="sec"><header><span class="tag">📊</span><h2>Registros da mesa</h2></header>
             <p class="regra">Consulte o que já rolou nesta campanha.</p>
@@ -2235,14 +2286,16 @@ async function telaMesa(id) {
           </div>
         </div>
         <section class="sec mesa-chat">
-          <header><span class="tag">≣</span><h2>Mesa · transmissão ao vivo</h2></header>
+          <header><span class="tag">≣</span><h2>Mesa · transmissão ao vivo</h2>${ui.espectador ? `<span class="best-tag" title="Você entrou para assistir: vê tudo ao vivo, mas não age na mesa">👁 ESPECTADOR</span>` : ""}
+            <button id="compartilhar-trecho" class="mini" style="margin-left:auto" title="Gerar um link público de um trecho desta sessão">📤 Compartilhar trecho</button></header>
           <div id="mesa-presence" class="mesa-presence"></div>
           <div id="mesa-conn" class="mesa-conn" hidden></div>
           ${camp.handout?.visivel && camp.handout?.url ? `<div class="handout"><div class="handout-cab"><b>🖼 ${esc(camp.handout.titulo || "O Mestre mostra algo")}</b><a href="${esc(camp.handout.url)}" target="_blank" rel="noopener" class="mini">abrir</a></div><img src="${esc(camp.handout.url)}" alt="${esc(camp.handout.titulo || "imagem compartilhada pelo Mestre")}"/></div>` : ""}
           <div id="chat" class="chat"></div>
           <div id="resp-preview" class="resp-preview" style="display:none"><span class="rp-txt"></span><button id="resp-cancel" class="rp-x" title="Cancelar resposta">✕</button></div>
           <button id="abrir-stats-oculto" class="sr-only">Estatísticas de rolagem</button>
-          <div class="barra-acao">
+          ${ui.espectador ? `<p class="regra soc-espectador">👁 Você está assistindo esta mesa — acompanha tudo ao vivo, mas não fala nem rola dados aqui. Para conversar, use o 👥 Social.</p>` : ""}
+          <div class="barra-acao" ${ui.espectador ? "hidden" : ""}>
           <div class="rol-toggles"><span class="regra" style="margin:0">Rolagem:</span>
             <button id="tg-vant" class="mini" title="Vantagem: rola 2d20, pega o maior">▲ Vantagem</button>
             <button id="tg-desv" class="mini" title="Desvantagem: rola 2d20, pega o menor">▼ Desvantagem</button>
@@ -2588,6 +2641,10 @@ async function telaMesa(id) {
       try { localStorage.setItem(chaveModoJog, ui.modoJogador ? "1" : "0"); } catch (e) {}
       ui.souMestre = ehMestreReal && !ui.modoJogador;
       render();
+    });
+    $("#compartilhar-trecho")?.addEventListener("click", async () => {
+      const { compartilharTrecho } = await import("./social.js");
+      await compartilharTrecho(id);
     });
     $("#abrir-mestre")?.addEventListener("click", async () => {
       const { abrirMestre } = await import("./mesa-mestre.js");
