@@ -15,10 +15,12 @@ import { BESTIARIO, NIVEIS_AMEACA } from "./dados-bestiario.js";
 import { NPCS, PAPEIS } from "./dados-npcs.js";
 import { CONDICOES, TIPOS_DANO, novaFichaDados, calc } from "./regras.js";
 import { validarEfeitos } from "./efeitos.js";
+import { relatorioFichas, checarFicha } from "./relatorio-fichas.js";
 import { modalForm, confirmModal } from "./ui.js";
 import {
   sb, esc, usuario, criaturaMod, conteudoMod, sincronizarExtra,
   gerarFichaHTML, imprimirFichaHTML,
+  todasArmas, todasArmaduras, todosImplantes, danoArma, armaMontada,
 } from "./app.js";
 
 // Campo "imune a" reutilizado no editor de criatura E no editor genérico de item —
@@ -66,26 +68,39 @@ export async function painelAdmin(voltarPara = "racas") {
       .order("atualizado_em", { ascending: false }).limit(500);
     roster = error ? [] : (data || []);
   };
-  const painelPessoas = () => {
-    if (roster === null) { carregarRoster().then(() => pintar()); return `<p class="regra">Carregando fichas…</p>`; }
+  const rosterFiltrado = () => {
     const termo = filtroRoster.toLowerCase();
-    const lista = roster.filter((p) => !termo
+    return (roster || []).filter((p) => !termo
       || (p.nome || "").toLowerCase().includes(termo)
       || (p.perfis?.apelido || "").toLowerCase().includes(termo)
       || (p.dados?.raca || "").toLowerCase().includes(termo)
       || (p.dados?.classe || "").toLowerCase().includes(termo));
+  };
+  const catVivo = () => ({ armas: todasArmas(), armaduras: todasArmaduras(), implantes: todosImplantes(), danoArma, armaMontada });
+  const textoRelatorio = async () =>
+    relatorioFichas(rosterFiltrado().map((p) => ({ ...p, dono: p.perfis?.apelido })), catVivo());
+  const painelPessoas = () => {
+    if (roster === null) { carregarRoster().then(() => pintar()); return `<p class="regra">Carregando fichas…</p>`; }
+    const termo = filtroRoster.toLowerCase();
+    const lista = rosterFiltrado();
     const porDono = {};
     lista.forEach((p) => (porDono[p.perfis?.apelido || "sem dono"] = porDono[p.perfis?.apelido || "sem dono"] || []).push(p));
     const donos = Object.keys(porDono).sort((x, y) => x.localeCompare(y));
-    return `<p class="regra">Todas as fichas criadas no app — <b>${roster.length}</b> personagem(ns) de <b>${donos.length}</b> tripulante(s). Visão somente leitura, para dar suporte e acompanhar a comunidade.</p>
+    const cat = catVivo();
+    return `<p class="regra">Todas as fichas criadas no app — <b>${roster.length}</b> personagem(ns) de <b>${donos.length}</b> tripulante(s). <b>✎ Editar</b> abre a ficha completa como se fosse sua; <b>{ }</b> edita o JSON cru (pra consertar dado quebrado). O relatório audita inconsistências e resume poder/equilíbrio — cole o texto numa conversa de análise.</p>
+      <div class="filtros" style="margin-bottom:8px"><button id="adm-rel" class="mini eq">📋 Relatório de fichas${termo ? " (filtradas)" : ""}</button><button id="adm-rel-dl" class="mini">💾 Baixar .md</button></div>
       <input id="adm-busca" placeholder="Buscar por nome, jogador, raça ou classe…" value="${esc(filtroRoster)}" style="width:100%;margin-bottom:10px"/>
       ${donos.length ? donos.map((d2) => `<h4 class="adm-dono">${esc(d2)} <span class="dim">(${porDono[d2].length})</span></h4>
         ${porDono[d2].map((p) => { const fx = { ...novaFichaDados(), ...(p.dados || {}) }; const kx = calc(fx);
           const pv = fx.pvMax ? Math.max(0, Math.min(100, 100 * fx.pvAtual / fx.pvMax)) : 0;
+          const probs = checarFicha(fx, kx, cat);
+          const nErr = probs.filter((q) => q[0] === "erro").length, nAv = probs.length - nErr;
+          const dica = esc(probs.map(([n, t]) => `${n === "erro" ? "❌" : "⚠"} ${t}`).join("\n"));
           return `<div class="adm-pers">
             ${fx.foto ? `<img class="adm-retrato" src="${esc(fx.foto)}" alt=""/>` : `<div class="adm-retrato vazio">◈</div>`}
             <div class="adm-pers-info">
-              <div><b>${esc(p.nome) || "— sem nome —"}</b> <span class="best-tag">NV ${fx.nivel || 1}</span>${p.campanha_id ? ` <span class="dim">☄ em campanha</span>` : ""}</div>
+              <div><b>${esc(p.nome) || "— sem nome —"}</b> <span class="best-tag">NV ${fx.nivel || 1}</span>${p.campanha_id ? ` <span class="dim">☄ em campanha</span>` : ""}${nErr ? ` <span class="best-tag" style="color:var(--sangue,#ff5a5a);border-color:currentColor" title="${dica}">❌ ${nErr}</span>` : ""}${nAv ? ` <span class="best-tag" style="color:#ffb03c;border-color:currentColor" title="${dica}">⚠ ${nAv}</span>` : ""}</div>
+              ${probs.length ? `<details class="regra"><summary>${probs.length} ponto(s) a conferir</summary>${probs.map(([n, t]) => `<div>${n === "erro" ? "❌" : "⚠"} ${esc(t)}</div>`).join("")}</details>` : ""}
               <div class="regra">${esc(fx.raca || "raça?")} · ${esc(fx.classe || "classe?")}${fx.filosofia ? ` · ${esc(fx.filosofia)}` : ""}</div>
               <div class="adm-barras">
                 <span class="cb-hp" title="PV"><span class="cb-hp-barra" style="width:${pv}%;background:var(--tech)"></span><b>${fx.pvAtual || 0}/${fx.pvMax || 0}</b></span>
@@ -93,7 +108,7 @@ export async function painelAdmin(voltarPara = "racas") {
               </div>
               <div class="regra dim">atualizada em ${new Date(p.atualizado_em).toLocaleDateString("pt-BR")}</div>
             </div>
-            <button class="mini" data-ver="${p.id}">👁 Ver ficha</button>
+            <div class="adm-pers-acoes"><button class="mini" data-ver="${p.id}">👁 Ver</button><button class="mini" data-editar="${p.id}">✎ Editar</button><button class="mini" data-json="${p.id}" title="Editar o JSON cru da ficha">{ }</button></div>
           </div>`; }).join("")}`).join("")
         : `<p class="regra"><i>Nenhuma ficha encontrada${termo ? " para essa busca" : ""}.</i></p>`}`;
   };
@@ -707,6 +722,40 @@ export async function painelAdmin(voltarPara = "racas") {
       const w = window.open("", "_blank");
       if (w) { w.document.write(html); w.document.close(); }
       else imprimirFichaHTML(html);
+    });
+    // Abre a ficha completa (telaFicha) — a mesma tela do dono, com um aviso no topo.
+    // Salvar depende da política de admin em supabase/admin.sql; sem ela o banco
+    // recusa em silêncio e a telaFicha avisa "não salvou".
+    ov.querySelectorAll("[data-editar]").forEach((b) => b.onclick = () => {
+      document.body.style.overflow = ""; ov.remove();
+      location.hash = `#/ficha/${b.dataset.editar}`;
+    });
+    ov.querySelectorAll("[data-json]").forEach((b) => b.onclick = async () => {
+      const p = (roster || []).find((x) => x.id === b.dataset.json); if (!p) return;
+      const r = await modalForm({ titulo: `{ } ${p.nome || "ficha"} — JSON cru`,
+        descricao: "Edição direta de personagens.dados. Use para consertar dado quebrado que a ficha não deixa mexer. JSON inválido não é salvo.",
+        campos: [{ k: "json", label: "dados", tipo: "area", rows: 22, valor: JSON.stringify(p.dados || {}, null, 2) }], okLabel: "Salvar" });
+      if (!r) return;
+      let novo;
+      try { novo = JSON.parse(r.json); } catch (e) { return alert("JSON inválido: " + e.message); }
+      if (!novo || typeof novo !== "object" || Array.isArray(novo)) return alert("O JSON precisa ser um objeto { … }.");
+      if (!(await confirmModal(`Gravar os dados de "${p.nome || "ficha"}" (${p.perfis?.apelido || "sem dono"})? Não há desfazer além de editar de novo.`, { okLabel: "Gravar", perigo: true }))) return;
+      const { data, error } = await sb.from("personagens").update({ dados: novo, atualizado_em: new Date().toISOString() }).eq("id", p.id).select("id");
+      if (error) return alert("Não consegui salvar: " + error.message);
+      if (!data?.length) return alert("O banco não gravou nada — falta a permissão de admin. Rode supabase/admin.sql no SQL Editor do Supabase.");
+      p.dados = novo; pintar();
+    });
+    ov.querySelector("#adm-rel")?.addEventListener("click", async () => {
+      const txt = await textoRelatorio();
+      try { await navigator.clipboard.writeText(txt); alert(`Relatório copiado (${rosterFiltrado().length} ficha(s), ${txt.length} caracteres). Cole na conversa.`); }
+      catch { alert("Não consegui copiar pra área de transferência — use 💾 Baixar .md."); }
+    });
+    ov.querySelector("#adm-rel-dl")?.addEventListener("click", async () => {
+      const txt = await textoRelatorio();
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(new Blob([txt], { type: "text/markdown;charset=utf-8" }));
+      a.download = `relatorio-fichas-${new Date().toISOString().slice(0, 10)}.md`;
+      document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
     });
 
     ov.querySelector("#adm-img-nova")?.addEventListener("click", async () => {

@@ -513,13 +513,18 @@ function montarA11y() {
     painel.setAttribute("aria-label", "Opções de acessibilidade");
     painel.innerHTML = `<button type="button" class="a11y-x" aria-label="Fechar">✕</button>`
       + `<h3>Acessibilidade</h3><p class="regra">As escolhas ficam salvas neste dispositivo.</p>`
-      + A11Y.map(({ k, lbl, d }) => `<label title="${esc(d)}"><input type="checkbox" data-a11y="${k}" ${localStorage.getItem("ps-a11y-" + k) === "1" ? "checked" : ""}/> <span>${esc(lbl)}</span></label>`).join("");
+      + A11Y.map(({ k, lbl, d }) => `<label title="${esc(d)}"><input type="checkbox" data-a11y="${k}" ${localStorage.getItem("ps-a11y-" + k) === "1" ? "checked" : ""}/> <span>${esc(lbl)}</span></label>`).join("")
+      // mesma chave que notificacoes.js lê (notifLigadas) — aqui direto no localStorage
+      // pra não precisar importar o módulo só pra desenhar um checkbox
+      + `<label title="Pop-up de mensagem e de passagem de turno das suas campanhas quando você está fora da mesa delas"><input type="checkbox" id="a11y-notif" ${localStorage.getItem("ps-notif-off") === "1" ? "" : "checked"}/> <span>Avisos de outras mesas (mensagens e turno)</span></label>`;
     document.body.appendChild(painel);
     b.setAttribute("aria-expanded", "true");
     painel.querySelector(".a11y-x").onclick = fecharPainel;
     painel.querySelectorAll("[data-a11y]").forEach((i) => i.onchange = () => {
       localStorage.setItem("ps-a11y-" + i.dataset.a11y, i.checked ? "1" : "0"); aplicarA11y();
     });
+    const ckNotif = painel.querySelector("#a11y-notif");
+    if (ckNotif) ckNotif.onchange = () => { try { localStorage.setItem("ps-notif-off", ckNotif.checked ? "0" : "1"); } catch (_) {} };
     painel.querySelector("input")?.focus();
   };
   document.addEventListener("keydown", (e) => { if (e.key === "Escape" && painel) { fecharPainel(); b.focus(); } });
@@ -539,6 +544,9 @@ async function rotear() {
     return (location.hash = `#/mesa/${data}`);
   }
   if (!usuario && rota !== "biblioteca") return telaLogin();
+  // Pop-ups de mensagem/turno das outras mesas (notificacoes.js). Em paralelo e
+  // sem await: se falhar, o app segue só sem os avisos.
+  if (usuario) import("./notificacoes.js").then((m) => m.atualizarNotificacoes()).catch(() => {});
   switch (rota) {
     case "hangar": return telaHangar();
     case "ficha": return telaFicha(arg);
@@ -1084,6 +1092,7 @@ async function iniciar() {
   if (usuario) { const { data } = await sb.from("perfis").select("*").eq("id", usuario.id).single(); perfil = data; }
   sb.auth.onAuthStateChange(async (_ev, s) => {
     const antes = !!usuario; usuario = s?.user || null;
+    if (!usuario) import("./notificacoes.js").then((m) => m.pararNotificacoes()).catch(() => {});
     if (usuario) { const { data } = await sb.from("perfis").select("*").eq("id", usuario.id).single(); perfil = data; }
     if (!!usuario !== antes) location.hash = usuario ? "#/hangar" : "#/login";
   });
@@ -1173,16 +1182,27 @@ async function telaFicha(id) {
   let f = { ...novaFichaDados(), ...(p.dados || {}) };
   f.rolagem = { ...novaFichaDados().rolagem, ...(f.rolagem || {}) };
   f.periciasExtra = migrarPericias(f.periciasExtra);
-  aplicarTema(f);
+  // Admin abrindo a ficha de outra pessoa (painel admin → ✎ Editar): mesma tela,
+  // com aviso no topo e sem trocar o tema do app pelo tema da ficha alheia.
+  const comoAdmin = p.dono_id !== usuario.id;
+  let donoApelido = "";
+  if (comoAdmin) {
+    const { data: dono } = await sb.from("perfis").select("apelido").eq("id", p.dono_id).maybeSingle();
+    donoApelido = dono?.apelido || "outra pessoa";
+  } else aplicarTema(f);
   const registrar = (texto) => { f.log = [{ q: new Date().toISOString(), t: texto }, ...(f.log || [])].slice(0, 60); };
   let salvando = false, pendente = false, autoTimer = null;
   const marcaEstado = (txt, cls = "") => { const el = document.getElementById("st"); if (el) { el.textContent = txt; el.className = "topo-status " + cls; } };
   const salvar = async () => {
     if (salvando) { pendente = true; return; }          // enfileira em vez de atropelar
     salvando = true;
-    const { error } = await sb.from("personagens").update({ nome: f.nomeVisivel ?? p.nome, dados: f, atualizado_em: new Date().toISOString() }).eq("id", id);
+    const { data: gravou, error } = await sb.from("personagens").update({ nome: f.nomeVisivel ?? p.nome, dados: f, atualizado_em: new Date().toISOString() }).eq("id", id).select("id");
     salvando = false;
     if (error) { marcaEstado("⚠ não salvou — tentando de novo", "erro"); setTimeout(salvar, 2500); return; }
+    // RLS que barra o UPDATE não dá erro: só não grava nenhuma linha. Sem esta
+    // checagem a tela dizia "salvo ✓" e a mudança sumia no F5 (caso do admin
+    // editando ficha alheia sem supabase/admin.sql aplicado). Não repete: é permissão.
+    if (!gravou?.length) { pendente = false; marcaEstado("⚠ sem permissão para salvar esta ficha", "erro"); return; }
     marcaEstado("salvo ✓", "ok");
     if (pendente) { pendente = false; salvar(); }
   };
@@ -1209,7 +1229,8 @@ async function telaFicha(id) {
     const xpAntes = xpVisto[p.id];
     xpVisto[p.id] = f.xp;
     shell("ficha", `
-      <nav class="topo"><a class="btn-ghost" href="#/hangar">← HANGAR</a><div class="topo-status" id="st"></div><button id="imprimir" class="btn-ghost" title="Abre o diálogo de impressão — escolha 'Salvar como PDF'">🖨 PDF</button><button id="baixar" class="btn-ghost" title="Baixa a ficha como arquivo .html">💾 .html</button><button id="compartilhar" class="btn-ghost" title="Gerar link público (somente leitura)">🔗 LINK</button><button id="salvar" class="btn-primario">SALVAR</button></nav>
+      <nav class="topo"><a class="btn-ghost" href="${comoAdmin ? "#/biblioteca" : "#/hangar"}">← ${comoAdmin ? "BIBLIOTECA" : "HANGAR"}</a><div class="topo-status" id="st"></div><button id="imprimir" class="btn-ghost" title="Abre o diálogo de impressão — escolha 'Salvar como PDF'">🖨 PDF</button><button id="baixar" class="btn-ghost" title="Baixa a ficha como arquivo .html">💾 .html</button><button id="compartilhar" class="btn-ghost" title="Gerar link público (somente leitura)">🔗 LINK</button><button id="salvar" class="btn-primario">SALVAR</button></nav>
+      ${comoAdmin ? `<div class="adm-editando">🛠 <b>Modo admin</b> — editando a ficha de <b>${esc(donoApelido)}</b>. Toda mudança grava direto na ficha dessa pessoa.</div>` : ""}
 
       <section class="sec">
         <header><span class="tag">ID</span><h2>Identidade</h2></header>

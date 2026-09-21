@@ -3,7 +3,7 @@
 //  Cacheia o "app shell" para abrir offline/instantâneo. Dados (Supabase) e
 //  realtime seguem sempre pela rede. Bump em CACHE a cada deploy relevante.
 // ============================================================================
-const CACHE = "ps-shell-v81";
+const CACHE = "ps-shell-v82";
 const SHELL = [
   "./",
   "./index.html",
@@ -23,6 +23,8 @@ const SHELL = [
   "./js/regras.js",
   "./js/biblioteca.js",
   "./js/admin.js",
+  "./js/relatorio-fichas.js",
+  "./js/notificacoes.js",
   "./js/app.js",
   "./js/sistema-solar.js",
   "./js/mapa-sistema.js",
