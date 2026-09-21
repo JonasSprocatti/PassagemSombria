@@ -284,9 +284,13 @@ describe("Balanceamento — Con por nível e a curva de PV", () => {
   });
 
   test("todas as raças continuam somando exatamente +4 em atributos", () => {
+    // Raça `livre` (Terráqueo) tem attrs todos 0 no catálogo: os +4 dela são pontos
+    // que o jogador distribui, concedidos por calc() em `pontosDireito` no NV1.
+    // Conta pelo próprio calc() em vez de somar +4 fixo, pra acompanhar a regra real.
     for (const r of RACAS) {
-      const soma = ["For", "Des", "Con", "Int", "Sab", "Car"].reduce((s, a) => s + r.attrs[a], 0);
-      assert.equal(soma, 4, `${r.nome} soma ${soma}`);
+      const fixos = ["For", "Des", "Con", "Int", "Sab", "Car"].reduce((s, a) => s + r.attrs[a], 0);
+      const livres = r.livre ? calc({ ...novaFichaDados(), raca: r.nome, nivel: 1 }).pontosDireito : 0;
+      assert.equal(fixos + livres, 4, `${r.nome} soma ${fixos} fixos + ${livres} livres`);
     }
   });
 
