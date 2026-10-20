@@ -19,5 +19,3 @@ node_modules/
 # Anotações internas do livro de regras (auditoria livro × código) — nunca vai pro repo
 livro-interno/
 
-# Dumps da migração de schema (dados de jogadores + hashes de senha) — nunca vai pro repo
-supabase/migracao-schema/passagem-*.sql
