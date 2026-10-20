@@ -28,7 +28,13 @@ create user mapping for current_user server mig_antigo options (
 );
 
 begin;
-set local check_function_bodies = off;   -- funções podem citar tabelas que ainda vão nascer
+set local check_function_bodies = off;
+
+do $$ begin
+  if exists (select 1 from pg_namespace where nspname = 'passagem') then
+    raise exception 'Este projeto já tem um schema passagem. Rode: select table_name from information_schema.tables where table_schema = ''passagem''; e mande o resultado antes de continuar.';
+  end if;
+end $$;   -- funções podem citar tabelas que ainda vão nascer
 
 -- O banco antigo visto daqui, como tabelas "estrangeiras" (só leitura).
 -- Primeiro só a lista de comandos e os tipos (as outras tabelas podem usar

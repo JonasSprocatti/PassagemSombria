@@ -14,6 +14,12 @@
 -- ============================================================================
 begin;
 
+do $$ begin
+  if exists (select 1 from pg_namespace where nspname = 'passagem') then
+    raise exception 'O passo 1 já foi feito neste projeto (o schema passagem já existe). Pode seguir para o passo 2, no projeto novo.';
+  end if;
+end $$;
+
 alter schema public rename to passagem;
 create schema public;
 grant usage on schema public to postgres, anon, authenticated, service_role;
