@@ -11,7 +11,7 @@ cd public
 python -m http.server 3000   # abre http://localhost:3000
 ```
 
-Antes: preencher `public/js/config.js` com `SUPABASE_URL` e `SUPABASE_ANON_KEY` (não versionado / placeholders). Segurança real fica na RLS do Supabase, não no front.
+Antes: preencher `public/js/config.js` com `SUPABASE_URL` e `SUPABASE_ANON_KEY` (não versionado / placeholders) e, opcional, `SUPABASE_SCHEMA` (padrão `"public"`; `"passagem"` quando o projeto Supabase é dividido com outro app — ver `supabase/migracao-schema/README.md`). `app.js` exporta `DB_SCHEMA` e todo `postgres_changes` usa ele, nunca `"public"` fixo. Segurança real fica na RLS do Supabase, não no front.
 
 **Nesta máquina de dev (Windows), rodar comandos de shell via PowerShell, não Bash**: o Bash embutido falha ao dar fork (`dofork: child -1 - forked process ... died unexpectedly`, `Resource temporarily unavailable`) de forma consistente neste ambiente — todo comando simples (`git status`, `wc -l`) morre. Usar a ferramenta PowerShell para git/testes/etc. aqui.
 

@@ -12,7 +12,7 @@
 //  Mesa aberta = nenhum pop-up daquela mesa (ela já tem chat, som e destaque
 //  próprios). Mensagens `sistema` não notificam — o combate gera dezenas delas.
 // ============================================================================
-import { sb, usuario, esc } from "./app.js";
+import { sb, usuario, esc, DB_SCHEMA } from "./app.js";
 import { somMensagem, notificar } from "./ui.js";
 
 let canal = null;
@@ -50,8 +50,8 @@ export async function atualizarNotificacoes() {
   pararNotificacoes(); chaveAtual = chave;
   const lista = `(${ids.join(",")})`;
   canal = sb.channel(`notif-${usuario.id}`)
-    .on("postgres_changes", { event: "INSERT", schema: "public", table: "mensagens", filter: `campanha_id=in.${lista}` }, ({ new: m }) => aoMensagem(m))
-    .on("postgres_changes", { event: "UPDATE", schema: "public", table: "campanhas", filter: `id=in.${lista}` }, ({ new: c }) => aoCampanha(c))
+    .on("postgres_changes", { event: "INSERT", schema: DB_SCHEMA, table: "mensagens", filter: `campanha_id=in.${lista}` }, ({ new: m }) => aoMensagem(m))
+    .on("postgres_changes", { event: "UPDATE", schema: DB_SCHEMA, table: "campanhas", filter: `id=in.${lista}` }, ({ new: c }) => aoCampanha(c))
     .subscribe();
 }
 

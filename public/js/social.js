@@ -11,7 +11,7 @@
 //  chat geral é uma sala para todo usuário logado; trecho compartilhado é um
 //  link público somente-leitura; espectador vê a mesa sem agir nela.
 // ============================================================================
-import { sb, esc, usuario, perfil, shell } from "./app.js";
+import { sb, esc, usuario, perfil, shell, DB_SCHEMA } from "./app.js";
 import { modalForm, confirmModal } from "./ui.js";
 
 const $ = (s) => document.querySelector(s);
@@ -251,11 +251,11 @@ async function telaGeral() {
   // Tudo (inclusive a própria mensagem) chega pelo Realtime, já com o apelido
   // que o gatilho do banco preencheu — uma fonte só, sem duplicar na tela.
   assinar("chat-geral", (ch) => ch
-    .on("postgres_changes", { event: "INSERT", schema: "public", table: "chat_geral" }, ({ new: m }) => {
+    .on("postgres_changes", { event: "INSERT", schema: DB_SCHEMA, table: "chat_geral" }, ({ new: m }) => {
       log.querySelector(".regra")?.remove();
       log.insertAdjacentHTML("beforeend", linha(m)); ligarApagar(); log.scrollTop = log.scrollHeight;
     })
-    .on("postgres_changes", { event: "DELETE", schema: "public", table: "chat_geral" }, ({ old }) => {
+    .on("postgres_changes", { event: "DELETE", schema: DB_SCHEMA, table: "chat_geral" }, ({ old }) => {
       log.querySelector(`[data-msg="${old?.id}"]`)?.remove();
     }));
 }
@@ -324,7 +324,7 @@ async function telaConversa(uid) {
   // Só as mensagens que ELE me manda chegam por aqui (as minhas já entraram na
   // tela ao enviar). O filtro no servidor evita receber conversa de terceiros.
   assinar(`md-${usuario.id}`, (ch) => ch.on("postgres_changes",
-    { event: "INSERT", schema: "public", table: "mensagens_diretas", filter: `para=eq.${usuario.id}` },
+    { event: "INSERT", schema: DB_SCHEMA, table: "mensagens_diretas", filter: `para=eq.${usuario.id}` },
     ({ new: m }) => {
       if (m.de !== uid) return;
       log.querySelector(".regra")?.remove();
