@@ -3,7 +3,7 @@
 // Rotas: #/login #/hangar #/ficha/:id #/campanhas #/mesa/:id #/biblioteca
 // ============================================================
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./config.js";
+import * as CONFIG from "./config.js";
 import { EFEITOS as EFEITOS_FICHA, validarEfeitos } from "./efeitos.js";
 import { RACAS, CLASSES, FILOSOFIAS, IMPLANTES, SCRIPTS, ARMAS, ARMADURAS, PERICIAS, NAVES, ESTACOES, REGRAS_NAVE, RIQUEZA, TEMAS, CONVERTE_2D8, KEYWORDS, PALAVRAS_CHAVE, chavesDaArma, propsArma, AVARIAS, UPGRADES_NAVE, TURNOS_POR_PENTE, TIROS_POR_PENTE, TIPOS_PENTE, PENTE_PADRAO, CONSUMIVEIS, ehConsumivel, SLOTS_ARMA, SLOTS_POR_ARMA, MODS_ARMA, modsDoSlot, acharMod, LIMITE_TATUAGENS } from "./dados-jogo.js";
 import { BESTIARIO } from "./dados-bestiario.js";
@@ -22,7 +22,12 @@ import {
   capacidadeArma, municaoDe,
 } from "./regras.js";
 
-export const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+// Schema do Postgres onde moram as tabelas do jogo. Opcional em config.js
+// (SUPABASE_SCHEMA): permite dividir um projeto Supabase com outro app, cada
+// um no seu schema. Lido por namespace (`CONFIG.`) de propósito — um config.js
+// antigo sem essa constante continua funcionando, caindo em "public".
+export const DB_SCHEMA = CONFIG.SUPABASE_SCHEMA || "public";
+export const sb = createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY, { db: { schema: DB_SCHEMA } });
 const app = document.getElementById("app");
 const $ = (s, el = document) => el.querySelector(s);
 export const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -2531,9 +2536,9 @@ async function telaMesa(id) {
       el.innerHTML = chips.length ? `<span class="pres-dot"></span>${chips.join("")}` : "";
     };
     canalMesa = sb.channel(`mesa-${id}`)
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "mensagens", filter: `campanha_id=eq.${id}` },
+      .on("postgres_changes", { event: "INSERT", schema: DB_SCHEMA, table: "mensagens", filter: `campanha_id=eq.${id}` },
         async (pl) => { const { data: m } = await sb.from("mensagens").select("*,perfis:autor_id(apelido,avatar_url)").eq("id", pl.new.id).single(); if (m) addMsg(m, true); })
-      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "campanhas", filter: `id=eq.${id}` },
+      .on("postgres_changes", { event: "UPDATE", schema: DB_SCHEMA, table: "campanhas", filter: `id=eq.${id}` },
         (pl) => { if (ecoProprio()) return;   // é a nossa própria gravação voltando
           camp.nave = pl.new.nave; camp.mapa = pl.new.mapa; camp.combate = pl.new.combate; camp.combate_nave = pl.new.combate_nave || combateNaveVazio(); camp.handout = pl.new.handout || {}; camp.faccoes = pl.new.faccoes || {}; camp.contratos = pl.new.contratos || []; camp.bestiario = pl.new.bestiario || []; ui.mapaCtrl?.atualizar(pl.new.mapa, pl.new.combate); render(); })
       .on("presence", { event: "sync" }, renderPresenca)

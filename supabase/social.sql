@@ -56,6 +56,11 @@ create policy "amizades: pedir" on public.amizades
 drop policy if exists "amizades: aceitar" on public.amizades;
 create policy "amizades: aceitar" on public.amizades
   for update to authenticated using (para = auth.uid()) with check (para = auth.uid() and status = 'aceita');
+-- A política acima só confere `para` e `status`: sem isto, quem recebeu o
+-- pedido podia trocar o `de` para qualquer pessoa e forjar uma amizade aceita.
+-- Mesmo truque de mensagens_diretas: privilégio só na coluna que pode mudar.
+revoke update on public.amizades from authenticated;
+grant update (status) on public.amizades to authenticated;
 
 -- Qualquer um dos dois desfaz (recusar, cancelar o pedido ou desfazer a amizade).
 drop policy if exists "amizades: desfazer" on public.amizades;
