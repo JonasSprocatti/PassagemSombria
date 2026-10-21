@@ -35,14 +35,20 @@ export function modalForm({ titulo, descricao = "", campos = [], okLabel = "Conf
     const confirmar = () => fechar(coletar());
     ov.querySelector(".mdl-ok").onclick = confirmar;
     ov.querySelector(".mdl-cancel")?.addEventListener("click", () => fechar(null));
-    ov.addEventListener("pointerdown", (e) => { if (e.target === ov) fechar(null); });
-    const onKey = (e) => { if (e.key === "Escape") fechar(null); else if (e.key === "Enter" && e.target.tagName !== "TEXTAREA") confirmar(); };
+    // Com campo para preencher, tocar fora não fecha: no celular um toque errado
+    // perdia tudo o que tinha sido digitado. Só a janela informativa fecha assim.
+    const temCampo = campos.some((c) => !["info", "html"].includes(c.tipo || "texto"));
+    ov.addEventListener("pointerdown", (e) => { if (e.target === ov && !temCampo) fechar(null); });
+    const onKey = (e) => { if (e.key === "Escape") fechar(null); else if (e.key === "Enter" && e.target.tagName !== "TEXTAREA" && e.target.tagName !== "BUTTON") confirmar(); };
     document.addEventListener("keydown", onKey);
   });
 }
 
 // confirmModal(texto) → Promise<boolean>
-export function confirmModal(texto, { okLabel = "Confirmar", cancelLabel = "Cancelar", perigo = false } = {}) {
+// perigo: ação destrutiva — o foco começa em Cancelar e Enter não confirma
+// (antes um Enter de reflexo apagava um personagem ou encerrava o combate).
+// semFora: tocar fora não responde nada (para quando as duas respostas pesam).
+export function confirmModal(texto, { okLabel = "Confirmar", cancelLabel = "Cancelar", perigo = false, semFora = false } = {}) {
   return new Promise((resolve) => {
     const ov = document.createElement("div"); ov.className = "mdl-overlay";
     ov.innerHTML = `<div class="mdl-box" role="dialog" aria-modal="true"><p class="mdl-desc" style="margin-top:0">${esc(texto)}</p>
@@ -51,8 +57,10 @@ export function confirmModal(texto, { okLabel = "Confirmar", cancelLabel = "Canc
     const fechar = (v) => { ov.remove(); document.removeEventListener("keydown", onKey); resolve(v); };
     ov.querySelector(".mdl-ok").onclick = () => fechar(true);
     ov.querySelector(".mdl-cancel").onclick = () => fechar(false);
-    ov.addEventListener("pointerdown", (e) => { if (e.target === ov) fechar(false); });
-    const onKey = (e) => { if (e.key === "Escape") fechar(false); else if (e.key === "Enter") fechar(true); };
+    ov.addEventListener("pointerdown", (e) => { if (e.target === ov && !semFora) fechar(false); });
+    setTimeout(() => ov.querySelector(perigo ? ".mdl-cancel" : ".mdl-ok")?.focus(), 30);
+    // Enter num botão focado já dispara o clique dele; aqui só trata Enter fora de botão.
+    const onKey = (e) => { if (e.key === "Escape" && !semFora) fechar(false); else if (e.key === "Enter" && !perigo && e.target.tagName !== "BUTTON") fechar(true); };
     document.addEventListener("keydown", onKey);
   });
 }

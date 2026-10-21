@@ -82,6 +82,32 @@ export const rolarExpr = (expr, vant = 0) => {
   }
   return { total, detalhe: partes.join(" ") };
 };
+// Fotos no Storage (bucket `passagem-fotos`, pasta = id do dono — ver
+// supabase/melhorias-dossie.sql). Antes a foto ia em base64 dentro de
+// personagens.dados: cada ficha pesava ~50 KB a mais em TODA leitura e em todo
+// eco do Realtime. Sem o bucket (SQL ainda não rodado), devolve null e quem
+// chama mantém o base64 de antes.
+const BUCKET_FOTOS = "passagem-fotos";
+let storageFotosOk = true;
+async function enviarFoto(dataUrl, personagemId) {
+  if (!storageFotosOk || !/^data:image\//.test(dataUrl || "")) return null;
+  try {
+    const blob = await (await fetch(dataUrl)).blob();
+    const caminho = `${usuario.id}/${personagemId}-${Date.now()}.jpg`;
+    const { error } = await sb.storage.from(BUCKET_FOTOS).upload(caminho, blob, { contentType: blob.type || "image/jpeg", upsert: true, cacheControl: "31536000" });
+    if (error) { storageFotosOk = false; console.warn("[fotos] Storage indisponível, mantendo base64:", error.message); return null; }
+    return sb.storage.from(BUCKET_FOTOS).getPublicUrl(caminho).data.publicUrl;
+  } catch (e) { console.warn("[fotos]", e); return null; }
+}
+// Apaga do bucket uma foto antiga desta pessoa (troca/remoção). Falha em silêncio.
+function apagarFotoAntiga(url) {
+  const marca = `/${BUCKET_FOTOS}/`;
+  const i = String(url || "").indexOf(marca);
+  if (i < 0) return;
+  const caminho = decodeURIComponent(url.slice(i + marca.length).split("?")[0]);
+  if (!caminho.startsWith(`${usuario.id}/`)) return;
+  sb.storage.from(BUCKET_FOTOS).remove([caminho]).catch(() => {});
+}
 const comprimirFoto = (file, cb) => {
   const fr = new FileReader();
   fr.onload = () => { const img = new Image();
@@ -889,9 +915,52 @@ export const todasCriaturas = () => [...ajustar(BESTIARIO, "criatura"), ...extra
 // igual. Sem isto, uma falha silenciosa deixava a mudança só na tela: o app já tinha
 // renderizado como se tivesse dado certo, e o PV/RAM/item "voltava" sozinho ao recarregar.
 export async function salvarFicha(personagemId, dados, rotulo = "salvar a ficha") {
-  const { error } = await sb.from("personagens").update({ dados }).eq("id", personagemId);
-  if (error) alert(`Não consegui ${rotulo}: ${error.message}`);
-  return !error;
+  const { data, error } = await sb.from("personagens").update({ dados }).eq("id", personagemId).select("id");
+  if (error) { alert(`Não consegui ${rotulo}: ${error.message}`); return false; }
+  // RLS que barra o UPDATE não dá erro: só não grava linha nenhuma (ex.: o Mestre
+  // aplicando dano na ficha de um jogador sem a política que permite isso). Sem
+  // esta checagem o dano aparecia na tela e sumia no F5.
+  if (!data?.length) { alert(`Não consegui ${rotulo}: o banco não deixou gravar esta ficha (sem permissão).`); return false; }
+  return true;
+}
+
+// Lê TODAS as linhas de uma consulta, em lotes (o Supabase corta em 1000 por
+// pedido sem avisar). `montar()` devolve a consulta nova a cada lote, já com
+// filtros e ordem. Para no `teto` para não travar a aba numa campanha enorme.
+export async function buscarTudo(montar, lote = 1000, teto = 20000) {
+  const tudo = [];
+  for (let de = 0; de < teto; de += lote) {
+    const { data, error } = await montar().range(de, Math.min(de + lote, teto) - 1);
+    if (error) throw error;
+    tudo.push(...(data || []));
+    if (!data || data.length < lote) break;
+  }
+  return tudo;
+}
+
+// Ficha fresca do banco, já saneada. `versao` vem junto quando a coluna existe
+// (supabase/melhorias-dossie.sql); sem ela, fica undefined e ninguém depende disso.
+let fichaTemVersao = true;   // vira false na 1ª vez que o banco disser que a coluna não existe
+export async function lerFicha(personagemId) {
+  let r = fichaTemVersao ? await sb.from("personagens").select("dados,versao").eq("id", personagemId).maybeSingle() : null;
+  if (!r || r.error) { if (r?.error) fichaTemVersao = false; r = await sb.from("personagens").select("dados").eq("id", personagemId).maybeSingle(); }
+  const { data } = r;
+  if (!data) return null;
+  sanear(data);
+  return { dados: { ...novaFichaDados(), ...(data.dados || {}) }, versao: typeof data.versao === "number" ? data.versao : undefined };
+}
+
+// Grava só se ninguém mexeu na ficha desde `versao` (lida com lerFicha).
+// Devolve { ok, conflito }. Sem a coluna `versao` no banco, grava direto.
+export async function salvarFichaSeIgual(personagemId, dados, versao, rotulo = "salvar a ficha") {
+  if (typeof versao !== "number") return { ok: await salvarFicha(personagemId, dados, rotulo), conflito: false };
+  const { data, error } = await sb.from("personagens").update({ dados }).eq("id", personagemId).eq("versao", versao).select("id");
+  if (error) { alert(`Não consegui ${rotulo}: ${error.message}`); return { ok: false, conflito: false }; }
+  if (data?.length) return { ok: true, conflito: false };
+  const atual = await lerFicha(personagemId);
+  if (atual && atual.versao !== versao) return { ok: false, conflito: true };
+  alert(`Não consegui ${rotulo}: o banco não deixou gravar esta ficha (sem permissão).`);
+  return { ok: false, conflito: false };
 }
 
 // ---------------------------------------------------------------------------
@@ -1215,18 +1284,36 @@ async function telaFicha(id) {
     donoApelido = dono?.apelido || "outra pessoa";
   } else aplicarTema(f);
   const registrar = (texto) => { f.log = [{ q: new Date().toISOString(), t: texto }, ...(f.log || [])].slice(0, 60); };
-  let salvando = false, pendente = false, autoTimer = null;
+  let salvando = false, pendente = false, autoTimer = null, decidindoConflito = false;
+  // Versão da linha quando a tela abriu (coluna `versao`, supabase/melhorias-dossie.sql).
+  // Se a mesa aplicar dano/recompensa enquanto esta tela está aberta, a versão do
+  // banco muda e gravar por cima apagaria isso sem aviso — então pergunta antes.
+  let versao = typeof p.versao === "number" ? p.versao : undefined;
   const marcaEstado = (txt, cls = "") => { const el = document.getElementById("st"); if (el) { el.textContent = txt; el.className = "topo-status " + cls; } };
   const salvar = async () => {
-    if (salvando) { pendente = true; return; }          // enfileira em vez de atropelar
+    autoTimer = null;
+    if (salvando || decidindoConflito) { pendente = true; return; }   // enfileira em vez de atropelar
     salvando = true;
-    const { data: gravou, error } = await sb.from("personagens").update({ nome: f.nomeVisivel ?? p.nome, dados: f, atualizado_em: new Date().toISOString() }).eq("id", id).select("id");
+    let q = sb.from("personagens").update({ nome: f.nomeVisivel ?? p.nome, dados: f, atualizado_em: new Date().toISOString() }).eq("id", id);
+    if (versao !== undefined) q = q.eq("versao", versao);
+    const { data: gravou, error } = await q.select(versao !== undefined ? "id,versao" : "id");
     salvando = false;
     if (error) { marcaEstado("⚠ não salvou — tentando de novo", "erro"); setTimeout(salvar, 2500); return; }
-    // RLS que barra o UPDATE não dá erro: só não grava nenhuma linha. Sem esta
-    // checagem a tela dizia "salvo ✓" e a mudança sumia no F5 (caso do admin
-    // editando ficha alheia sem supabase/admin.sql aplicado). Não repete: é permissão.
-    if (!gravou?.length) { pendente = false; marcaEstado("⚠ sem permissão para salvar esta ficha", "erro"); return; }
+    if (!gravou?.length) {
+      // RLS que barra o UPDATE não dá erro: só não grava nenhuma linha. Com a
+      // coluna `versao`, 0 linhas também pode ser outra pessoa ter gravado antes.
+      const atual = versao !== undefined ? await lerFicha(id) : null;
+      if (atual && atual.versao !== undefined && atual.versao !== versao) {
+        marcaEstado("⚠ a ficha mudou em outro lugar", "erro");
+        decidindoConflito = true;
+        const sobrescrever = await confirmModal("Esta ficha foi alterada em outro lugar enquanto você editava (dano ou recompensa na mesa, ou outra aba aberta). Recarregar a versão nova descarta o que você mudou aqui desde o último salvamento.", { okLabel: "Manter a minha e gravar por cima", cancelLabel: "Recarregar a versão nova", semFora: true });
+        decidindoConflito = false; pendente = false;
+        if (sobrescrever) { versao = atual.versao; return salvar(); }
+        return telaFicha(id);
+      }
+      pendente = false; marcaEstado("⚠ sem permissão para salvar esta ficha", "erro"); return;
+    }
+    if (typeof gravou[0].versao === "number") versao = gravou[0].versao;
     marcaEstado("salvo ✓", "ok");
     if (pendente) { pendente = false; salvar(); }
   };
@@ -1239,9 +1326,11 @@ async function telaFicha(id) {
     autoTimer = setTimeout(() => salvar(), 900);
   };
   // Rede de segurança: se sair da página com algo pendente, grava na hora.
+  // Só grava se ainda houver salvamento agendado (antes autoTimer nunca voltava
+  // a null e toda saída regravava a ficha à toa).
   const aoSair = () => { if (autoTimer) { clearTimeout(autoTimer); salvar(); } };
   window.addEventListener("beforeunload", aoSair);
-  window.addEventListener("hashchange", aoSair, { once: true });
+  window.addEventListener("hashchange", () => { aoSair(); window.removeEventListener("beforeunload", aoSair); }, { once: true });
   const render = () => {
     const k = calc(f);
     const raca = RACAS.find((r) => r.nome === f.raca), classe = CLASSES[f.classe];
@@ -1571,10 +1660,16 @@ async function telaFicha(id) {
     $("#nome").oninput = (e) => { p.nome = e.target.value; f.nomeVisivel = e.target.value; };
     $("#foto-in")?.addEventListener("change", (e) => {
       const file = e.target.files?.[0]; if (!file) return;
-      comprimirFoto(file, (data) => { f.foto = data; registrar("◈ Retrato do personagem atualizado."); (autoSalvar(), render()); });
+      comprimirFoto(file, async (data) => {
+        marcaEstado("enviando foto…", "salvando");
+        const url = await enviarFoto(data, id);
+        const antiga = f.foto; f.foto = url || data;
+        if (url) apagarFotoAntiga(antiga);
+        registrar("◈ Retrato do personagem atualizado."); (autoSalvar(), render());
+      });
       e.target.value = "";
     });
-    $("#foto-rm")?.addEventListener("click", () => { f.foto = null; (autoSalvar(), render()); });
+    $("#foto-rm")?.addEventListener("click", () => { apagarFotoAntiga(f.foto); f.foto = null; (autoSalvar(), render()); });
     ["raca", "classe", "filosofia"].forEach((c) => $("#" + c).onchange = (e) => { f[c] = e.target.value; (autoSalvar(), render()); });
     $("#abrir-sistema")?.addEventListener("click", async () => {
       try { const { abrirSeletorPlanetas } = await import("./sistema-solar.js");
@@ -1788,6 +1883,11 @@ async function telaFicha(id) {
     app.querySelectorAll("[data-tema]").forEach((b) => b.onclick = () => { f.tema = { ...TEMAS[b.dataset.tema] }; aplicarTema(f); });
   };
   (autoSalvar(), render());
+  // Migração preguiçosa: foto antiga em base64 vai para o Storage na primeira
+  // vez que o dono abre a ficha. Sem o bucket, fica como estava.
+  if (!comoAdmin && /^data:image\//.test(f.foto || "")) {
+    enviarFoto(f.foto, id).then((url) => { if (url && /^data:image\//.test(f.foto || "")) { f.foto = url; autoSalvar(); } });
+  }
 }
 
 // ---------------- CAMPANHAS ----------------
@@ -1916,19 +2016,66 @@ async function telaMesa(id) {
   const historico = msgs || [];  // lista mutável de mensagens (sobrevive a re-renders)
   const pilhaUndo = [];          // snapshots para desfazer a última ação do Mestre (máx 10)
   // (macrosDe/salvarMacros agora vivem em mesa-ficha.js — único consumidor.)
+  // ---- Gravação da campanha com controle de versão ------------------------
+  // Cada cliente grava o JSON inteiro (combate, nave…) a partir da cópia que
+  // tem na memória; sem controle, quem grava por último apaga a mudança de quem
+  // gravou antes, sem erro nenhum. Com a coluna `versao` (gatilho no banco soma
+  // 1 a cada UPDATE — supabase/melhorias-dossie.sql) a gravação só passa se a
+  // versão no banco ainda é a que esta tela conhece; se não for, a tela recarrega
+  // o estado atual e avisa, em vez de sobrescrever a ação de outra pessoa.
+  // O eco do realtime também passa a ser decidido pela versão (antes era uma
+  // janela de 1,5 s que descartava as gravações dos OUTROS nesse intervalo).
+  // Sem a coluna (SQL ainda não aplicado) tudo funciona como antes.
+  const COLUNAS_CAMP = ["nave", "mapa", "combate", "combate_nave", "handout", "faccoes", "contratos", "bestiario"];
+  const campTemVersao = () => typeof camp.versao === "number";
   const marcarGravacao = () => { ui.gravandoAte = Date.now() + 1500; };
   const ecoProprio = () => Date.now() < ui.gravandoAte;
-  // Toda gravação em `campanhas` passa por aqui, para o eco do realtime ser ignorado.
-  const salvarCampanha = (campos) => { marcarGravacao(); return sb.from("campanhas").update(campos); };
+  // Copia para `camp` as colunas que vieram na linha (o realtime pode omitir
+  // colunas grandes que não mudaram — nunca zera o que não veio).
+  const aplicarLinhaCamp = (row) => {
+    for (const c of COLUNAS_CAMP) if (row[c] !== undefined) camp[c] = row[c];
+    if (typeof row.versao === "number") camp.versao = row.versao;
+    if (!camp.combate || typeof camp.combate !== "object" || !("ordem" in camp.combate)) camp.combate = combateVazio();
+    if (!camp.combate_nave || typeof camp.combate_nave !== "object" || !("inimigas" in camp.combate_nave)) camp.combate_nave = combateNaveVazio();
+    if (!camp.handout || typeof camp.handout !== "object") camp.handout = {};
+    if (!camp.faccoes || typeof camp.faccoes !== "object") camp.faccoes = {};
+    if (!Array.isArray(camp.contratos)) camp.contratos = [];
+    if (!Array.isArray(camp.bestiario)) camp.bestiario = [];
+  };
+  const recarregarCamp = async () => {
+    const { data } = await sb.from("campanhas").select("*").eq("id", id).maybeSingle();
+    if (data) { sanear(data); aplicarLinhaCamp(data); }
+    return data;
+  };
+  const gravarCampAgora = async (campos, rotulo) => {
+    if (!campTemVersao()) {
+      marcarGravacao();
+      const { error } = await sb.from("campanhas").update(campos).eq("id", id);
+      if (error) alert(`Não consegui ${rotulo}: ${error.message}`);
+      return !error;
+    }
+    const { data, error } = await sb.from("campanhas").update(campos).eq("id", id).eq("versao", camp.versao).select("versao");
+    if (error) { alert(`Não consegui ${rotulo}: ${error.message}`); return false; }
+    if (data?.length) { camp.versao = data[0].versao; return true; }
+    // Nenhuma linha gravada: ou alguém gravou antes (versão mudou), ou a RLS barrou.
+    const versaoAntes = camp.versao;
+    const atual = await recarregarCamp();
+    if (!atual || atual.versao === versaoAntes) { alert(`Não consegui ${rotulo}: o banco não deixou gravar (sem permissão).`); return false; }
+    ui.mapaCtrl?.atualizar(camp.mapa, camp.combate);
+    avisar("⚠ Outra pessoa mexeu na mesa ao mesmo tempo. A tela foi atualizada com o estado atual — confira e refaça sua última ação se ela não aparecer.");
+    render();
+    return false;
+  };
+  // Fila: as gravações desta tela saem uma de cada vez, cada uma com a versão
+  // devolvida pela anterior (dois cliques rápidos não brigam entre si).
+  let filaCamp = Promise.resolve();
   // Wrapper com checagem de erro OBRIGATÓRIA — sem isto, uma falha de rede ou de RLS
-  // deixava a mudança só na tela: o app já tinha renderizado como se tivesse dado
-  // certo, e ninguém via aviso nenhum até a sincronização seguinte apagar a ação
-  // silenciosamente. Devolve `true`/`false` pra quem chamar poder decidir o que fazer
-  // (ex.: devolver um recurso gasto se o salvamento falhou).
-  const salvarCamp = async (campos, rotulo = "salvar") => {
-    const { error } = await salvarCampanha(campos).eq("id", id);
-    if (error) alert(`Não consegui ${rotulo}: ${error.message}`);
-    return !error;
+  // deixava a mudança só na tela. Devolve `true`/`false` pra quem chamar poder
+  // decidir o que fazer (ex.: devolver um recurso gasto se o salvamento falhou).
+  const salvarCamp = (campos, rotulo = "salvar") => {
+    const p = filaCamp.then(() => gravarCampAgora(campos, rotulo));
+    filaCamp = p.catch(() => false);
+    return p;
   };
   const salvarMapa = async (mapa) => { camp.mapa = mapa; await salvarCamp({ mapa }, "salvar o mapa"); };
   if (!camp.combate || typeof camp.combate !== "object" || !("ordem" in camp.combate)) camp.combate = combateVazio();
@@ -1970,8 +2117,8 @@ async function telaMesa(id) {
     if (!c || !c.personagem_id || !delta) return;
     const alvo = (pers || []).find((x) => x.id === c.personagem_id);
     if (!alvo) return;
-    const { data: fresco } = await sb.from("personagens").select("dados").eq("id", alvo.id).single();
-    const dd = { ...novaFichaDados(), ...(fresco?.dados || alvo.dados) };
+    const fresco = await lerFicha(alvo.id);
+    const dd = fresco?.dados || { ...novaFichaDados(), ...alvo.dados };
     const antes = dd.pvAtual || 0;
     dd.pvAtual = Math.max(0, Math.min(calc(dd).pvMax, antes + delta));
     if (dd.pvAtual === antes) return;
@@ -2029,9 +2176,9 @@ async function telaMesa(id) {
     // ---- Alvo com ficha: redução → escudo pessoal → PV Temporário → corpo ----
     if (alvo.personagem_id) {
       // Lê a ficha fresca do banco: a cópia do render pode não ter os modos ligados (Endurecer).
-      const { data: fresco } = await sb.from("personagens").select("dados").eq("id", alvo.personagem_id).single();
+      const fresco = await lerFicha(alvo.personagem_id);
       const pjA = (pers || []).find((x) => x.id === alvo.personagem_id);
-      const dd = { ...novaFichaDados(), ...(fresco?.dados || pjA?.dados || {}) };
+      const dd = fresco?.dados || { ...novaFichaDados(), ...(pjA?.dados || {}) };
       // Se o alvo está dentro de uma Zona Morta, a cibernética dele não conta na conta
       // do dano — inclusive a redução vinda de implante.
       const kA = calc(dd, { semImplantes: auraNega("implantes", alvo) });
@@ -2229,6 +2376,9 @@ async function telaMesa(id) {
         { k: "i", label: `${p.titulo || "Rolagem"} — ${p.detalhe || ""}${p.total != null ? `  =  ${p.total}` : ""}${p.extra ? "\n" + p.extra : ""}`, tipo: "info" }], okLabel: "Fechar", semCancelar: true });
       return true;
     }
+    // Recompensa/descanso viram "pendência": cada ficha da lista aplica uma vez
+    // só, mesmo que o dono esteja offline agora (aplica ao abrir a mesa).
+    if (TIPOS_PENDENCIA.includes(tipo) && payload && !Array.isArray(payload.para)) payload = { ...payload, para: (pers || []).map((x) => x.id) };
     const tentar = () => sb.from("mensagens").insert({ campanha_id: id, autor_id: usuario.id, personagem_id: ui.meuPers?.id || null, tipo, conteudo, payload }).select("*,perfis:autor_id(apelido,avatar_url)").single();
     let { data, error } = await tentar();
     // "Failed to fetch" é o fetch() do navegador não completando (Wi-Fi
@@ -2237,6 +2387,7 @@ async function telaMesa(id) {
     if (error && /failed to fetch/i.test(error.message || "")) { await new Promise((r) => setTimeout(r, 600)); ({ data, error } = await tentar()); }
     if (error) { alert("Não consegui transmitir: " + (/failed to fetch/i.test(error.message || "") ? "sinal instável, tente de novo." : error.message)); return false; }
     ui.pintarMsg?.(data, true); // mostra na hora, sem depender do realtime voltar
+    if (TIPOS_PENDENCIA.includes(tipo)) aplicarPendencia(sanear(data)).catch((e) => console.error("pendência:", e));
     return true;
   };
 
@@ -2248,11 +2399,405 @@ async function telaMesa(id) {
   // (aplicarEmAlvos/temResistencia/implanteComoArma/catDoAtaque agora vivem em
   // mesa-ficha.js — únicos consumidores.)
 
-  const render = async () => {
+  // ---- Recompensas e descansos convocados pelo Mestre ----------------------
+  // Antes cada cliente conectado aplicava a mensagem na hora em que a ouvia:
+  // duas abas abertas = recompensa em dobro, jogador offline = nada, e a conta
+  // partia da cópia da ficha na memória (podia desfazer um dano recente). Agora
+  // a mensagem leva a lista de personagens (`payload.para`, preenchida em
+  // enviar()), cada ficha guarda em `dados.recebidas` o que já aplicou, e a
+  // conta parte da ficha fresca do banco. Quem estava offline recebe ao abrir
+  // a mesa (buscarPendencias). Só vale mensagem do Mestre da campanha.
+  const TIPOS_PENDENCIA = ["recompensa", "descanso"];
+  const aplicarRecompensaEm = (dados, p) => {
+    const notas = [];
+    const xp = num(p.xp), creditos = num(p.creditos);
+    if (xp) { dados.xp = num(dados.xp) + xp; notas.push(`+${xp} XP (${dados.xp}/${dados.xpMeta})`); }
+    if (creditos) {
+      const kk = calc(dados);
+      const rs = kk.efeitos?.aoSaquear();
+      let ganho = creditos;
+      if (rs?.pct) { const extra = Math.round(creditos * rs.pct / 100); ganho += extra;
+        notas.push(`+${extra} CG extra (${rs.fontes[0]}: +${rs.pct}%)`); }
+      for (const r of rs?.rolagens || []) {
+        const pd2 = parseDice(r.dado); const v2 = rollNd(pd2.n, pd2.f).reduce((x, y) => x + y, 0);
+        notas.push(v2 >= r.minimo ? `🎲 ${r.dado} [${v2}] — achou ${r.oque}!` : `🎲 ${r.dado} [${v2}] — nada além do previsto`);
+      }
+      dados.creditos = num(dados.creditos) + ganho;
+      notas.push(`+${ganho} CG (${dados.creditos})`);
+    }
+    if (p.item?.nome) {
+      dados.inventario = dados.inventario || [];
+      const q = num(p.item.qtd, 1);
+      const ja = dados.inventario.find((x) => x.nome === p.item.nome);
+      if (ja) ja.qtd = num(ja.qtd, 1) + q;
+      else dados.inventario.push({ ...p.item, qtd: q, equip: false });
+      notas.push(`+${q}× ${p.item.nome}`);
+    }
+    if (p.loot?.nome) {
+      const { nome, tipo } = p.loot; const qtd = num(p.loot.qtd, 1);
+      if (tipo === "implante") { dados.implantes = dados.implantes || [];
+        if (!dados.implantes.includes(nome)) { dados.implantes.push(nome); notas.push(`⧉ ${nome}`); }
+        else notas.push(`${nome} (já instalado)`);
+      } else {
+        dados.inventario = dados.inventario || [];
+        const empilha = ehConsumivel(nome);
+        const ja = empilha ? dados.inventario.find((x) => x.nome === nome) : null;
+        if (ja) ja.qtd = num(ja.qtd, 1) + qtd;
+        else dados.inventario.push({ tipo, nome, equip: false, qtd: empilha ? qtd : 1 });
+        notas.push(`${qtd > 1 ? `${qtd}× ` : ""}${nome}`);
+      }
+    }
+    if (num(p.pentes)) {
+      const res = normalizaPentes(dados);
+      const tipo = TIPOS_PENTE[p.tipoPente] ? p.tipoPente : PENTE_PADRAO;
+      const antes = Object.values(res).reduce((x, y) => x + y, 0);
+      const teto = pentesReservaDe(dados);
+      const ganhou = Math.min(num(p.pentes), Math.max(0, teto - antes));
+      res[tipo] = (res[tipo] || 0) + ganhou;
+      dados.pentes = res;
+      const tp = TIPOS_PENTE[tipo];
+      notas.push(ganhou > 0 ? `+${ganhou} pente ${tp.ic} ${tp.n} (${antes + ganhou}/${teto} na reserva)` : "reserva de pentes já cheia");
+    }
+    if (!notas.length) return null;
+    return { rotulo: "salvar a recompensa", log: `🎁 Recompensa do Mestre: ${notas.join(" · ")}`,
+      anuncio: (nome) => `🎖 ${nome}: ${notas.join(" · ")}${dados.metodoNivel === "xp" && dados.xp >= dados.xpMeta ? " — PRONTO PARA SUBIR!" : ""}` };
+  };
+  const aplicarDescansoEm = (dados, p) => {
+    // Nova sessão não é descanso: só libera as habilidades de 1×/sessão.
+    if (p.tipo === "sessao") {
+      const cat = abilidadesDeSessao(dados); let n = 0;
+      dados.usos = dados.usos || {};
+      cat.forEach((a) => { if (dados.usos[a.id]) { delete dados.usos[a.id]; n++; } });
+      if (!n) return null;
+      return { rotulo: "liberar as habilidades de sessão", log: `📅 Nova sessão — ${n} habilidade(s) de 1×/sessão liberada(s)`,
+        anuncio: (nome) => `📅 ${nome}: ${cat.map((a) => a.nome).join(", ")} disponível de novo.` };
+    }
+    const r = aplicarDescanso(dados, p.tipo === "longo" ? "longo" : "curto");
+    return { rotulo: "salvar o descanso", log: `${p.tipo === "longo" ? "🌙" : "☾"} ${r.notas.join(" · ")}`,
+      anuncio: (nome) => `🛌 ${nome}: ${r.notas.join(" · ")}.` };
+  };
+  const pendenciasEmCurso = new Set();
+  const aplicarPendencia = async (m) => {
+    const p = m?.payload || {};
+    if (!TIPOS_PENDENCIA.includes(m?.tipo) || !Array.isArray(p.para) || m.autor_id !== camp.mestre_id) return;
+    for (const pid of p.para) {
+      const pj = (pers || []).find((x) => x.id === pid && x.dono_id === usuario.id);
+      if (!pj) continue;
+      const chave = `${m.id}:${pid}`;
+      if (pendenciasEmCurso.has(chave)) continue;
+      pendenciasEmCurso.add(chave);
+      try {
+        // Até 3 tentativas: se outra aba (ou a mesa) gravou a ficha no meio, relê e
+        // confere de novo se a outra aba já não aplicou esta mesma mensagem.
+        for (let tentativa = 0; tentativa < 3; tentativa++) {
+          const fresco = await lerFicha(pid);
+          if (!fresco) break;
+          const dados = fresco.dados;
+          const recebidas = Array.isArray(dados.recebidas) ? dados.recebidas : [];
+          if (recebidas.includes(String(m.id))) break;
+          const r = m.tipo === "recompensa" ? aplicarRecompensaEm(dados, p) : aplicarDescansoEm(dados, p);
+          dados.recebidas = [String(m.id), ...recebidas].slice(0, 100);
+          if (r?.log) dados.log = [{ q: new Date().toISOString(), t: r.log }, ...(dados.log || [])].slice(0, 60);
+          const g = await salvarFichaSeIgual(pid, dados, fresco.versao, r?.rotulo || "registrar a mensagem do Mestre");
+          if (g.conflito) continue;
+          if (g.ok) {
+            pj.dados = dados;
+            if (ui.meuPers?.id === pid) ui.meuPers.dados = dados;
+            if (r?.anuncio) await enviar("sistema", r.anuncio(pj.nome));
+            agendarRender();
+          }
+          break;
+        }
+      } finally { pendenciasEmCurso.delete(chave); }
+    }
+  };
+  // Ao abrir a mesa: aplica o que chegou enquanto esta pessoa estava fora.
+  const buscarPendencias = async () => {
+    if (!(pers || []).some((x) => x.dono_id === usuario.id)) return;
+    const { data } = await sb.from("mensagens").select("id,tipo,autor_id,payload,criado_em").eq("campanha_id", id)
+      .in("tipo", TIPOS_PENDENCIA).order("criado_em", { ascending: false }).limit(60);
+    for (const m of [...(data || [])].reverse()) await aplicarPendencia(sanear(m));
+  };
+
+  // ---- Estatísticas de rolagem -------------------------------------------------
+  // Pagina de 1000 em 1000 (o teto por consulta do Supabase): antes um limit(4000)
+  // sem ordem devolvia só 1000 rolagens quaisquer.
+  const abrirEstatisticas = async () => {
+    let todas = [];
+    try {
+      todas = await buscarTudo(() => sb.from("mensagens").select("autor_id,personagem_id,tipo,payload,perfis:autor_id(apelido)")
+        .eq("campanha_id", id).eq("tipo", "rolagem").order("criado_em", { ascending: true }).order("id", { ascending: true }));
+    } catch (e) { return alert("Não consegui carregar as rolagens: " + e.message); }
+    sanear(todas);
+    const porAutor = {};
+    (todas || []).forEach((m) => {
+      const p = m.payload || {}; const nat = /d20 \[(\d+)\]/.exec(p.detalhe || "");
+      if (!nat) return; // só rolagens de d20 entram na estatística
+      const nome = (pers || []).find((x) => x.id === m.personagem_id)?.nome || m.perfis?.apelido || "?";
+      const a = porAutor[nome] = porAutor[nome] || { n: 0, soma: 0, crits: 0, fumbles: 0, maior: 0, menor: 21 };
+      const v = +nat[1];
+      a.n++; a.soma += v; a.maior = Math.max(a.maior, v); a.menor = Math.min(a.menor, v);
+      if (v === 20) a.crits++; if (v === 1) a.fumbles++;
+    });
+    const linhas = Object.entries(porAutor).sort((x, y) => (y[1].soma / y[1].n) - (x[1].soma / x[1].n));
+    const ov = document.createElement("div"); ov.className = "ss-overlay ov-modal"; ov.style.zIndex = "10000";
+    const corpo = linhas.length ? `<table class="stats-tab"><thead><tr><th>Quem</th><th>Rolagens</th><th>Média</th><th>🎯 Crít</th><th>💀 Falha</th><th>Melhor</th><th>Pior</th></tr></thead><tbody>
+      ${linhas.map(([n, a]) => `<tr><td><b>${esc(n)}</b></td><td>${a.n}</td><td><b class="${(a.soma / a.n) >= 10.5 ? "tech-c" : "dim"}">${(a.soma / a.n).toFixed(1)}</b></td>
+        <td>${a.crits}${a.crits ? ` <span class="dim">(${(a.crits / a.n * 100).toFixed(0)}%)</span>` : ""}</td>
+        <td>${a.fumbles}${a.fumbles ? ` <span class="dim">(${(a.fumbles / a.n * 100).toFixed(0)}%)</span>` : ""}</td>
+        <td>${a.maior}</td><td>${a.menor === 21 ? "—" : a.menor}</td></tr>`).join("")}</tbody></table>
+      <p class="regra">A média esperada de um d20 honesto é <b>10,5</b>. Quem está acima teve sorte; quem está abaixo tem uma história para contar.</p>`
+      : `<p class="regra">Ninguém rolou nada nesta mesa ainda.</p>`;
+    ov.innerHTML = `<div class="ss-painel" style="width:620px;max-width:96vw;margin:auto;border:1px solid var(--line);border-radius:10px;max-height:92vh">
+      <div class="mp-topo"><b>📊 Estatísticas de Rolagem</b><button id="st-fechar" class="mp-x" style="margin-left:auto">✕</button></div>
+      <div class="di-corpo">${corpo}</div></div>`;
+    document.body.appendChild(ov); document.body.style.overflow = "hidden";
+    const fechar = () => { document.body.style.overflow = ""; ov.remove(); };
+    ov.querySelector("#st-fechar").onclick = fechar;
+    ov.addEventListener("keydown", (e) => { if (e.key === "Escape") fechar(); });
+  };
+
+  // O render() redesenha só o topo e a coluna lateral (abas da mesa). O chat
+  // é montado uma vez por entrada na mesa e só recebe mensagens novas: antes,
+  // cada ação de qualquer pessoa reconstruía a tela inteira — o rascunho do
+  // campo de mensagem sumia, o chat pulava pro fim e o canal Realtime caía e
+  // voltava (perdendo eventos nesse intervalo).
+  const handoutHtml = () => (camp.handout?.visivel && urlImg(camp.handout?.url) ? `<div class="handout"><div class="handout-cab"><b>🖼 ${esc(camp.handout.titulo || "O Mestre mostra algo")}</b>${urlLink(camp.handout.url) ? `<a href="${esc(urlLink(camp.handout.url))}" target="_blank" rel="noopener noreferrer" class="mini">abrir</a>` : ""}</div><img src="${esc(urlImg(camp.handout.url))}" alt="${esc(camp.handout.titulo || "imagem compartilhada pelo Mestre")}"/></div>` : "");
+  let montada = false;
+  let respondendoA = null;     // mensagem sendo referenciada no chat
+  let renderAgendado = null;
+  const agendarRender = () => { clearTimeout(renderAgendado); renderAgendado = setTimeout(() => render(), 120); };
+  const montarChat = () => {
+    // ---- chat ----
+      const chatEl = $("#chat");
+      const idsVistos = new Set();
+      let ultimoAutor = null;      // para espaçar quando muda quem fala
+      let respondendoA = null;     // mensagem sendo referenciada
+      const resumoMsg = (m) => {
+        if (m.tipo === "rolagem") return `🎲 ${m.payload?.titulo || "rolagem"}${m.payload?.total !== undefined ? ` = ${m.payload.total}` : ""}`;
+        if (m.tipo === "dano" || m.tipo === "cura") return `${m.tipo === "dano" ? "💥" : "✚"} ${num(m.payload?.valor)} em ${m.payload?.alvo_nome || ""}`;
+        return (m.conteudo || "").slice(0, 70);
+      };
+      const iniciarResp = (m) => {
+        respondendoA = { id: m.id, quem: m.perfis?.apelido || "?", resumo: resumoMsg(m) };
+        const bar = $("#resp-preview");
+        if (bar) { bar.querySelector(".rp-txt").innerHTML = `↩ Respondendo a <b>${esc(respondendoA.quem)}</b>: <span class="rp-resumo">${esc(respondendoA.resumo)}</span>`; bar.style.display = "flex"; }
+        $("#msg")?.focus();
+      };
+      const cancelarResp = () => { respondendoA = null; const bar = $("#resp-preview"); if (bar) bar.style.display = "none"; };
+      const addMsg = (m, aoVivo = false) => {
+        if (idsVistos.has(m.id)) return; idsVistos.add(m.id);
+        sanear(m);   // pode ter vindo direto da API, sem passar pela tela
+        if (m.payload?.privada && m.autor_id !== usuario.id && !ui.souMestre) return; // rolagem privada: só autor + Mestre
+        if (aoVivo && !historico.some((x) => x.id === m.id)) historico.push(m); // persiste entre re-renders
+        if (aoVivo && m.autor_id !== usuario.id && m.tipo !== "sistema") { // alerta de mensagem de outra pessoa
+          if (m.tipo === "rolagem") { const p = m.payload || {}; if (p.crit) { somCritico(); sacudir(); } else if (p.fumble) { somFalha(); sacudir(); } else somDado(); }
+          else somMensagem();
+          // Notificação do sistema operacional é texto puro: nada de esc() aqui, senão "&" vira "&amp;".
+          notificar(`${m.perfis?.apelido || "Mesa"} · ${camp.nome}`, m.tipo === "rolagem" ? `🎲 ${m.payload?.titulo || "rolagem"}${m.payload?.total != null ? " = " + num(m.payload.total) : ""}` : (m.conteudo || "").slice(0, 80));
+        }
+        const quem = esc(m.perfis?.apelido || "?");
+        const persN = m.personagem_id ? esc(pers?.find((x) => x.id === m.personagem_id)?.nome || "") : "";
+        let corpo = "";
+        if (m.tipo === "texto" || m.tipo === "sistema") corpo = `<div class="m-txt ${m.tipo}">${esc(m.conteudo)}</div>`;
+        else if (m.tipo === "rolagem") { const p = m.payload || {};
+          const dt = p.tipoDano && ICONE_DANO[p.tipoDano];
+          corpo = `<div class="m-roll ${p.crit ? "crit" : ""} ${p.fumble ? "fumble" : ""}">
+            <b>${esc(p.titulo)}</b><span class="m-det">${esc(p.detalhe)}</span>
+            ${p.total !== undefined && p.total !== null ? `<span class="m-total" data-final="${num(p.total)}">${num(p.total)}</span>` : ""}
+            ${p.crit ? `<span class="log-flag crit">CRÍTICO!</span>` : ""}${p.fumble ? `<span class="log-flag fumble">FALHA CRÍTICA</span>` : ""}
+            ${dt ? `<span class="m-dano-tipo" style="color:${dt.cor}" title="Dano ${esc(p.tipoDano)}">${dt.ic} ${esc(p.tipoDano)}</span>` : ""}
+            ${p.extra ? `<span class="m-extra">${esc(p.extra)}</span>` : ""}
+            ${p.dano_total != null && !p.alvo_resolvido && ui.souMestre && camp.combate.ativo ? `<button class="m-aplicar" data-dano="${num(p.dano_total)}">🩸 aplicar ${num(p.dano_total)} de dano</button>` : ""}</div>`; }
+        else if (m.tipo === "dano" || m.tipo === "cura") { const p = m.payload || {};
+          const meu = pers?.find((x) => x.id === p.alvo_id)?.dono_id === usuario.id;
+          corpo = `<div class="m-roll ${m.tipo === "dano" ? "fumble" : "crit"}"><b>${m.tipo === "dano" ? "💥" : "✚"} ${num(p.valor)} em ${esc(p.alvo_nome)}</b>
+            <span class="m-det">${esc(p.origem || "")}</span>
+            ${p.aplicado ? `<span class="m-extra">aplicado ✓</span>` : meu ? `<button class="mini ${m.tipo === "dano" ? "dano" : "eq"}" data-aplicar="${esc(m.id)}">APLICAR ${m.tipo === "dano" ? "−" : "+"}${num(p.valor)} PV</button>` : `<span class="m-extra">aguardando o dono aplicar…</span>`}</div>`; }
+        else if (m.tipo === "nave") corpo = `<div class="m-txt sistema">🚀 ${esc(m.conteudo)}</div>`;
+        else if (m.tipo === "descanso") { const p = m.payload || {}; corpo = `<div class="m-txt sistema">${p.tipo === "longo" ? "🌙" : "☾"} ${esc(m.conteudo)}</div>`; }
+        else if (m.tipo === "recompensa") { corpo = `<div class="m-txt sistema">🎁 ${esc(m.conteudo)}</div>`; }
+        const el = document.createElement("div");
+        const persMsg = m.personagem_id ? pers?.find((x) => x.id === m.personagem_id) : null;
+        const av = urlImg(persMsg?.dados?.foto) || urlImg(m.perfis?.avatar_url) || null;
+        const avatarHtml = av ? `<img class="m-avatar" src="${esc(av)}" alt=""/>` : `<div class="m-avatar vazia">◈</div>`;
+        const minha = m.autor_id === usuario.id;
+        const novaPessoa = m.autor_id !== ultimoAutor; ultimoAutor = m.autor_id;
+        const resp = m.payload?.resp;
+        const respHtml = resp ? `<div class="m-quote" data-goto="${esc(resp.id)}">↩ <b>${esc(resp.quem)}</b>: ${esc(resp.resumo)}</div>` : "";
+        el.className = "m" + (minha ? " minha" : "") + (novaPessoa ? " nova-pessoa" : "");
+        el.dataset.mid = String(m.id);
+        el.innerHTML = `${avatarHtml}<div class="m-corpo"><div class="m-cab">${quem}${persN ? ` <i>como ${persN}</i>` : ""} <time>${new Date(m.criado_em).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</time><button class="m-reply" data-reply title="Responder">↩</button></div>${respHtml}${corpo}</div>`;
+        // Só desce sozinho se a pessoa já estava no fim (ou se a mensagem é dela).
+        // Antes rolava sempre, e quem estava lendo mensagens antigas era jogado pro fim.
+        const pertoDoFim = chatEl.scrollHeight - chatEl.scrollTop - chatEl.clientHeight < 90;
+        chatEl.appendChild(el);
+        if (!aoVivo || pertoDoFim || m.autor_id === usuario.id) chatEl.scrollTop = chatEl.scrollHeight;
+        // Terminal-digitando e "dado rolando" só em mensagens que acabaram de
+        // chegar ao vivo — no histórico (F5/scroll pra trás) tudo aparece pronto,
+        // senão reabrir o chat ficaria lento de propósito.
+        if (aoVivo && !document.body.classList.contains("a11y-reduzir")) {
+          if (m.tipo === "sistema") { const txtEl = el.querySelector(".m-txt.sistema"); if (txtEl) digitarTexto(txtEl, m.conteudo || ""); }
+          else if (m.tipo === "rolagem") {
+            const totalEl = el.querySelector(".m-total"); if (totalEl) animarRolagem(totalEl, totalEl.dataset.final);
+            if (m.payload?.crit) flashCritico();   // qualquer crítico ao vivo, seu ou de outro jogador
+          }
+        }
+        el.querySelector("[data-reply]")?.addEventListener("click", () => iniciarResp(m));
+        el.querySelector(".m-aplicar")?.addEventListener("click", async () => {
+          if (!camp.combate.ativo || !camp.combate.ordem.length) return alert("Nenhum combate ativo com combatentes.");
+          const dano = +el.querySelector(".m-aplicar").dataset.dano;
+          const pRoll = m.payload || {};
+          const r = await modalForm({ titulo: `🩸 Aplicar ${dano} de dano`, campos: [{ k: "alvo", label: "Alvo", tipo: "select", opcoes: camp.combate.ordem.map((c) => ({ v: c.id, l: ehNave(c) ? `${c.nome} (casco ${c.casco}/${c.casco_max})` : `${c.nome} (${c.hp}/${c.hp_max}${c.cd != null ? `, Def ${c.cd}` : ""})` })) }], okLabel: "Aplicar" });
+          if (!r) return; const alvo = camp.combate.ordem.find((c) => c.id === r.alvo); if (!alvo) return;
+          // Se a rolagem trouxe um acerto (payload.total), confere contra a Defesa do alvo antes de aplicar.
+          // Perfurante/Derretimento (payload.ignoraArmadura) reduzem a Defesa efetiva do teste.
+          const defAlvo = Math.max(0, (ehNave(alvo) ? 10 + (alvo.manobra || 0) : (alvo.cd ?? 10)) - (pRoll.ignoraArmadura || 0));
+          if (pRoll.total != null && !pRoll.crit && (pRoll.fumble || pRoll.total < defAlvo)) {
+            const forcar = await confirmModal(`A rolagem foi ${pRoll.total} contra a Defesa ${defAlvo} de ${alvo.nome}.${pRoll.ignoraArmadura ? ` (Perfurante −${pRoll.ignoraArmadura})` : ""}${pRoll.fumble ? " Falha crítica." : ""} ${alvo.nome} desvia do golpe.\n\nAplicar o dano mesmo assim?`, { okLabel: "Aplicar mesmo assim", cancelLabel: "Errou o alvo", perigo: true });
+            if (!forcar) { await enviar("sistema", `🛡 ${pRoll.titulo || "O ataque"} erra ${alvo.nome} (rolagem ${pRoll.total} vs Defesa ${defAlvo}) — sem dano.`); return; }
+          }
+          const rd = await aplicarDanoAlvo(alvo, dano);
+          await enviar("sistema", `💥 ${alvo.nome}: ${rd.msg}${!ehNave(alvo) && foraDeCombate(alvo) ? " 💀 CAIU!" : ""}`);
+          await salvarCombate(); render();
+        });
+        el.querySelector("[data-goto]")?.addEventListener("click", () => {
+          const alvo = chatEl.querySelector(`[data-mid="${CSS.escape(String(resp.id))}"]`);
+          if (alvo) { alvo.scrollIntoView({ behavior: "smooth", block: "center" }); alvo.classList.add("piscar"); setTimeout(() => alvo.classList.remove("piscar"), 1200); }
+        });
+        el.querySelector("[data-aplicar]")?.addEventListener("click", async (ev) => {
+          const bt = ev.currentTarget; if (bt.disabled) return; bt.disabled = true;   // evita clique duplo
+          const p = m.payload; const alvo = pers.find((x) => x.id === p.alvo_id);
+          if (!alvo) { bt.disabled = false; return; }
+          // Lê o estado real do banco: a cópia do render fica velha entre cliques.
+          const fresco = await lerFicha(alvo.id);
+          const dados = fresco?.dados || { ...novaFichaDados(), ...alvo.dados };
+          const antes = dados.pvAtual || 0;
+          dados.pvAtual = Math.max(0, Math.min(calc(dados).pvMax, antes + (m.tipo === "dano" ? -p.valor : p.valor)));
+          dados.log = [{ q: new Date().toISOString(), t: `${m.tipo === "dano" ? "💥" : "✚"} ${p.valor} PV — ${esc(p.origem || "mesa")}` }, ...(dados.log || [])].slice(0, 60);
+          if (!(await salvarFicha(alvo.id, dados, "aplicar o dano/cura"))) { bt.disabled = false; return; }
+          alvo.dados = dados;                          // mantém o estado local coerente
+          if (ui.meuPers && ui.meuPers.id === alvo.id) ui.meuPers.dados = dados;
+          await sb.from("mensagens").update({ payload: { ...p, aplicado: true } }).eq("id", m.id);
+          m.payload = { ...p, aplicado: true };
+          await enviar("sistema", `${alvo.nome}: ${antes} → ${dados.pvAtual} PV${dados.pvAtual <= 0 ? " — CAIU!" : ""}`);
+          render();                                    // a ficha e as barras acompanham
+        });
+      };
+    ui.pintarMsg = addMsg;
+    historico.forEach((m) => addMsg(m));
+      $("#enviar-msg").onclick = async () => { const t = $("#msg").value.trim(); if (!t) return; $("#msg").value = "";
+        const resp = respondendoA; cancelarResp();
+        const rr = /^\/(?:r(?:olar)?)?\s*(.+)$/i.exec(t);
+        let ok;
+        if (rr) { const r = rolarExpr(rr[1], ui.vantagem);
+          ok = r ? await enviar("rolagem", null, { titulo: (ui.privada ? "🔒 " : "") + `Rolagem ${rr[1]}`, detalhe: r.detalhe, total: r.total, ...(ui.privada ? { privada: true } : {}), ...(resp ? { resp } : {}) }) : true; }
+        else ok = await enviar("texto", t, resp ? { resp } : null);
+        // Falha de rede: devolve o texto pro campo em vez de perdê-lo — já foi bug
+        // real (o alert do erro aparecia, mas a mensagem tinha sumido do input).
+        if (!ok) { $("#msg").value = t;
+          if (resp) { respondendoA = resp; const bar = $("#resp-preview");
+            if (bar) { bar.querySelector(".rp-txt").innerHTML = `↩ Respondendo a <b>${esc(resp.quem)}</b>: <span class="rp-resumo">${esc(resp.resumo)}</span>`; bar.style.display = "flex"; } } } };
+      $("#resp-cancel")?.addEventListener("click", cancelarResp);
+      const syncTg = () => { $("#tg-vant")?.classList.toggle("on", ui.vantagem > 0); $("#tg-desv")?.classList.toggle("on", ui.vantagem < 0); $("#tg-priv")?.classList.toggle("on", ui.privada); $("#tg-cega")?.classList.toggle("on", ui.asCegas); };
+      $("#tg-vant")?.addEventListener("click", () => { ui.vantagem = ui.vantagem > 0 ? 0 : 1; syncTg(); });
+      $("#tg-desv")?.addEventListener("click", () => { ui.vantagem = ui.vantagem < 0 ? 0 : -1; syncTg(); });
+      $("#tg-priv")?.addEventListener("click", () => { ui.privada = !ui.privada; syncTg(); });
+      $("#tg-cega")?.addEventListener("click", () => { ui.asCegas = !ui.asCegas; syncTg(); });
+      const syncSom = () => { const b = $("#tg-som"); if (b) b.textContent = getSom() ? "🔔 Som" : "🔕 Mudo"; };
+      $("#tg-som")?.addEventListener("click", () => { setSom(!getSom()); if (getSom()) { pedirNotificacao(); somMensagem(); } syncSom(); });
+      syncSom();
+      syncTg();
+      $("#msg").onkeydown = (e) => { if (e.key === "Enter") $("#enviar-msg").click(); else if (e.key === "Escape") cancelarResp(); };
+    $("#compartilhar-trecho")?.addEventListener("click", async () => {
+      const { compartilharTrecho } = await import("./social.js");
+      await compartilharTrecho(id);
+    });
+    $("#abrir-stats-oculto")?.addEventListener("click", abrirEstatisticas);
+    renderPresenca();
+  };
+
+  // ---- realtime ----
+  // Presença: quem está com a mesa aberta agora. `presenceState()` devolve um
+  // mapa chave→[metas] (cada aba conectada é uma chave própria do Realtime);
+  // deduplica por usuário porque a mesma pessoa pode ter 2 abas abertas.
+  const renderPresenca = () => {
+    const el = $("#mesa-presence"); if (!el || !canalMesa) return;
+    const vistos = new Set(); const chips = [];
+    Object.values(canalMesa.presenceState()).forEach((arr) => arr.forEach((p) => {
+      if (vistos.has(p.uid)) return; vistos.add(p.uid);
+      chips.push(`<span class="pres-chip" title="${esc(p.nome)} · online agora">${urlImg(p.av) ? `<img src="${esc(urlImg(p.av))}" alt=""/>` : "◈"} ${esc(p.nome)}</span>`);
+    }));
+    el.innerHTML = chips.length ? `<span class="pres-dot"></span>${chips.join("")}` : "";
+  };
+  // Apelido/avatar de quem escreveu, sem uma consulta extra por mensagem.
+  const perfilDe = (uid) => (membros || []).find((x) => x.perfil_id === uid)?.perfis
+    || (uid === usuario.id && perfil ? { apelido: perfil.apelido, avatar_url: perfil.avatar_url } : null);
+  // Criado UMA vez por entrada na mesa (antes era derrubado e recriado a cada render).
+  const conectarCanal = async () => {
+    // Passa o token do usuário pro socket realtime; sem isso o canal entra como
+    // anônimo e a RLS de mensagens filtra tudo (nada chega na mesa).
+    try { const { data: { session } } = await sb.auth.getSession(); if (session?.access_token) sb.realtime.setAuth(session.access_token); } catch (_) {}
+    if (canalMesa) { sb.removeChannel(canalMesa); canalMesa = null; }
+    canalMesa = sb.channel(`mesa-${id}`)
+      .on("postgres_changes", { event: "INSERT", schema: DB_SCHEMA, table: "mensagens", filter: `campanha_id=eq.${id}` },
+        async (pl) => {
+          let m = { ...pl.new, perfis: perfilDe(pl.new.autor_id) };
+          if (!m.perfis) { const { data } = await sb.from("mensagens").select("*,perfis:autor_id(apelido,avatar_url)").eq("id", pl.new.id).maybeSingle(); if (data) m = data; }
+          sanear(m);
+          ui.pintarMsg?.(m, true);
+          aplicarPendencia(m);
+        })
+      .on("postgres_changes", { event: "UPDATE", schema: DB_SCHEMA, table: "campanhas", filter: `id=eq.${id}` },
+        (pl) => {
+          const row = sanear({ ...pl.new });
+          // Eco da nossa própria gravação: com versão, decide pelo número; sem, pela janela de tempo antiga.
+          if (campTemVersao() ? (typeof row.versao === "number" && row.versao <= camp.versao) : ecoProprio()) return;
+          aplicarLinhaCamp(row);
+          ui.mapaCtrl?.atualizar(camp.mapa, camp.combate);
+          agendarRender();
+        })
+      // Fichas da mesa: o Mestre passa a ver PV/RAM/equipamento ao vivo, e
+      // personagem vinculado depois de aberta a mesa aparece sem recarregar.
+      // Precisa da tabela `personagens` no Realtime (supabase/melhorias-dossie.sql).
+      .on("postgres_changes", { event: "UPDATE", schema: DB_SCHEMA, table: "personagens", filter: `campanha_id=eq.${id}` },
+        (pl) => {
+          const row = sanear({ ...pl.new });
+          if (!row?.id || !row.dados) return;   // coluna grande não veio (não mudou): nada a atualizar
+          const pj = (pers || []).find((x) => x.id === row.id);
+          if (pj) { pj.dados = row.dados; if (row.nome) pj.nome = row.nome; }
+          else if (pers) pers.push({ id: row.id, nome: row.nome, dono_id: row.dono_id, dados: row.dados });
+          if (ui.meuPers?.id === row.id) ui.meuPers.dados = row.dados;
+          // A Defesa no rastreador acompanha armadura/escudo equipados no meio do
+          // combate. Só o Mestre grava, para não sair uma gravação por cliente.
+          if (ui.souMestre && camp.combate?.ativo && sincronizarCdCombate(row.id, row.dados)) salvarCombate();
+          agendarRender();
+        })
+      .on("presence", { event: "sync" }, renderPresenca)
+      .subscribe(async (status) => {
+        if (status === "SUBSCRIBED") {
+          try { await canalMesa?.track({ uid: usuario.id, nome: perfil?.apelido || "?", av: perfil?.avatar_url || null }); } catch (_) {}
+          marcarSinalOk();   // só mostra "restabelecido" se `marcarSinalCaido` já rodou antes
+        } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
+          marcarSinalCaido();
+        }
+      });
+  };
+  // Ao sair da mesa: derruba o canal e os atalhos de teclado desta entrada.
+  // Sem isto, voltar à mesa empilhava um segundo listener de Espaço/1–9 e um
+  // único toque passava dois turnos ou disparava dois ataques.
+  window.addEventListener("hashchange", () => {
+    if (canalMesa) { sb.removeChannel(canalMesa); canalMesa = null; }
+    if (ui._provimoTurnoListener) document.removeEventListener("keydown", ui._provimoTurnoListener);
+    if (ui._teclaListener) document.removeEventListener("keydown", ui._teclaListener);
+    clearInterval(ui.timerInt); clearTimeout(renderAgendado);
+    ui.pintarMsg = null;
+  }, { once: true });
+
+  const render = async (opcoes = {}) => {
     // Fatias já extraídas do monólito (ver "Modularização de telaMesa" em
     // CLAUDE.md) — import() dinâmico é gratuito depois da 1ª vez (módulo já
     // fica em cache do navegador), então não precisa de flag de "já carregou".
-    if (canalMesa) { sb.removeChannel(canalMesa); canalMesa = null; }
     const { renderNave, wireNave } = await import("./mesa-nave.js");
     const { renderCombate, wireCombate } = await import("./mesa-combate.js");
     const { renderFicha, wireFicha } = await import("./mesa-ficha.js");
@@ -2290,11 +2835,9 @@ async function telaMesa(id) {
     const ctxFicha = { id, camp, pers, meus, semImplantes, chavePers, ui, f, k,
       enviar, salvarCamp, salvarCombate, render, snapshot,
       aplicarDanoAlvo, gastarAcao, sincronizarCdCombate, aurasSobre, minhaLinhaCb };
-    shell("mesa", `
-      <nav class="topo"><a class="btn-ghost" href="#/campanhas">← CAMPANHAS</a>
-        <div class="topo-status">${esc(camp.nome)} · código <b class="chrome">${camp.codigo}</b></div><span style="display:flex;gap:6px"><button id="atalhos" class="btn-ghost so-desktop" title="Atalhos de teclado (?)">⌨</button><button id="abrir-diario" class="btn-ghost" title="Diário da campanha">📔 DIÁRIO</button>${ehMestreReal ? `<button id="modo-jogador" class="btn-ghost ${ui.modoJogador ? "on" : ""}" title="${ui.modoJogador ? "Você está jogando como tripulante. Clique para voltar a ser Mestre." : "Testar/jogar como um tripulante comum — some as ferramentas e os privilégios de Mestre."}">${ui.modoJogador ? "🎭 MODO JOGADOR" : "👑 MESTRE"}</button>` : ""}${ui.souMestre ? `<button id="abrir-mestre" class="btn-ghost" title="Tela do Mestre">🎛 MESTRE</button>` : ""}<a href="#/biblioteca/regras" target="_blank" rel="noopener" class="btn-ghost" title="Manual de regras — abre numa aba nova, a mesa continua aberta aqui">📖 REGRAS</a><button id="abrir-mapa" class="btn-ghost" title="Mapa do sistema (compartilhado)">🗺 MAPA</button></span></nav>
-      <div class="mesa">
-        <div class="mesa-lateral">
+    const navHtml = `<a class="btn-ghost" href="#/campanhas">← CAMPANHAS</a>
+        <div class="topo-status">${esc(camp.nome)} · código <b class="chrome">${esc(camp.codigo)}</b></div><span style="display:flex;gap:6px"><button id="atalhos" class="btn-ghost so-desktop" title="Atalhos de teclado (?)">⌨</button><button id="abrir-diario" class="btn-ghost" title="Diário da campanha">📔 DIÁRIO</button>${ehMestreReal ? `<button id="modo-jogador" class="btn-ghost ${ui.modoJogador ? "on" : ""}" title="${ui.modoJogador ? "Você está jogando como tripulante. Clique para voltar a ser Mestre." : "Testar/jogar como um tripulante comum — some as ferramentas e os privilégios de Mestre."}">${ui.modoJogador ? "🎭 MODO JOGADOR" : "👑 MESTRE"}</button>` : ""}${ui.souMestre ? `<button id="abrir-mestre" class="btn-ghost" title="Tela do Mestre">🎛 MESTRE</button>` : ""}<a href="#/biblioteca/regras" target="_blank" rel="noopener" class="btn-ghost" title="Manual de regras — abre numa aba nova, a mesa continua aberta aqui">📖 REGRAS</a><button id="abrir-mapa" class="btn-ghost" title="Mapa do sistema (compartilhado)">🗺 MAPA</button></span>`;
+    const lateralHtml = `
           <nav class="mesa-abas" role="tablist">
             ${ui.espectador ? "" : `<button class="mesa-aba ${ui.abaMesa === "ficha" ? "on" : ""}" data-mesa-aba="ficha" role="tab">◈ <span>Ficha</span></button>`}
             <button class="mesa-aba ${ui.abaMesa === "combate" ? "on" : ""}" data-mesa-aba="combate" role="tab">⚔ <span>Combate</span>${camp.combate.ativo ? `<i class="aba-dot"></i>` : ""}</button>
@@ -2332,13 +2875,18 @@ async function telaMesa(id) {
             <div class="filtros" style="margin-top:6px"><button id="copiar-convite" class="mini">🔗 Copiar convite</button></div>
           </section>
           </div>
-        </div>
+          `;
+    if (!montada || opcoes.completo || !$("#chat")) {
+      shell("mesa", `
+      <nav class="topo" id="mesa-topo">${navHtml}</nav>
+      <div class="mesa">
+        <div class="mesa-lateral" id="mesa-lateral">${lateralHtml}</div>
         <section class="sec mesa-chat">
           <header><span class="tag">≣</span><h2>Mesa · transmissão ao vivo</h2>${ui.espectador ? `<span class="best-tag" title="Você entrou para assistir: vê tudo ao vivo, mas não age na mesa">👁 ESPECTADOR</span>` : ""}
             <button id="compartilhar-trecho" class="mini" style="margin-left:auto" title="Gerar um link público de um trecho desta sessão">📤 Compartilhar trecho</button></header>
           <div id="mesa-presence" class="mesa-presence"></div>
           <div id="mesa-conn" class="mesa-conn" hidden></div>
-          ${camp.handout?.visivel && urlImg(camp.handout?.url) ? `<div class="handout"><div class="handout-cab"><b>🖼 ${esc(camp.handout.titulo || "O Mestre mostra algo")}</b>${urlLink(camp.handout.url) ? `<a href="${esc(urlLink(camp.handout.url))}" target="_blank" rel="noopener noreferrer" class="mini">abrir</a>` : ""}</div><img src="${esc(urlImg(camp.handout.url))}" alt="${esc(camp.handout.titulo || "imagem compartilhada pelo Mestre")}"/></div>` : ""}
+          <div id="mesa-handout">${handoutHtml()}</div>
           <div id="chat" class="chat"></div>
           <div id="resp-preview" class="resp-preview" style="display:none"><span class="rp-txt"></span><button id="resp-cancel" class="rp-x" title="Cancelar resposta">✕</button></div>
           <button id="abrir-stats-oculto" class="sr-only">Estatísticas de rolagem</button>
@@ -2347,278 +2895,26 @@ async function telaMesa(id) {
           <div class="rol-toggles"><span class="regra" style="margin:0">Rolagem:</span>
             <button id="tg-vant" class="mini" title="Vantagem: rola 2d20, pega o maior">▲ Vantagem</button>
             <button id="tg-desv" class="mini" title="Desvantagem: rola 2d20, pega o menor">▼ Desvantagem</button>
-            <button id="tg-priv" class="mini" title="Privado: só o Mestre e você veem o resultado">🔒 Privado</button>${ui.souMestre ? `<button id="tg-cega" class="mini" title="Às cegas: o resultado aparece só para você, e não entra no chat da mesa">🙈 Às cegas</button>` : ""}
+            <button id="tg-priv" class="mini" title="Privado: só o Mestre e você veem o resultado">🔒 Privado</button><button id="tg-cega" class="mini" title="Às cegas: o resultado aparece só para você, e não entra no chat da mesa" ${ui.souMestre ? "" : "hidden"}>🙈 Às cegas</button>
             <button id="tg-som" class="mini" title="Ligar/desligar som e notificações" style="margin-left:auto"></button></div>
           <div class="linha-add"><input id="msg" placeholder="Mensagem ou rolagem: /1d20 · /r2d6+1"/><button id="enviar-msg" class="btn-primario">▶</button></div>
           </div>
         </section>
       </div>`, "campanhas");
+      montarChat();
+      montada = true;
+    } else {
+      const lateralEl = $("#mesa-lateral"), rolagem = lateralEl.scrollTop;
+      $("#mesa-topo").innerHTML = navHtml;
+      lateralEl.innerHTML = lateralHtml;
+      lateralEl.scrollTop = rolagem;
+      $("#mesa-handout").innerHTML = handoutHtml();
+      const cega = $("#tg-cega"); if (cega) cega.hidden = !ui.souMestre;
+      document.body.classList.toggle("vinheta-critica", vinhetaAtiva);
+      requestAnimationFrame(() => animarBarras());
+    }
 
-    // ---- chat render ----
-    const chatEl = $("#chat");
-    const idsVistos = new Set();
-    let ultimoAutor = null;      // para espaçar quando muda quem fala
-    let respondendoA = null;     // mensagem sendo referenciada
-    const resumoMsg = (m) => {
-      if (m.tipo === "rolagem") return `🎲 ${m.payload?.titulo || "rolagem"}${m.payload?.total !== undefined ? ` = ${m.payload.total}` : ""}`;
-      if (m.tipo === "dano" || m.tipo === "cura") return `${m.tipo === "dano" ? "💥" : "✚"} ${num(m.payload?.valor)} em ${m.payload?.alvo_nome || ""}`;
-      return (m.conteudo || "").slice(0, 70);
-    };
-    const iniciarResp = (m) => {
-      respondendoA = { id: m.id, quem: m.perfis?.apelido || "?", resumo: resumoMsg(m) };
-      const bar = $("#resp-preview");
-      if (bar) { bar.querySelector(".rp-txt").innerHTML = `↩ Respondendo a <b>${esc(respondendoA.quem)}</b>: <span class="rp-resumo">${esc(respondendoA.resumo)}</span>`; bar.style.display = "flex"; }
-      $("#msg")?.focus();
-    };
-    const cancelarResp = () => { respondendoA = null; const bar = $("#resp-preview"); if (bar) bar.style.display = "none"; };
-    const addMsg = (m, aoVivo = false) => {
-      if (idsVistos.has(m.id)) return; idsVistos.add(m.id);
-      sanear(m);   // pode ter vindo direto da API, sem passar pela tela
-      if (m.payload?.privada && m.autor_id !== usuario.id && !ui.souMestre) return; // rolagem privada: só autor + Mestre
-      if (aoVivo && !historico.some((x) => x.id === m.id)) historico.push(m); // persiste entre re-renders
-      if (aoVivo && m.autor_id !== usuario.id && m.tipo !== "sistema") { // alerta de mensagem de outra pessoa
-        if (m.tipo === "rolagem") { const p = m.payload || {}; if (p.crit) { somCritico(); sacudir(); } else if (p.fumble) { somFalha(); sacudir(); } else somDado(); }
-        else somMensagem();
-        // Notificação do sistema operacional é texto puro: nada de esc() aqui, senão "&" vira "&amp;".
-        notificar(`${m.perfis?.apelido || "Mesa"} · ${camp.nome}`, m.tipo === "rolagem" ? `🎲 ${m.payload?.titulo || "rolagem"}${m.payload?.total != null ? " = " + num(m.payload.total) : ""}` : (m.conteudo || "").slice(0, 80));
-      }
-      const quem = esc(m.perfis?.apelido || "?");
-      const persN = m.personagem_id ? esc(pers?.find((x) => x.id === m.personagem_id)?.nome || "") : "";
-      let corpo = "";
-      if (m.tipo === "texto" || m.tipo === "sistema") corpo = `<div class="m-txt ${m.tipo}">${esc(m.conteudo)}</div>`;
-      else if (m.tipo === "rolagem") { const p = m.payload || {};
-        const dt = p.tipoDano && ICONE_DANO[p.tipoDano];
-        corpo = `<div class="m-roll ${p.crit ? "crit" : ""} ${p.fumble ? "fumble" : ""}">
-          <b>${esc(p.titulo)}</b><span class="m-det">${esc(p.detalhe)}</span>
-          ${p.total !== undefined && p.total !== null ? `<span class="m-total" data-final="${num(p.total)}">${num(p.total)}</span>` : ""}
-          ${p.crit ? `<span class="log-flag crit">CRÍTICO!</span>` : ""}${p.fumble ? `<span class="log-flag fumble">FALHA CRÍTICA</span>` : ""}
-          ${dt ? `<span class="m-dano-tipo" style="color:${dt.cor}" title="Dano ${esc(p.tipoDano)}">${dt.ic} ${esc(p.tipoDano)}</span>` : ""}
-          ${p.extra ? `<span class="m-extra">${esc(p.extra)}</span>` : ""}
-          ${p.dano_total != null && !p.alvo_resolvido && ui.souMestre && camp.combate.ativo ? `<button class="m-aplicar" data-dano="${num(p.dano_total)}">🩸 aplicar ${num(p.dano_total)} de dano</button>` : ""}</div>`; }
-      else if (m.tipo === "dano" || m.tipo === "cura") { const p = m.payload || {};
-        const meu = pers?.find((x) => x.id === p.alvo_id)?.dono_id === usuario.id;
-        corpo = `<div class="m-roll ${m.tipo === "dano" ? "fumble" : "crit"}"><b>${m.tipo === "dano" ? "💥" : "✚"} ${num(p.valor)} em ${esc(p.alvo_nome)}</b>
-          <span class="m-det">${esc(p.origem || "")}</span>
-          ${p.aplicado ? `<span class="m-extra">aplicado ✓</span>` : meu ? `<button class="mini ${m.tipo === "dano" ? "dano" : "eq"}" data-aplicar="${esc(m.id)}">APLICAR ${m.tipo === "dano" ? "−" : "+"}${num(p.valor)} PV</button>` : `<span class="m-extra">aguardando o dono aplicar…</span>`}</div>`; }
-      else if (m.tipo === "nave") corpo = `<div class="m-txt sistema">🚀 ${esc(m.conteudo)}</div>`;
-      else if (m.tipo === "descanso") { const p = m.payload || {}; corpo = `<div class="m-txt sistema">${p.tipo === "longo" ? "🌙" : "☾"} ${esc(m.conteudo)}</div>`; }
-      else if (m.tipo === "recompensa") { corpo = `<div class="m-txt sistema">🎁 ${esc(m.conteudo)}</div>`; }
-      const el = document.createElement("div");
-      const persMsg = m.personagem_id ? pers?.find((x) => x.id === m.personagem_id) : null;
-      const av = urlImg(persMsg?.dados?.foto) || urlImg(m.perfis?.avatar_url) || null;
-      const avatarHtml = av ? `<img class="m-avatar" src="${esc(av)}" alt=""/>` : `<div class="m-avatar vazia">◈</div>`;
-      const minha = m.autor_id === usuario.id;
-      const novaPessoa = m.autor_id !== ultimoAutor; ultimoAutor = m.autor_id;
-      const resp = m.payload?.resp;
-      const respHtml = resp ? `<div class="m-quote" data-goto="${esc(resp.id)}">↩ <b>${esc(resp.quem)}</b>: ${esc(resp.resumo)}</div>` : "";
-      el.className = "m" + (minha ? " minha" : "") + (novaPessoa ? " nova-pessoa" : "");
-      el.dataset.mid = String(m.id);
-      el.innerHTML = `${avatarHtml}<div class="m-corpo"><div class="m-cab">${quem}${persN ? ` <i>como ${persN}</i>` : ""} <time>${new Date(m.criado_em).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</time><button class="m-reply" data-reply title="Responder">↩</button></div>${respHtml}${corpo}</div>`;
-      chatEl.appendChild(el); chatEl.scrollTop = chatEl.scrollHeight;
-      // Terminal-digitando e "dado rolando" só em mensagens que acabaram de
-      // chegar ao vivo — no histórico (F5/scroll pra trás) tudo aparece pronto,
-      // senão reabrir o chat ficaria lento de propósito.
-      if (aoVivo && !document.body.classList.contains("a11y-reduzir")) {
-        if (m.tipo === "sistema") { const txtEl = el.querySelector(".m-txt.sistema"); if (txtEl) digitarTexto(txtEl, m.conteudo || ""); }
-        else if (m.tipo === "rolagem") {
-          const totalEl = el.querySelector(".m-total"); if (totalEl) animarRolagem(totalEl, totalEl.dataset.final);
-          if (m.payload?.crit) flashCritico();   // qualquer crítico ao vivo, seu ou de outro jogador
-        }
-      }
-      el.querySelector("[data-reply]")?.addEventListener("click", () => iniciarResp(m));
-      el.querySelector(".m-aplicar")?.addEventListener("click", async () => {
-        if (!camp.combate.ativo || !camp.combate.ordem.length) return alert("Nenhum combate ativo com combatentes.");
-        const dano = +el.querySelector(".m-aplicar").dataset.dano;
-        const pRoll = m.payload || {};
-        const r = await modalForm({ titulo: `🩸 Aplicar ${dano} de dano`, campos: [{ k: "alvo", label: "Alvo", tipo: "select", opcoes: camp.combate.ordem.map((c) => ({ v: c.id, l: ehNave(c) ? `${c.nome} (casco ${c.casco}/${c.casco_max})` : `${c.nome} (${c.hp}/${c.hp_max}${c.cd != null ? `, Def ${c.cd}` : ""})` })) }], okLabel: "Aplicar" });
-        if (!r) return; const alvo = camp.combate.ordem.find((c) => c.id === r.alvo); if (!alvo) return;
-        // Se a rolagem trouxe um acerto (payload.total), confere contra a Defesa do alvo antes de aplicar.
-        // Perfurante/Derretimento (payload.ignoraArmadura) reduzem a Defesa efetiva do teste.
-        const defAlvo = Math.max(0, (ehNave(alvo) ? 10 + (alvo.manobra || 0) : (alvo.cd ?? 10)) - (pRoll.ignoraArmadura || 0));
-        if (pRoll.total != null && !pRoll.crit && (pRoll.fumble || pRoll.total < defAlvo)) {
-          const forcar = await confirmModal(`A rolagem foi ${pRoll.total} contra a Defesa ${defAlvo} de ${alvo.nome}.${pRoll.ignoraArmadura ? ` (Perfurante −${pRoll.ignoraArmadura})` : ""}${pRoll.fumble ? " Falha crítica." : ""} ${alvo.nome} desvia do golpe.\n\nAplicar o dano mesmo assim?`, { okLabel: "Aplicar mesmo assim", cancelLabel: "Errou o alvo", perigo: true });
-          if (!forcar) { await enviar("sistema", `🛡 ${pRoll.titulo || "O ataque"} erra ${alvo.nome} (rolagem ${pRoll.total} vs Defesa ${defAlvo}) — sem dano.`); return; }
-        }
-        const rd = await aplicarDanoAlvo(alvo, dano);
-        await enviar("sistema", `💥 ${alvo.nome}: ${rd.msg}${!ehNave(alvo) && foraDeCombate(alvo) ? " 💀 CAIU!" : ""}`);
-        await salvarCombate(); render();
-      });
-      el.querySelector("[data-goto]")?.addEventListener("click", () => {
-        const alvo = chatEl.querySelector(`[data-mid="${CSS.escape(String(resp.id))}"]`);
-        if (alvo) { alvo.scrollIntoView({ behavior: "smooth", block: "center" }); alvo.classList.add("piscar"); setTimeout(() => alvo.classList.remove("piscar"), 1200); }
-      });
-      el.querySelector("[data-aplicar]")?.addEventListener("click", async (ev) => {
-        const bt = ev.currentTarget; if (bt.disabled) return; bt.disabled = true;   // evita clique duplo
-        const p = m.payload; const alvo = pers.find((x) => x.id === p.alvo_id);
-        if (!alvo) { bt.disabled = false; return; }
-        // Lê o estado real do banco: a cópia do render fica velha entre cliques.
-        const { data: fresco } = await sb.from("personagens").select("dados").eq("id", alvo.id).single();
-        const dados = { ...novaFichaDados(), ...(fresco?.dados || alvo.dados) };
-        const antes = dados.pvAtual || 0;
-        dados.pvAtual = Math.max(0, Math.min(calc(dados).pvMax, antes + (m.tipo === "dano" ? -p.valor : p.valor)));
-        dados.log = [{ q: new Date().toISOString(), t: `${m.tipo === "dano" ? "💥" : "✚"} ${p.valor} PV — ${esc(p.origem || "mesa")}` }, ...(dados.log || [])].slice(0, 60);
-        if (!(await salvarFicha(alvo.id, dados, "aplicar o dano/cura"))) { bt.disabled = false; return; }
-        alvo.dados = dados;                          // mantém o estado local coerente
-        if (ui.meuPers && ui.meuPers.id === alvo.id) ui.meuPers.dados = dados;
-        await sb.from("mensagens").update({ payload: { ...p, aplicado: true } }).eq("id", m.id);
-        m.payload = { ...p, aplicado: true };
-        await enviar("sistema", `${alvo.nome}: ${antes} → ${dados.pvAtual} PV${dados.pvAtual <= 0 ? " — CAIU!" : ""}`);
-        render();                                    // a ficha e as barras acompanham
-      });
-      // Descanso convocado pelo Mestre: cada cliente aplica no SEU personagem vinculado.
-      // Só ao vivo (aoVivo) para não reaplicar ao recarregar o histórico.
-      if (aoVivo && m.tipo === "descanso" && ui.meuPers) {
-        (async () => {
-          const dados = { ...novaFichaDados(), ...ui.meuPers.dados };
-          // Nova sessão não é descanso: só libera as habilidades de 1×/sessão.
-          if (m.payload?.tipo === "sessao") {
-            const cat = abilidadesDeSessao(dados); let n = 0;
-            dados.usos = dados.usos || {};
-            cat.forEach((a) => { if (dados.usos[a.id]) { delete dados.usos[a.id]; n++; } });
-            if (!n) return;
-            dados.log = [{ q: new Date().toISOString(), t: `📅 Nova sessão — ${n} habilidade(s) de 1×/sessão liberada(s)` }, ...(dados.log || [])].slice(0, 60);
-            if (await salvarFicha(ui.meuPers.id, dados, "liberar as habilidades de sessão")) { ui.meuPers.dados = dados; await enviar("sistema", `📅 ${ui.meuPers.nome}: ${cat.map((a) => a.nome).join(", ")} disponível de novo.`); render(); }
-            return;
-          }
-          const r = aplicarDescanso(dados, m.payload?.tipo === "longo" ? "longo" : "curto");
-          dados.log = [{ q: new Date().toISOString(), t: `${m.payload?.tipo === "longo" ? "🌙" : "☾"} ${r.notas.join(" · ")}` }, ...(dados.log || [])].slice(0, 60);
-          if (await salvarFicha(ui.meuPers.id, dados, "salvar o descanso")) { ui.meuPers.dados = dados; await enviar("sistema", `🛌 ${ui.meuPers.nome}: ${r.notas.join(" · ")}.`); render(); }
-        })();
-      }
-      if (aoVivo && m.tipo === "recompensa" && ui.meuPers) {
-        (async () => {
-          const dados = { ...novaFichaDados(), ...ui.meuPers.dados }; const p = m.payload || {}; const notas = [];
-          if (p.xp) { dados.xp = (dados.xp || 0) + p.xp; notas.push(`+${p.xp} XP (${dados.xp}/${dados.xpMeta})`); }
-          if (p.creditos) {
-            const kk = calc(dados);
-            const rs = kk.efeitos?.aoSaquear();
-            let ganho = p.creditos;
-            if (rs?.pct) { const extra = Math.round(p.creditos * rs.pct / 100); ganho += extra;
-              notas.push(`+${extra} CG extra (${rs.fontes[0]}: +${rs.pct}%)`); }
-            for (const r of rs?.rolagens || []) {
-              const pd2 = parseDice(r.dado); const v2 = rollNd(pd2.n, pd2.f).reduce((x, y) => x + y, 0);
-              notas.push(v2 >= r.minimo ? `🎲 ${r.dado} [${v2}] — achou ${r.oque}!` : `🎲 ${r.dado} [${v2}] — nada além do previsto`);
-            }
-            dados.creditos = (dados.creditos || 0) + ganho;
-            notas.push(`+${ganho} CG (${dados.creditos})`);
-          }
-          if (p.item) {
-            dados.inventario = dados.inventario || [];
-            const ja = dados.inventario.find((x) => x.nome === p.item.nome);
-            if (ja) ja.qtd = (ja.qtd || 1) + (p.item.qtd || 1);
-            else dados.inventario.push({ ...p.item, equip: false });
-            notas.push(`+${p.item.qtd || 1}× ${p.item.nome}`);
-          }
-          if (p.loot) {
-            const { nome, tipo, qtd } = p.loot;
-            if (tipo === "implante") { dados.implantes = dados.implantes || [];
-              if (!dados.implantes.includes(nome)) { dados.implantes.push(nome); notas.push(`⧉ ${nome}`); }
-              else notas.push(`${nome} (já instalado)`);
-            } else {
-              dados.inventario = dados.inventario || [];
-              const empilha = ehConsumivel(nome);
-              const ja = empilha ? dados.inventario.find((x) => x.nome === nome) : null;
-              if (ja) ja.qtd = (ja.qtd || 1) + qtd;
-              else dados.inventario.push({ tipo, nome, equip: false, qtd: empilha ? qtd : 1 });
-              notas.push(`${qtd > 1 ? `${qtd}× ` : ""}${nome}`);
-            }
-          }
-          if (p.pentes) {
-            const res = normalizaPentes(dados);
-            const tipo = p.tipoPente || PENTE_PADRAO;
-            const antes = Object.values(res).reduce((x, y) => x + y, 0);
-            const teto = pentesReservaDe(dados);
-            const cabe = Math.max(0, teto - antes);
-            const ganhou = Math.min(p.pentes, cabe);
-            res[tipo] = (res[tipo] || 0) + ganhou;
-            dados.pentes = res;
-            const tp = TIPOS_PENTE[tipo];
-            notas.push(ganhou > 0 ? `+${ganhou} pente ${tp.ic} ${tp.n} (${antes + ganhou}/${teto} na reserva)` : "reserva de pentes já cheia");
-          }
-          dados.log = [{ q: new Date().toISOString(), t: `🎁 Recompensa do Mestre: ${notas.join(" · ")}` }, ...(dados.log || [])].slice(0, 60);
-          if (await salvarFicha(ui.meuPers.id, dados, "salvar a recompensa")) { ui.meuPers.dados = dados; await enviar("sistema", `🎖 ${ui.meuPers.nome}: ${notas.join(" · ")}${dados.metodoNivel === "xp" && dados.xp >= dados.xpMeta ? " — PRONTO PARA SUBIR!" : ""}`); render(); }
-        })();
-      }
-    };
-    ui.pintarMsg = addMsg;
-    historico.forEach((m) => addMsg(m));
-
-    // ---- realtime ----
-    // Passa o token do usuário pro socket realtime; sem isso o canal entra como
-    // anônimo e a RLS de mensagens filtra tudo (nada chega na mesa).
-    try { const { data: { session } } = await sb.auth.getSession(); if (session?.access_token) sb.realtime.setAuth(session.access_token); } catch (_) {}
-    // Presença: quem está com a mesa aberta agora. `presenceState()` devolve um
-    // mapa chave→[metas] (cada aba conectada é uma chave própria do Realtime);
-    // deduplica por usuário porque a mesma pessoa pode ter 2 abas abertas.
-    const renderPresenca = () => {
-      const el = $("#mesa-presence"); if (!el || !canalMesa) return;
-      const vistos = new Set(); const chips = [];
-      Object.values(canalMesa.presenceState()).forEach((arr) => arr.forEach((p) => {
-        if (vistos.has(p.uid)) return; vistos.add(p.uid);
-        chips.push(`<span class="pres-chip" title="${esc(p.nome)} · online agora">${p.av ? `<img src="${esc(p.av)}" alt=""/>` : "◈"} ${esc(p.nome)}</span>`);
-      }));
-      el.innerHTML = chips.length ? `<span class="pres-dot"></span>${chips.join("")}` : "";
-    };
-    canalMesa = sb.channel(`mesa-${id}`)
-      .on("postgres_changes", { event: "INSERT", schema: DB_SCHEMA, table: "mensagens", filter: `campanha_id=eq.${id}` },
-        async (pl) => { const { data: m } = await sb.from("mensagens").select("*,perfis:autor_id(apelido,avatar_url)").eq("id", pl.new.id).single(); if (m) addMsg(m, true); })
-      .on("postgres_changes", { event: "UPDATE", schema: DB_SCHEMA, table: "campanhas", filter: `id=eq.${id}` },
-        (pl) => { if (ecoProprio()) return;   // é a nossa própria gravação voltando
-          camp.nave = pl.new.nave; camp.mapa = pl.new.mapa; camp.combate = pl.new.combate; camp.combate_nave = pl.new.combate_nave || combateNaveVazio(); camp.handout = pl.new.handout || {}; camp.faccoes = pl.new.faccoes || {}; camp.contratos = pl.new.contratos || []; camp.bestiario = pl.new.bestiario || []; ui.mapaCtrl?.atualizar(pl.new.mapa, pl.new.combate); render(); })
-      .on("presence", { event: "sync" }, renderPresenca)
-      .subscribe(async (status) => {
-        if (status === "SUBSCRIBED") {
-          try { await canalMesa.track({ uid: usuario.id, nome: perfil?.apelido || "?", av: perfil?.avatar_url || null }); } catch (_) {}
-          marcarSinalOk();   // só mostra "restabelecido" se `marcarSinalCaido` já rodou antes
-        } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
-          marcarSinalCaido();
-        }
-      });
-
-    // ---- binds ----
-    $("#enviar-msg").onclick = async () => { const t = $("#msg").value.trim(); if (!t) return; $("#msg").value = "";
-      const resp = respondendoA; cancelarResp();
-      const rr = /^\/(?:r(?:olar)?)?\s*(.+)$/i.exec(t);
-      let ok;
-      if (rr) { const r = rolarExpr(rr[1], ui.vantagem);
-        ok = r ? await enviar("rolagem", null, { titulo: (ui.privada ? "🔒 " : "") + `Rolagem ${rr[1]}`, detalhe: r.detalhe, total: r.total, ...(ui.privada ? { privada: true } : {}), ...(resp ? { resp } : {}) }) : true; }
-      else ok = await enviar("texto", t, resp ? { resp } : null);
-      // Falha de rede: devolve o texto pro campo em vez de perdê-lo — já foi bug
-      // real (o alert do erro aparecia, mas a mensagem tinha sumido do input).
-      if (!ok) { $("#msg").value = t;
-        if (resp) { respondendoA = resp; const bar = $("#resp-preview");
-          if (bar) { bar.querySelector(".rp-txt").innerHTML = `↩ Respondendo a <b>${esc(resp.quem)}</b>: <span class="rp-resumo">${esc(resp.resumo)}</span>`; bar.style.display = "flex"; } } } };
-    $("#resp-cancel")?.addEventListener("click", cancelarResp);
-    const syncTg = () => { $("#tg-vant")?.classList.toggle("on", ui.vantagem > 0); $("#tg-desv")?.classList.toggle("on", ui.vantagem < 0); $("#tg-priv")?.classList.toggle("on", ui.privada); $("#tg-cega")?.classList.toggle("on", ui.asCegas); };
-    $("#tg-vant")?.addEventListener("click", () => { ui.vantagem = ui.vantagem > 0 ? 0 : 1; syncTg(); });
-    $("#tg-desv")?.addEventListener("click", () => { ui.vantagem = ui.vantagem < 0 ? 0 : -1; syncTg(); });
-    $("#tg-priv")?.addEventListener("click", () => { ui.privada = !ui.privada; syncTg(); });
-    $("#tg-cega")?.addEventListener("click", () => { ui.asCegas = !ui.asCegas; syncTg(); });
-    const syncSom = () => { const b = $("#tg-som"); if (b) b.textContent = getSom() ? "🔔 Som" : "🔕 Mudo"; };
-    $("#tg-som")?.addEventListener("click", () => { setSom(!getSom()); if (getSom()) { pedirNotificacao(); somMensagem(); } syncSom(); });
-    syncSom();
-    syncTg();
-    $("#msg").onkeydown = (e) => { if (e.key === "Enter") $("#enviar-msg").click(); else if (e.key === "Escape") cancelarResp(); };
-    $("#mestre-curto")?.addEventListener("click", () => { if (confirm("Convocar Descanso Curto para toda a mesa? Cada jogador conectado recupera as habilidades de descanso curto no próprio personagem.")) enviar("descanso", "O Mestre convocou um Descanso Curto (1h). Habilidades de descanso curto reiniciadas; cura via Kits Médicos.", { tipo: "curto" }); });
-    $("#mestre-xp")?.addEventListener("click", async () => { const r = await modalForm({ titulo: "🎖 Conceder XP", descricao: "Todos os jogadores conectados com personagem vinculado recebem.", campos: [{ k: "xp", label: "Quantidade de XP", tipo: "numero", valor: 500, min: 1 }], okLabel: "Conceder" }); if (!r || !r.xp || r.xp <= 0) return; enviar("recompensa", `O Mestre concedeu ${r.xp} XP à tripulação.`, { xp: r.xp }); });
-    $("#mestre-cg")?.addEventListener("click", async () => { const r = await modalForm({ titulo: "🎁 Conceder Créditos", descricao: "Saque distribuído a toda a tripulação conectada.", campos: [{ k: "cg", label: "Créditos (CG)", tipo: "numero", valor: 1000, min: 1 }], okLabel: "Distribuir" }); if (!r || !r.cg || r.cg <= 0) return; enviar("recompensa", `O Mestre distribuiu ${r.cg} CG de saque à tripulação.`, { creditos: r.cg }); });
-    $("#handout-btn")?.addEventListener("click", async () => {
-      const r = await modalForm({ titulo: "🖼 Mostrar imagem para a mesa", campos: [
-        { k: "i", label: "Cole o endereço de uma imagem (mapa da sala, documento, retrato de NPC). Ela aparece no topo do chat de todos.", tipo: "info" },
-        { k: "url", label: "URL da imagem", tipo: "texto", valor: camp.handout?.url || "" },
-        { k: "titulo", label: "Legenda (opcional)", tipo: "texto", valor: camp.handout?.titulo || "" },
-      ], okLabel: "Mostrar" });
-      if (!r || !r.url) return;
-      camp.handout = { url: r.url.trim(), titulo: (r.titulo || "").trim(), visivel: true };
-      if (!(await salvarCamp({ handout: camp.handout }, "compartilhar a imagem"))) return;
-      await enviar("sistema", `🖼 O Mestre mostrou uma imagem${r.titulo ? `: ${r.titulo}` : ""}.`);
-      render();
-    });
-    $("#handout-off")?.addEventListener("click", async () => {
-      camp.handout = { ...(camp.handout || {}), visivel: false };
-      await salvarCamp({ handout: camp.handout }, "ocultar a imagem");
-      render();
-    });
+    // ---- binds (topo e coluna lateral, redesenhados a cada render) ----
     app.querySelectorAll("[data-mesa-aba]").forEach((b) => b.onclick = () => {
       ui.abaMesa = b.dataset.mesaAba; sessionStorage.setItem("ps-aba-mesa", ui.abaMesa);
       app.querySelectorAll("[data-mesa-aba]").forEach((x) => x.classList.toggle("on", x.dataset.mesaAba === ui.abaMesa));
@@ -2690,11 +2986,7 @@ async function telaMesa(id) {
       ui.modoJogador = !ui.modoJogador;
       try { localStorage.setItem(chaveModoJog, ui.modoJogador ? "1" : "0"); } catch (e) {}
       ui.souMestre = ehMestreReal && !ui.modoJogador;
-      render();
-    });
-    $("#compartilhar-trecho")?.addEventListener("click", async () => {
-      const { compartilharTrecho } = await import("./social.js");
-      await compartilharTrecho(id);
+      render({ completo: true });
     });
     $("#abrir-mestre")?.addEventListener("click", async () => {
       const { abrirMestre } = await import("./mesa-mestre.js");
@@ -2709,35 +3001,6 @@ async function telaMesa(id) {
     });
     $("#ir-diario")?.addEventListener("click", () => $("#abrir-diario")?.click());
     $("#abrir-stats")?.addEventListener("click", () => $("#abrir-stats-oculto")?.click());
-    $("#abrir-stats-oculto")?.addEventListener("click", async () => {
-      const { data: todas } = await sb.from("mensagens").select("autor_id,personagem_id,tipo,payload,perfis:autor_id(apelido)").eq("campanha_id", id).eq("tipo", "rolagem").limit(4000);
-      const porAutor = {};
-      (todas || []).forEach((m) => {
-        const p = m.payload || {}; const nat = /d20 \[(\d+)\]/.exec(p.detalhe || "");
-        if (!nat) return; // só rolagens de d20 entram na estatística
-        const nome = (pers || []).find((x) => x.id === m.personagem_id)?.nome || m.perfis?.apelido || "?";
-        const a = porAutor[nome] = porAutor[nome] || { n: 0, soma: 0, crits: 0, fumbles: 0, maior: 0, menor: 21 };
-        const v = +nat[1];
-        a.n++; a.soma += v; a.maior = Math.max(a.maior, v); a.menor = Math.min(a.menor, v);
-        if (v === 20) a.crits++; if (v === 1) a.fumbles++;
-      });
-      const linhas = Object.entries(porAutor).sort((x, y) => (y[1].soma / y[1].n) - (x[1].soma / x[1].n));
-      const ov = document.createElement("div"); ov.className = "ss-overlay ov-modal"; ov.style.zIndex = "10000";
-      const corpo = linhas.length ? `<table class="stats-tab"><thead><tr><th>Quem</th><th>Rolagens</th><th>Média</th><th>🎯 Crít</th><th>💀 Falha</th><th>Melhor</th><th>Pior</th></tr></thead><tbody>
-        ${linhas.map(([n, a]) => `<tr><td><b>${esc(n)}</b></td><td>${a.n}</td><td><b class="${(a.soma / a.n) >= 10.5 ? "tech-c" : "dim"}">${(a.soma / a.n).toFixed(1)}</b></td>
-          <td>${a.crits}${a.crits ? ` <span class="dim">(${(a.crits / a.n * 100).toFixed(0)}%)</span>` : ""}</td>
-          <td>${a.fumbles}${a.fumbles ? ` <span class="dim">(${(a.fumbles / a.n * 100).toFixed(0)}%)</span>` : ""}</td>
-          <td>${a.maior}</td><td>${a.menor === 21 ? "—" : a.menor}</td></tr>`).join("")}</tbody></table>
-        <p class="regra">A média esperada de um d20 honesto é <b>10,5</b>. Quem está acima teve sorte; quem está abaixo tem uma história para contar.</p>`
-        : `<p class="regra">Ninguém rolou nada nesta mesa ainda.</p>`;
-      ov.innerHTML = `<div class="ss-painel" style="width:620px;max-width:96vw;margin:auto;border:1px solid var(--line);border-radius:10px;max-height:92vh">
-        <div class="mp-topo"><b>📊 Estatísticas de Rolagem</b><button id="st-fechar" class="mp-x" style="margin-left:auto">✕</button></div>
-        <div class="di-corpo">${corpo}</div></div>`;
-      document.body.appendChild(ov); document.body.style.overflow = "hidden";
-      const fechar = () => { document.body.style.overflow = ""; ov.remove(); };
-      ov.querySelector("#st-fechar").onclick = fechar;
-      ov.addEventListener("keydown", (e) => { if (e.key === "Escape") fechar(); });
-    });
     // Recapitulação: o que aconteceu desde a última vez que esta pessoa abriu a mesa.
     const recapitular = async () => {
       const chaveVisita = "ps-visita-" + id;
@@ -2767,9 +3030,14 @@ async function telaMesa(id) {
 
     $("#atalhos")?.addEventListener("click", mostrarAtalhos);
     $("#abrir-diario")?.addEventListener("click", async () => {
-      // desc + reverse: sem isso, campanhas com mais de 2000 mensagens perdem tudo que é recente no Diário.
-      const { data: todasDesc } = await sb.from("mensagens").select("*,perfis:autor_id(apelido,avatar_url)").eq("campanha_id", id).order("criado_em", { ascending: false }).limit(2000);
-      const todas = todasDesc ? [...todasDesc].reverse() : todasDesc;
+      // desc + reverse: as 3000 mais recentes, em ordem. Em lotes, porque o Supabase
+      // devolve no máximo 1000 por pedido — o limit(2000) antigo trazia só 1000.
+      let todasDesc;
+      try {
+        todasDesc = await buscarTudo(() => sb.from("mensagens").select("*,perfis:autor_id(apelido,avatar_url)").eq("campanha_id", id)
+          .order("criado_em", { ascending: false }).order("id", { ascending: false }), 1000, 3000);
+      } catch (e) { return alert("Não consegui abrir o Diário: " + e.message); }
+      const todas = sanear([...todasDesc].reverse());
       const ov = document.createElement("div"); ov.className = "ss-overlay ov-modal"; ov.style.zIndex = "10000";
       const linha = (m) => { const p = m.persm = m.personagem_id ? (pers || []).find((x) => x.id === m.personagem_id) : null;
         const quem = esc(p?.nome || m.perfis?.apelido || "?");
@@ -2804,8 +3072,11 @@ async function telaMesa(id) {
     wireFicha(ctxFicha);
     wireNave(ctxNave);
   };
-  render();
+  await render();
+  conectarCanal();
+  buscarPendencias().catch((e) => console.error("pendências:", e));
 }
+
 
 // ---------------- BIBLIOTECA (movida para biblioteca.js — import() dinâmico no roteador) ----------------
 

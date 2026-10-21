@@ -250,7 +250,9 @@ export function wireFicha(ctx) {
     let alvos, epiNome = "", epiObj = null;
     // Área com raio declarado e posições no campo: escolhe o epicentro e o raio
     // decide quem pega — inclusive aliados, que é o risco real de uma granada.
-    const todosComPos = camp.combate.ordem.filter((c2) => !ehNave(c2) && !foraDeCombate(c2) && c2.pos);
+    // Naves inimigas com posição no campo também são pegas pelo estouro (só dano —
+    // máquina não faz teste de resistência nem sofre condição de criatura).
+    const todosComPos = camp.combate.ordem.filter((c2) => !foraDeCombate(c2) && c2.pos && !c2.nave_party);
     if (area && raio && todosComPos.length) {
       const inimigosPos = todosComPos.filter((c2) => c2.tipo === "inimigo" || c2.lado === "inimiga");
       const r = await modalForm({ titulo,
@@ -284,6 +286,15 @@ export function wireFicha(ctx) {
     snapshot(titulo);
     const linhas = [];
     for (const alvo of alvos) {
+      if (ehNave(alvo)) {
+        const defN = 10 + (alvo.manobra || 0);
+        let acertouN = true, detN = "";
+        if (acerto != null) { const natN = d(20), totN = natN + acerto; acertouN = natN === 20 || (natN !== 1 && totN >= defN); detN = ` [ataque ${natN}${sign(acerto)}=${totN} vs Def ${defN} — ${acertouN ? "acertou" : "errou"}]`; }
+        let msgN = "";
+        if (acertouN && rolDano) { const rd = await aplicarDanoAlvo(alvo, rolDano, tipoDano); msgN = ` ${rd.msg}`; }
+        linhas.push(`${acertouN && rolDano ? "💥" : "🛡"} 🚀 ${alvo.nome}${detN}${msgN || (rolDano ? "" : " (sem efeito em nave)")}${foraDeCombate(alvo) ? " 💀 DESTRUÍDA" : ""}`);
+        continue;
+      }
       const defesa = alvo.cd ?? 10;
       let pegou = true, det = "";   // pegou = o efeito atinge o alvo
       if (acerto != null) {
@@ -492,7 +503,9 @@ export function wireFicha(ctx) {
     // os demais são resolvidos num laço próprio depois.
     let alvosArea = null;
     if (pr.area && pr.raio && camp.combate?.ativo) {
-      const todosComPosAtq = camp.combate.ordem.filter((x) => !ehNave(x) && !foraDeCombate(x) && x.pos && x.id !== minhaLinhaAtq?.id);
+      // Naves inimigas com posição entram no estouro também (o laço da área abaixo
+      // já resolve nave contra 10 + manobra via aplicarDanoAlvo).
+      const todosComPosAtq = camp.combate.ordem.filter((x) => !foraDeCombate(x) && x.pos && !x.nave_party && x.id !== minhaLinhaAtq?.id);
       if (todosComPosAtq.length) {
         const inimigosPosAtq = todosComPosAtq.filter((x) => x.tipo === "inimigo" || x.lado === "inimiga");
         const rA = await modalForm({ titulo: `⚔ ${a.nome} — centro do impacto`,
@@ -512,6 +525,18 @@ export function wireFicha(ctx) {
         }
       }
     }
+    // Com 🥷 marcado, o seletor já diz contra quem o furtivo vale (antes só se
+    // descobria depois do tiro, no "furtivo NÃO vale" da mensagem).
+    const furtivoNoSeletor = !!$("#atq-furtivo")?.checked;
+    const desprevenidoNoSeletor = (x) => {
+      if (ehNave(x)) return false;
+      const cs = (x.cond || []).map((c) => (c.n || "").toLowerCase());
+      const idx = (camp.combate?.ordem || []).findIndex((y) => y.id === x.id);
+      return cs.includes("surpreso") || (camp.combate?.rodada === 1 && idx > (camp.combate?.turno ?? -1))
+        || (x.cond || []).some((c) => c.n === "Na Lista" && c.origemId && c.origemId === minhaLinhaAtq?.id)
+        || (minhaLinhaCb()?.cond || []).some((c) => (c.n || "").toLowerCase() === "oculto");
+    };
+    const marcaFurtivo = (x) => furtivoNoSeletor ? (desprevenidoNoSeletor(x) ? " · 🥷 desprevenido" : " · 🥷 furtivo não vale") : "";
     if (!alvosArea && listaMira.length) {
       const bons = listaMira.filter((o) => (o.x.tipo === "inimigo" || o.x.lado === "inimiga") && (o.dist == null || o.dist <= alcance + 0.01));
       const alvoPadrao = (bons[0] || listaMira[0]).x.id;
@@ -519,7 +544,7 @@ export function wireFicha(ctx) {
         descricao: `Alcance da arma: ${alcanceTxt}.${ui.souMestre ? " Como Mestre, você pode mirar fora do alcance." : ""}`,
         campos: [{ k: "alvo", label: "Mirar em", tipo: "select", valor: alvoPadrao,
           opcoes: [
-            ...listaMira.map(({ x, dist }) => ({ v: x.id, l: `${ehNave(x) ? "🚀 " : ""}${x.nome} — ${ehNave(x) ? `casco ${x.casco}/${x.casco_max}` : `${vidaAtual(x)}/${vidaMax(x)} PV, Def ${x.cd ?? 10}`}${dist != null ? ` · ${dist.toFixed(1).replace(".", ",")} m${dist > alcance + 0.01 ? " ⚠ fora de alcance" : ""}` : ""}` })),
+            ...listaMira.map(({ x, dist }) => ({ v: x.id, l: `${ehNave(x) ? "🚀 " : ""}${x.nome} — ${ehNave(x) ? `casco ${x.casco}/${x.casco_max}` : `${vidaAtual(x)}/${vidaMax(x)} PV, Def ${x.cd ?? 10}`}${marcaFurtivo(x)}${dist != null ? ` · ${dist.toFixed(1).replace(".", ",")} m${dist > alcance + 0.01 ? " ⚠ fora de alcance" : ""}` : ""}` })),
             { v: "", l: "— sem alvo (o Mestre resolve) —" } ] }],
         okLabel: "Atacar" });
       if (r && r.alvo) { const esc2 = listaMira.find((o) => o.x.id === r.alvo);
