@@ -1,6 +1,6 @@
 # Origem
 
-Cópia do skill **tasteskill v2** (`design-taste-frontend`), de Leon Lin (leonxlnx):
+Cópia do skill **tasteskill v2** (`design-taste-frontend`), de Leonxlnx:
 https://github.com/leonxlnx/taste-skill
 
 - Pasta copiada: `skills/taste-skill/` do repositório original
