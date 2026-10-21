@@ -54,8 +54,7 @@ export function thumb(nome, alt = "") {
   const url = imagemDe(nome);
   if (!url) return "";
   const e = (x) => String(x ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-  return `<img class="item-thumb" src="${e(url)}" alt="${e(alt || nome)}" loading="lazy"
-    onerror="this.remove()"/>`;
+  return `<img class="item-thumb" src="${e(url)}" alt="${e(alt || nome)}" loading="lazy" data-falha="remover"/>`;
 }
 
 // Figura maior, para o topo de uma ficha aberta.
@@ -63,7 +62,7 @@ export function figura(nome, alt = "") {
   const url = imagemDe(nome);
   if (!url) return "";
   const e = (x) => String(x ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-  return `<div class="item-figura"><img src="${e(url)}" alt="${e(alt || nome)}" loading="lazy" onerror="this.parentElement.remove()"/></div>`;
+  return `<div class="item-figura"><img src="${e(url)}" alt="${e(alt || nome)}" loading="lazy" data-falha="remover-pai"/></div>`;
 }
 
 // ---------------------------------------------------------------------------

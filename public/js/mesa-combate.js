@@ -354,7 +354,13 @@ export function wireCombate(ctx) {
     await salvarCamp({ combate: camp.combate, combate_nave: camp.combate_nave, ...(snap.nave ? { nave: camp.nave } : {}) }, "desfazer");
     await enviar("sistema", `↶ O Mestre desfez: ${snap.rotulo}.`); render();
   });
-  $("#cb-fim")?.addEventListener("click", async () => { if (confirm("Encerrar o combate e limpar a ordem?")) { camp.combate = combateVazio(); await salvarCombate(); render(); } });
+  $("#cb-fim")?.addEventListener("click", async () => {
+    if (!(await confirmModal("Encerrar o combate e limpar a ordem de iniciativa?", { okLabel: "Encerrar", perigo: true }))) return;
+    snapshot("encerrar combate");
+    const antes = camp.combate;
+    camp.combate = combateVazio(); await salvarCombate(); render();
+    avisar("Combate encerrado.", async () => { camp.combate = antes; await salvarCombate(); render(); });
+  });
   document.querySelectorAll("[data-cb-nave]").forEach((b) => b.onclick = async () => {
     const atc = camp.combate.ordem.find((x) => x.id === b.dataset.cbNave); if (!atc) return;
     const atk = await ataqueDaNave(atc); if (!atk) return;   // cancelou a escolha de arma
@@ -525,7 +531,7 @@ export function wireCombate(ctx) {
       window.addEventListener("pointermove", mover); window.addEventListener("pointerup", soltar);
     });
   });
-  $("#cb-prox")?.addEventListener("click", async () => { let salvarNaveJunto = false; const rodAntes = camp.combate.rodada;
+  const passarTurno = async () => { let salvarNaveJunto = false; const rodAntes = camp.combate.rodada;
     const encerrou = camp.combate.ordem[camp.combate.turno];   // quem termina o turno agora
     proximoTurno(camp.combate); if (camp.combate.rodada !== rodAntes) camp.combate.agiram = []; const atual = camp.combate.ordem[camp.combate.turno];
     // FIM DE TURNO: efeitos declarados da criatura que acabou de agir.
@@ -706,7 +712,15 @@ export function wireCombate(ctx) {
     // que sobrescreveria camp.combate com o estado antigo e travaria o turno.
     const campos = { combate: camp.combate }; if (salvarNaveJunto) campos.nave = camp.nave;
     await salvarCamp(campos, "salvar o turno");
-    render(); });
+    render(); };
+  // Trava contra clique duplo / espaço segurado: dois "próximo turno" ao mesmo
+  // tempo pulavam um combatente e aplicavam o dano contínuo duas vezes.
+  // Mora em `ui` porque o botão é recriado a cada render().
+  $("#cb-prox")?.addEventListener("click", async () => {
+    if (ui._passandoTurno) return;
+    ui._passandoTurno = true;
+    try { await passarTurno(); } finally { ui._passandoTurno = false; }
+  });
   $("#cb-add-btn")?.addEventListener("click", async () => {
     const v = $("#cb-quem").value; if (!v) return;
     if (v.startsWith("j:")) { const p = (pers || []).find((x) => x.id === v.slice(2)); if (!p) return;

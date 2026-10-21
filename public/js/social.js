@@ -364,7 +364,7 @@ export async function compartilharTrecho(campanhaId) {
   const amigos = (contatos || []).filter((c) => c.status === "aceita");
   const r2 = await modalForm({ titulo: "📜 Trecho pronto",
     campos: [
-      { k: "i", label: "", tipo: "html", html: `<p class="regra">Link copiado (se o navegador deixou). Qualquer pessoa com ele vê o trecho:</p><input class="soc-link" readonly value="${esc(link)}" onclick="this.select()"/>` },
+      { k: "i", label: "", tipo: "html", html: `<p class="regra">Link copiado (se o navegador deixou). Qualquer pessoa com ele vê o trecho:</p><input class="soc-link" readonly value="${esc(link)}" data-seleciona/>` },
       ...(amigos.length ? [{ k: "amigo", label: "Mandar também para um amigo (opcional)", tipo: "select",
         opcoes: [{ v: "", l: "— ninguém —" }, ...amigos.map((c) => ({ v: c.outro, l: c.apelido }))] }] : []),
     ], okLabel: "Pronto" });

@@ -21,24 +21,12 @@
   <div id="app">
     <div class="carregando"><div class="pulse"></div>Sincronizando com a matriz…</div>
   </div>
+  <!-- Cliente do Supabase servido daqui mesmo (cópia fixa, sem depender do
+       esm.sh): versão exata, entra no cache do PWA e passa na CSP. Expõe
+       window.supabase. Para atualizar: baixar dist/umd/supabase.js da versão
+       nova no npm e trocar o nome do arquivo aqui, em app.js e em sw.js. -->
+  <script src="vendor/supabase-2.117.2.js"></script>
   <script type="module" src="js/app.js"></script>
-  <script>
-    if ("serviceWorker" in navigator) {
-      window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
-      // sw.js já ativa a versão nova sozinho (skipWaiting + clients.claim), sem
-      // esperar as abas antigas fecharem — mas sem isto, uma aba já aberta ficava
-      // rodando com o app.js antigo (import estático, só carrega uma vez por
-      // sessão) mesmo depois do Service Worker trocar de versão por baixo dela.
-      // Só um F5/fechar-e-reabrir resolvia. Recarregar na troca de controller
-      // garante que a aba sempre acaba rodando a versão que o SW já teria servido
-      // de qualquer forma na próxima navegação — só antecipa isso.
-      let jaRecarregou = false;
-      navigator.serviceWorker.addEventListener("controllerchange", () => {
-        if (jaRecarregou) return;
-        jaRecarregou = true;
-        location.reload();
-      });
-    }
-  </script>
+  <script src="js/registrar-sw.js"></script>
 </body>
 </html>

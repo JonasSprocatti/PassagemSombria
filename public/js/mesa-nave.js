@@ -35,6 +35,9 @@ const textoMunicao = (nave, a) => {
 // Resumo do armamento inteiro — usado quando não há alvo, pra ninguém atirar às cegas.
 const resumoArmamento = (nave) => (nave?.armas || []).map((a) => `${TIPO_ARMA_NAVE[a.tipo]?.ic || "⚔"} ${a.n}: ${textoMunicao(nave, a)}`).join("\n");
 
+// Preço de uma unidade de míssil de nave no Estaleiro.
+const PRECO_MISSIL = 60;
+
 export function renderNave(ctx) {
   const { ui, camp, membros, nave, cbn, meuPosto, f, defesaNaveParty, bonusDefVeiculo } = ctx;
   return `
@@ -87,7 +90,7 @@ export function renderNave(ctx) {
 }
 
 export function wireNave(ctx) {
-  const { id, camp, pers, ui, f, k, meuPosto, enviar, salvarCamp, salvarCbn, render, defesaNaveParty, aplicarDanoAlvo, snapshot, gastarAcao } = ctx;
+  const { id, camp, pers, membros, ui, f, k, meuPosto, enviar, salvarCamp, salvarCbn, render, defesaNaveParty, aplicarDanoAlvo, snapshot, gastarAcao } = ctx;
   // A nave da party também aparece como linha no rastreador (`nave_party`), com
   // cópia própria de casco/escudos — o HUD de combate lê de lá. Toda mudança em
   // camp.nave precisa ser espelhada, senão uma aba mostra um número e a outra outro.
@@ -115,12 +118,13 @@ export function wireNave(ctx) {
       if (!(await gastarAcao("Ação de Movimento", "embarcar na nave"))) { e.target.value = meuPosto || ""; return; }
       if (!(await gastarAcao("Ação Principal", "embarcar na nave"))) { e.target.value = meuPosto || ""; return; }
     }
-    await sb.from("campanha_membros").update({ posto: novoPosto }).eq("campanha_id", id).eq("perfil_id", usuario.id);
-    location.reload();
-  });
-  $("#cbn-iniciar")?.addEventListener("click", async () => {
-    camp.combate_nave = { ...combateNaveVazio(), ativo: true };
-    await salvarCbn(); await enviar("sistema", "🚀 Alerta vermelho: combate espacial iniciado. Todos aos postos!"); render();
+    const { error: errPosto } = await sb.from("campanha_membros").update({ posto: novoPosto }).eq("campanha_id", id).eq("perfil_id", usuario.id);
+    if (errPosto) { e.target.value = meuPosto || ""; return alert("Não consegui trocar de posto: " + errPosto.message); }
+    // Atualiza a lista local e redesenha — antes recarregava a página inteira
+    // (perdia o chat rolado e o que estava digitado).
+    const eu = (membros || []).find((m) => m.perfil_id === usuario.id);
+    if (eu) eu.posto = novoPosto;
+    render();
   });
   $("#cbn-fim")?.addEventListener("click", async () => {
     if (!(await confirmModal("Encerrar o combate espacial? As naves inimigas e as avarias em campo serão limpas.", { okLabel: "Encerrar", perigo: true }))) return;
@@ -193,17 +197,22 @@ export function wireNave(ctx) {
     const faltaCasco = camp.nave.casco_max - camp.nave.casco;
     const faltaEsc = camp.nave.escudos_max - camp.nave.escudos;
     const avarias = (camp.combate?.avarias || []).length;
-    if (!faltaCasco && !faltaEsc && !avarias) return alert("A nave está inteira: casco cheio, escudos cheios e sem avarias.");
-    // 8 CG por ponto de casco; escudos recalibram de graça; avaria custa 150 CG cada
-    const custoCasco = faltaCasco * 8, custoAvarias = avarias * 150;
+    // Munição: míssil só volta aqui (não recarrega em combate) — antes não havia
+    // jeito nenhum de repor; balística recarrega de graça junto.
+    const armasCap = (camp.nave.armas || []).filter((a) => capacidadeArma(a) != null);
+    const faltaMisseis = armasCap.filter((a) => a.tipo === "missil").reduce((t, a) => t + (capacidadeArma(a) - municaoDe(camp.nave, a)), 0);
+    const faltaBalas = armasCap.some((a) => a.tipo === "balistica" && municaoDe(camp.nave, a) < capacidadeArma(a));
+    if (!faltaCasco && !faltaEsc && !avarias && !faltaMisseis && !faltaBalas) return alert("A nave está inteira: casco cheio, escudos cheios, munição completa e sem avarias.");
+    // 8 CG por ponto de casco; escudos recalibram de graça; avaria custa 150 CG cada; míssil 60 CG a unidade
+    const custoCasco = faltaCasco * 8, custoAvarias = avarias * 150, custoMisseis = faltaMisseis * PRECO_MISSIL;
     const r = await modalForm({ titulo: "🛠 Estaleiro",
-      descricao: `Reparo completo fora de combate. Casco: ${camp.nave.casco}/${camp.nave.casco_max} · Escudos: ${camp.nave.escudos}/${camp.nave.escudos_max}${avarias ? ` · ${avarias} avaria(s)` : ""}.`,
+      descricao: `Reparo completo fora de combate. Casco: ${camp.nave.casco}/${camp.nave.casco_max} · Escudos: ${camp.nave.escudos}/${camp.nave.escudos_max}${avarias ? ` · ${avarias} avaria(s)` : ""}${faltaMisseis ? ` · faltam ${faltaMisseis} míssil(eis)` : ""}.`,
       campos: [
-        { k: "i", label: `Custo: ${custoCasco} CG pelo casco (${faltaCasco} pontos × 8)${custoAvarias ? ` + ${custoAvarias} CG pelas avarias` : ""}${faltaEsc ? " · recalibrar escudos é grátis" : ""}. Total: ${custoCasco + custoAvarias} CG.`, tipo: "info" },
+        { k: "i", label: `Custo: ${custoCasco} CG pelo casco (${faltaCasco} pontos × 8)${custoAvarias ? ` + ${custoAvarias} CG pelas avarias` : ""}${custoMisseis ? ` + ${custoMisseis} CG pelos mísseis (${faltaMisseis} × ${PRECO_MISSIL})` : ""}${faltaEsc ? " · recalibrar escudos é grátis" : ""}${faltaBalas ? " · recarregar a balística é grátis" : ""}. Total: ${custoCasco + custoAvarias + custoMisseis} CG.`, tipo: "info" },
         { k: "quem", label: "Quem paga a conta?", tipo: "select", opcoes: [{ v: "", l: "— ninguém (cortesia do Mestre) —" }, ...(pers || []).map((p2) => ({ v: p2.id, l: `${p2.nome} (${p2.dados?.creditos ?? 0} CG)` }))] },
       ], okLabel: "Reparar" });
     if (!r) return;
-    const total = custoCasco + custoAvarias;
+    const total = custoCasco + custoAvarias + custoMisseis;
     if (r.quem) {
       const pagador = (pers || []).find((p2) => p2.id === r.quem);
       const saldo = pagador?.dados?.creditos ?? 0;
@@ -213,11 +222,12 @@ export function wireNave(ctx) {
       await salvarFicha(pagador.id, dd); pagador.dados = dd;
     }
     camp.nave.casco = camp.nave.casco_max; camp.nave.escudos = camp.nave.escudos_max;
+    armasCap.forEach((a) => recarregarArma(camp.nave, a));
     const cbn2 = camp.combate?.ordem?.find((x) => x.nave_party);
     if (cbn2) { cbn2.casco = camp.nave.casco; cbn2.escudos = camp.nave.escudos; }
     if (camp.combate) camp.combate.avarias = [];
     await salvarCamp({ nave: camp.nave, ...(camp.combate ? { combate: camp.combate } : {}) }, "salvar o reparo do estaleiro");
-    await enviar("sistema", `🛠 ${camp.nave.nome_batismo || camp.nave.modelo} sai do estaleiro: casco e escudos no máximo${avarias ? `, ${avarias} avaria(s) reparada(s)` : ""}${total ? ` — ${total} CG` : ""}.`);
+    await enviar("sistema", `🛠 ${camp.nave.nome_batismo || camp.nave.modelo} sai do estaleiro: casco e escudos no máximo${faltaMisseis || faltaBalas ? ", munição completa" : ""}${avarias ? `, ${avarias} avaria(s) reparada(s)` : ""}${total ? ` — ${total} CG` : ""}.`);
     render();
   });
   $("#nave-upg")?.addEventListener("click", async () => {

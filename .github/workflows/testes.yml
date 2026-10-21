@@ -19,6 +19,12 @@ jobs:
         with:
           node-version: 22
 
+      # Confere a sintaxe de todo arquivo do app (inclusive os que nenhum teste
+      # importa, como app.js e mesa-*.js) — um erro de digitação ali só
+      # apareceria no navegador.
+      - name: Conferir a sintaxe dos arquivos
+        run: for f in public/js/*.js public/sw.js; do node --check "$f" || exit 1; done
+
       # Sem passar caminho: o Node varre o projeto e roda tudo que casa com
       # *.test.js. `node --test tests/` quebra no Node 22+ — lá um diretório
       # solto é tratado como arquivo e ele tenta carregar "tests" como módulo.

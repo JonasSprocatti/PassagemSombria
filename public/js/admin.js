@@ -15,6 +15,7 @@ import { BESTIARIO, NIVEIS_AMEACA } from "./dados-bestiario.js";
 import { NPCS, PAPEIS } from "./dados-npcs.js";
 import { CONDICOES, TIPOS_DANO, novaFichaDados, calc } from "./regras.js";
 import { validarEfeitos } from "./efeitos.js";
+import { sanear } from "./seguro.js";
 import { relatorioFichas, checarFicha } from "./relatorio-fichas.js";
 import { modalForm, confirmModal } from "./ui.js";
 import {
@@ -66,7 +67,7 @@ export async function painelAdmin(voltarPara = "racas") {
     const { data, error } = await sb.from("personagens")
       .select("id,nome,dados,campanha_id,atualizado_em,dono_id,perfis:dono_id(apelido)")
       .order("atualizado_em", { ascending: false }).limit(500);
-    roster = error ? [] : (data || []);
+    roster = error ? [] : sanear(data || []);
   };
   const rosterFiltrado = () => {
     const termo = filtroRoster.toLowerCase();
@@ -118,7 +119,7 @@ export async function painelAdmin(voltarPara = "racas") {
     const chaves = Object.keys(imgs).sort();
     return `<p class="regra">Cole o endereço de uma imagem para ilustrar qualquer item do jogo. Sem imagem cadastrada, tudo aparece exatamente como hoje — nada quebra.</p>
       <button id="adm-img-nova" class="mini eq">➕ Vincular imagem</button>
-      ${chaves.length ? `<div class="adm-grade">${chaves.map((k) => `<div class="adm-img"><img src="${esc(imgs[k])}" alt="" onerror="this.style.display='none'"/><span>${esc(k)}</span><button class="mini rm" data-img-del="${esc(k)}">✕</button></div>`).join("")}</div>`
+      ${chaves.length ? `<div class="adm-grade">${chaves.map((k) => `<div class="adm-img"><img src="${esc(imgs[k])}" alt="" data-falha="esconder"/><span>${esc(k)}</span><button class="mini rm" data-img-del="${esc(k)}">✕</button></div>`).join("")}</div>`
         : `<p class="regra"><i>Nenhuma imagem vinculada ainda.</i></p>`}`;
   };
   const painelCriaturas = () => {

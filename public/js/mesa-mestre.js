@@ -14,19 +14,23 @@ import { NIVEIS_AMEACA } from "./dados-bestiario.js";
 import { FACCOES, NIVEIS_REPUTACAO, TABELAS, REFERENCIA } from "./dados-mestre.js";
 import { d, CONDICOES } from "./regras.js";
 import { modalForm, confirmModal } from "./ui.js";
-import { sb, esc, combateVazio, rolarTabela, orcamentoEncontro, sugerirEncontro, PESO_AMEACA } from "./app.js";
+import { urlImg } from "./seguro.js";
+import { sb, esc, buscarTudo, combateVazio, rolarTabela, orcamentoEncontro, sugerirEncontro, PESO_AMEACA } from "./app.js";
 
 export async function abrirMestre(ctx) {
   const { id, camp, pers, enviar, salvarCamp, render } = ctx;
 
   const fazerBackup = async () => {
-    const [{ data: msgs2desc }, { data: membros2 }, { data: pers2 }] = await Promise.all([
-      // desc + reverse: sem isso, campanhas com mais de 5000 mensagens perdem as mais recentes no backup.
-      sb.from("mensagens").select("*").eq("campanha_id", id).order("criado_em", { ascending: false }).limit(5000),
-      sb.from("campanha_membros").select("*").eq("campanha_id", id),
-      sb.from("personagens").select("*").eq("campanha_id", id),
-    ]);
-    const msgs2 = msgs2desc ? [...msgs2desc].reverse() : msgs2desc;
+    // Backup completo: todas as mensagens, em lotes de 1000 (o teto por pedido do
+    // Supabase — o limit(5000) antigo salvava só as 1000 mais recentes).
+    let msgs2, membros2, pers2;
+    try {
+      [msgs2, { data: membros2 }, { data: pers2 }] = await Promise.all([
+        buscarTudo(() => sb.from("mensagens").select("*").eq("campanha_id", id).order("criado_em", { ascending: true }).order("id", { ascending: true }), 1000, 100000),
+        sb.from("campanha_membros").select("*").eq("campanha_id", id),
+        sb.from("personagens").select("*").eq("campanha_id", id),
+      ]);
+    } catch (e) { return alert("Não consegui montar o backup: " + e.message); }
     const backup = { formato: "passagem-sombria/campanha", versao: 1, exportado_em: new Date().toISOString(),
       campanha: { nome: camp.nome, codigo: camp.codigo, nave: camp.nave, mapa: camp.mapa, combate: camp.combate, bestiario: camp.bestiario },
       membros: membros2 || [], personagens: pers2 || [], mensagens: msgs2 || [] };
@@ -126,9 +130,12 @@ export async function abrirMestre(ctx) {
   const painelLin = () => {
     if (!linCache) { setTimeout(async () => {
       // desc + reverse: sem isso, campanhas com mais de 3000 mensagens perdem os marcos mais recentes da linha do tempo.
-      const { data: tudoDesc } = await sb.from("mensagens").select("tipo,conteudo,payload,criado_em,perfis:autor_id(apelido)")
-        .eq("campanha_id", id).order("criado_em", { ascending: false }).limit(3000);
-      const tudo = tudoDesc ? [...tudoDesc].reverse() : tudoDesc;
+      let tudoDesc = [];
+      try {
+        tudoDesc = await buscarTudo(() => sb.from("mensagens").select("tipo,conteudo,payload,criado_em,perfis:autor_id(apelido)")
+          .eq("campanha_id", id).order("criado_em", { ascending: false }).order("id", { ascending: false }), 1000, 3000);
+      } catch (e) { console.error("linha do tempo:", e); }
+      const tudo = [...tudoDesc].reverse();
       const eventos = [];
       (tudo || []).forEach((m) => {
         const q = new Date(m.criado_em);
@@ -187,8 +194,8 @@ export async function abrirMestre(ctx) {
       }
       fechar();
     });
-    liga("mestre-xp", async () => { const r = await modalForm({ titulo: "🎖 Conceder XP", campos: [{ k: "n", label: "XP para toda a tripulação conectada", tipo: "numero", valor: 500 }], okLabel: "Conceder" }); if (!r || !(+r.n > 0)) return; enviar("recompensa", `O Mestre concedeu ${+r.n} XP à tripulação.`, { xp: +r.n }); fechar(); });
-    liga("mestre-cg", async () => { const r = await modalForm({ titulo: "🎁 Conceder Créditos", campos: [{ k: "n", label: "CG para toda a tripulação conectada", tipo: "numero", valor: 1000 }], okLabel: "Conceder" }); if (!r || !(+r.n > 0)) return; enviar("recompensa", `O Mestre distribuiu ${+r.n} CG de saque à tripulação.`, { creditos: +r.n }); fechar(); });
+    liga("mestre-xp", async () => { const r = await modalForm({ titulo: "🎖 Conceder XP", campos: [{ k: "n", label: "XP para toda a tripulação (quem estiver offline recebe ao abrir a mesa)", tipo: "numero", valor: 500 }], okLabel: "Conceder" }); if (!r || !(+r.n > 0)) return; enviar("recompensa", `O Mestre concedeu ${+r.n} XP à tripulação.`, { xp: +r.n }); fechar(); });
+    liga("mestre-cg", async () => { const r = await modalForm({ titulo: "🎁 Conceder Créditos", campos: [{ k: "n", label: "CG para toda a tripulação (quem estiver offline recebe ao abrir a mesa)", tipo: "numero", valor: 1000 }], okLabel: "Conceder" }); if (!r || !(+r.n > 0)) return; enviar("recompensa", `O Mestre distribuiu ${+r.n} CG de saque à tripulação.`, { creditos: +r.n }); fechar(); });
     liga("mestre-item", async () => {
       const cat = await modalForm({ titulo: "🎁 Conceder item", descricao: "Saque distribuído a toda a tripulação conectada. Vai direto para o inventário.",
         campos: [{ k: "tipo", label: "Tipo", tipo: "select", opcoes: [
@@ -253,6 +260,7 @@ export async function abrirMestre(ctx) {
         { k: "url", label: "URL da imagem", tipo: "texto", valor: camp.handout?.url || "" },
         { k: "titulo", label: "Legenda (opcional)", tipo: "texto", valor: camp.handout?.titulo || "" }], okLabel: "Mostrar" });
       if (!r || !r.url) return;
+      if (!urlImg(r.url)) return alert("Use o endereço completo de uma imagem, começando com https://");
       camp.handout = { url: r.url.trim(), titulo: (r.titulo || "").trim(), visivel: true };
       await salvarCamp({ handout: camp.handout });
       await enviar("sistema", `🖼 O Mestre mostrou uma imagem${r.titulo ? `: ${r.titulo}` : ""}.`); fechar(); render();
