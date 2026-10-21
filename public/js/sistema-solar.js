@@ -107,7 +107,7 @@ export async function abrirSeletorPlanetas(RACAS, onSelect) {
         <div class="ss-lista">${PLANETAS.map((p) => `<button class="ss-chip" data-raca="${esc(p.raca)}" style="border-color:${p.hex}"><i style="background:${p.hex}"></i>${esc(p.raca)} <small>${esc(p.planeta)}</small></button>`).join("")}</div>
       </div>
       <div class="ss-detalhe" style="display:none"></div>
-      <div class="ss-acoes" style="display:none"><button class="ss-voltar">← planetas</button><button class="ss-escolher btn-primario">✓ ESCOLHER ESTA RAÇA</button></div>
+      <div class="ss-acoes" style="display:none"><button class="ss-voltar">← planetas</button><button class="ss-escolher btn-primario">✓ Escolher esta raça</button></div>
     </aside>`;
   document.body.appendChild(ov);
   document.body.style.overflow = "hidden";

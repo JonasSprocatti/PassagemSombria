@@ -158,8 +158,8 @@ export function renderFicha(ctx) {
                 return btns.join("");
               })()}
               <select id="sel-per">${PERICIAS.map(([pn]) => `<option>${pn}</option>`).join("")}</select>
-              <button id="rolar-per" class="mini">TESTE</button>
-              <button id="teste-oposto" class="mini" title="Teste oposto: você e um alvo rolam perícias diferentes e o maior vence">⚖ OPOSTO</button>
+              <button id="rolar-per" class="mini">Teste</button>
+              <button id="teste-oposto" class="mini" title="Teste oposto: você e um alvo rolam perícias diferentes e o maior vence">⚖ Oposto</button>
               ${armasEq.length ? `<label class="chk" style="margin:0" title="Ataque furtivo: +2 no acerto (armas Ocultas / Assassino) e dano DOBRADO para o Assassino."><input type="checkbox" id="atq-furtivo"/> 🥷 Furtivo</label>` : ""}
               ${armasEq.some((a) => propsArma(catDoAtaque(a.nome) || {}).descarrega) ? `<label class="chk" style="margin:0" title="Esvazia o pente inteiro num tiro só — dado de dano extra por bala gasta além do custo normal (só armas com a palavra-chave Descarregar)."><input type="checkbox" id="atq-descarregar"/> 🔫 Descarregar</label>` : ""}
               ${armasEq.length ? (k.efeitos?.opcoesAtaque?.() || []).map((o) => `<label class="chk" style="margin:0" title="${esc(o.d || "")}"><input type="checkbox" data-opc-atq="${esc(o.id)}"/> ${esc(o.rot)}</label>`).join("") : ""}
@@ -167,7 +167,7 @@ export function renderFicha(ctx) {
                 const tip = [a._implante ? "Ataque de implante" : "", cat?.kw ? `${cat.kw}: ${pr.efeito}` : "", pr.area ? `Área: ${pr.areaTxt}` : "", pr.alcance ? `Alcance: ${pr.alcanceTxt}` : "", pr.agil ? "Ágil (Des)" : ""].filter(Boolean).join(" · ");
                 return `<button class="mini atq" data-atq="${i}" title="${esc(tip)}">${a._implante ? "⧉" : "⚔"} ${esc(a.nome)} (${cat ? danoArma(cat, f.nivel) : "—"})${pr.area ? " ◎" : ""}${pr.agil ? " ⚡" : ""}${pr.aoAcertar?.length ? " 🏷" : ""}${pr.ignoraArmadura ? " 🗡" : ""}</button>`; }).join("")}
               <select id="sel-scr">${(f.deck.length ? SCRIPTS.filter((s) => f.deck.includes(s.n)) : SCRIPTS.filter((s) => s.c === 0)).map((s) => `<option>${esc(s.n)}</option>`).join("")}</select>
-              <button id="conjurar" class="mini">⚡ CONJURAR</button>
+              <button id="conjurar" class="mini">⚡ Conjurar</button>
               ${(() => { const ats = habilidadesAtivas(f);
                 return ats.map((h) => { const usada = habUsada(h);
                   const modo = f.modos?.[h.nome];
@@ -184,10 +184,10 @@ export function renderFicha(ctx) {
               <input id="dado-livre" placeholder="1d20+2d10" style="width:80px"/><button id="rolar-livre" class="mini">🎲</button><button id="macro-salvar" class="mini" title="Salvar essa expressão como macro, pra rolar num clique depois">☆</button>
               ${macrosDe(ui.meuPers?.id).map((m, i) => `<span class="macro-par"><button class="mini macro-chip" data-macro="${i}" title="${esc(m.expr)}${ui.vantagem ? ` · ${ui.vantagem > 0 ? "vantagem" : "desvantagem"} ligada` : ""}">🎲 ${esc(m.rotulo)}</button><button class="mini rm" data-macro-del="${i}" title="Remover macro">✕</button></span>`).join("")}
             </div>
-            <div class="acoes-mesa"><b class="chrome">Direcionar dano:</b>
+            <div class="acoes-mesa"><b class="acoes-rot">Direcionar dano ou cura</b>
               <select id="sel-alvo">${(pers || []).map((x) => `<option value="${x.id}">${esc(x.nome)}</option>`).join("")}</select>
               <input id="dano-val" type="number" placeholder="valor" style="width:70px"/>
-              <button id="enviar-dano" class="mini dano">💥 DANO</button><button id="enviar-cura" class="mini eq">✚ CURA</button></div>` : `<p class="regra">Vincule um personagem para rolar pela mesa.</p>`}
+              <button id="enviar-dano" class="mini dano">💥 Dano</button><button id="enviar-cura" class="mini eq">✚ Cura</button></div>` : `<p class="regra">Vincule um personagem para rolar pela mesa.</p>`}
           </section>
           </div>`;
 }

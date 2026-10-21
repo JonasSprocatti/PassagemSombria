@@ -225,7 +225,7 @@ export function telaBiblioteca(aba = "racas") {
   }
   const podeAdmin = !!perfil?.admin;
   shell("biblioteca", `
-    <header class="masthead"><h1>BIBLIOTECA<span> DO SISTEMA</span></h1>
+    <header class="masthead"><h1>Biblioteca do sistema</h1>
       <div class="mast-sub">Tudo do livro Passagem Sombria, pesquisável e completo${podeAdmin ? ` · <button id="abrir-admin" class="mini">🛠 Administrar conteúdo</button>` : ""}</div></header>
     <div class="filtros"><input id="bib-busca" placeholder="🔍 Buscar nesta aba (nome, palavra-chave, efeito…)" style="flex:1;min-width:220px" value="${esc(buscaAtual)}"/></div>
     <div id="bib-cross" class="regra" hidden></div>

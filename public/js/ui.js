@@ -4,6 +4,17 @@
 // ============================================================================
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
+// Fecha um overlay com a animação de saída (.saindo no CSS) e só então tira do DOM.
+// A resposta do modal é entregue na hora (quem chamou não espera a animação); o
+// overlay que está saindo fica inerte, então um modal aberto logo em seguida já
+// recebe o clique. Com "Reduzir animações", sai na hora.
+function sairOverlay(ov) {
+  const reduzir = document.body.classList.contains("a11y-reduzir") || matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (reduzir) return ov.remove();
+  ov.inert = true; ov.classList.add("saindo");
+  setTimeout(() => ov.remove(), 180);
+}
+
 // modalForm({ titulo, campos:[{k,label,tipo,valor,opcoes,min,max,placeholder,rows}], okLabel, cancelLabel })
 // tipos: "texto" | "numero" | "area" | "select"
 // Resolve com um objeto { k: valor } ou null se cancelado.
@@ -30,7 +41,7 @@ export function modalForm({ titulo, descricao = "", campos = [], okLabel = "Conf
     document.body.appendChild(ov);
     const prim = ov.querySelector(`#mdl-${campos[0]?.k}`); if (prim) setTimeout(() => prim.focus(), 30);
 
-    const fechar = (val) => { ov.remove(); document.removeEventListener("keydown", onKey); resolve(val); };
+    const fechar = (val) => { sairOverlay(ov); document.removeEventListener("keydown", onKey); resolve(val); };
     const coletar = () => { const out = {}; for (const c of campos) { const el = ov.querySelector(`#mdl-${c.k}`); if (!el) continue; out[c.k] = c.tipo === "numero" ? (el.value === "" ? null : +el.value) : el.value; } return out; };
     const confirmar = () => fechar(coletar());
     ov.querySelector(".mdl-ok").onclick = confirmar;
@@ -54,7 +65,7 @@ export function confirmModal(texto, { okLabel = "Confirmar", cancelLabel = "Canc
     ov.innerHTML = `<div class="mdl-box" role="dialog" aria-modal="true"><p class="mdl-desc" style="margin-top:0">${esc(texto)}</p>
       <div class="mdl-acoes"><button class="mdl-cancel">${esc(cancelLabel)}</button><button class="mdl-ok ${perigo ? "" : "btn-primario"}" ${perigo ? 'style="border-color:var(--perigo);color:var(--perigo)"' : ""}>${esc(okLabel)}</button></div></div>`;
     document.body.appendChild(ov);
-    const fechar = (v) => { ov.remove(); document.removeEventListener("keydown", onKey); resolve(v); };
+    const fechar = (v) => { sairOverlay(ov); document.removeEventListener("keydown", onKey); resolve(v); };
     ov.querySelector(".mdl-ok").onclick = () => fechar(true);
     ov.querySelector(".mdl-cancel").onclick = () => fechar(false);
     ov.addEventListener("pointerdown", (e) => { if (e.target === ov && !semFora) fechar(false); });
