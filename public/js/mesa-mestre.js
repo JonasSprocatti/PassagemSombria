@@ -14,6 +14,7 @@ import { NIVEIS_AMEACA } from "./dados-bestiario.js";
 import { FACCOES, NIVEIS_REPUTACAO, TABELAS, REFERENCIA } from "./dados-mestre.js";
 import { d, CONDICOES } from "./regras.js";
 import { modalForm, confirmModal } from "./ui.js";
+import { urlImg } from "./seguro.js";
 import { sb, esc, combateVazio, rolarTabela, orcamentoEncontro, sugerirEncontro, PESO_AMEACA } from "./app.js";
 
 export async function abrirMestre(ctx) {
@@ -253,6 +254,7 @@ export async function abrirMestre(ctx) {
         { k: "url", label: "URL da imagem", tipo: "texto", valor: camp.handout?.url || "" },
         { k: "titulo", label: "Legenda (opcional)", tipo: "texto", valor: camp.handout?.titulo || "" }], okLabel: "Mostrar" });
       if (!r || !r.url) return;
+      if (!urlImg(r.url)) return alert("Use o endereço completo de uma imagem, começando com https://");
       camp.handout = { url: r.url.trim(), titulo: (r.titulo || "").trim(), visivel: true };
       await salvarCamp({ handout: camp.handout });
       await enviar("sistema", `🖼 O Mestre mostrou uma imagem${r.titulo ? `: ${r.titulo}` : ""}.`); fechar(); render();

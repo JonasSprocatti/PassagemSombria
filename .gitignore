@@ -1,4 +1,5 @@
-# Chaves locais — gerado no build da Vercel, nunca vai pro repo
+# Chaves — gerado por scripts/build-vercel.sh na Vercel; localmente, copiar de
+# public/js/config.exemplo.js. Nunca vai pro repositório.
 public/js/config.js
 
 # Sistema operacional

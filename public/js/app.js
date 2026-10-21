@@ -2,13 +2,16 @@
 // PASSAGEM SOMBRIA — DECK DE CAMPO ONLINE (SPA vanilla JS)
 // Rotas: #/login #/hangar #/ficha/:id #/campanhas #/mesa/:id #/biblioteca
 // ============================================================
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+// Cliente do Supabase: cópia fixa em public/vendor/ carregada pelo index.html
+// antes deste módulo (expõe window.supabase). Ver o comentário no index.html.
+const { createClient } = window.supabase;
 import * as CONFIG from "./config.js";
 import { EFEITOS as EFEITOS_FICHA, validarEfeitos } from "./efeitos.js";
 import { RACAS, CLASSES, FILOSOFIAS, IMPLANTES, SCRIPTS, ARMAS, ARMADURAS, PERICIAS, NAVES, ESTACOES, REGRAS_NAVE, RIQUEZA, TEMAS, CONVERTE_2D8, KEYWORDS, PALAVRAS_CHAVE, chavesDaArma, propsArma, AVARIAS, UPGRADES_NAVE, TURNOS_POR_PENTE, TIROS_POR_PENTE, TIPOS_PENTE, PENTE_PADRAO, CONSUMIVEIS, ehConsumivel, SLOTS_ARMA, SLOTS_POR_ARMA, MODS_ARMA, modsDoSlot, acharMod, LIMITE_TATUAGENS } from "./dados-jogo.js";
 import { BESTIARIO } from "./dados-bestiario.js";
 import { NPCS, PAPEIS } from "./dados-npcs.js";
 import { FACCOES, NIVEIS_REPUTACAO, TABELAS, REFERENCIA  } from "./dados-mestre.js";
+import { esc, num, urlImg, urlLink, sanear } from "./seguro.js";
 import { modalForm, confirmModal, somMensagem, somDado, somCritico, somFalha, notificar, pedirNotificacao, getSom, setSom } from "./ui.js";
 // Regras puras (ficha, dados, condições, campo tático, tipos de dano) — extraídas
 // pra um módulo sem import de rede, testável direto com `node --test tests/`.
@@ -30,7 +33,21 @@ export const DB_SCHEMA = CONFIG.SUPABASE_SCHEMA || "public";
 export const sb = createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY, { db: { schema: DB_SCHEMA } });
 const app = document.getElementById("app");
 const $ = (s, el = document) => el.querySelector(s);
-export const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+// Comportamentos que antes eram atributos on*="..." no HTML gerado. A
+// Content-Security-Policy (vercel.json) bloqueia script inline, então eles
+// vivem aqui, delegados no documento: <img data-falha="esconder|remover|remover-pai">
+// e <input data-seleciona> (seleciona o texto ao focar/clicar).
+document.addEventListener("error", (e) => {
+  const el = e.target;
+  if (!(el instanceof HTMLImageElement) || !el.dataset.falha) return;
+  if (el.dataset.falha === "esconder") el.style.display = "none";
+  else if (el.dataset.falha === "remover-pai") el.parentElement?.remove();
+  else el.remove();
+}, true);
+document.addEventListener("click", (e) => { if (e.target instanceof HTMLInputElement && e.target.hasAttribute("data-seleciona")) e.target.select(); });
+// esc/num/urlImg moram em seguro.js (testáveis no Node); `esc` continua
+// exportado daqui porque os outros módulos já importam de app.js.
+export { esc };
 // Rola uma expressão com vários termos: "1d20+2d10-1", "d20", "2d6 + 3". Devolve {total, detalhe} ou null.
 // vant: 1 = vantagem, -1 = desvantagem, 0 = normal.
 // Aplica-se ao primeiro d20 da expressão — que é o dado que decide o teste.
@@ -106,8 +123,8 @@ export function gerarFichaHTML(nome, f, k) {
   const raca = RACAS.find((r) => r.nome === f.raca), classe = CLASSES[f.classe];
   const filo = f.filosofia ? FILOSOFIAS[f.filosofia] : null;
   const ATTRS = ["For", "Des", "Con", "Int", "Sab", "Car"];
-  const attrCard = (a) => `<div class="a"><span class="an">${a}</span><span class="av">${sign(k.attr[a])}</span></div>`;
-  const perLinha = (pn, at) => { const tot = (k.attr[at] || 0) + (k.per[pn] || 0); const tr = (k.per[pn] || 0) > 0; return `<tr class="${tr ? "tr" : ""}"><td>${tr ? "▣" : "☐"}</td><td>${esc(pn)}</td><td class="dim">${at}</td><td class="tot">${sign(tot)}</td></tr>`; };
+  const attrCard = (a) => `<div class="a"><span class="an">${a}</span><span class="av">${esc(sign(num(k.attr[a])))}</span></div>`;
+  const perLinha = (pn, at) => { const tot = (k.attr[at] || 0) + (k.per[pn] || 0); const tr = (k.per[pn] || 0) > 0; return `<tr class="${tr ? "tr" : ""}"><td>${tr ? "▣" : "☐"}</td><td>${esc(pn)}</td><td class="dim">${at}</td><td class="tot">${esc(sign(num(tot)))}</td></tr>`; };
   const half = Math.ceil(PERICIAS.length / 2);
   const perTab = (lista) => `<table class="per"><thead><tr><th></th><th>Perícia</th><th>Atr</th><th>Tot</th></tr></thead><tbody>${lista.map(([pn, at]) => perLinha(pn, at)).join("")}</tbody></table>`;
   const habs = [];
@@ -117,9 +134,9 @@ export function gerarFichaHTML(nome, f, k) {
   if (classe && f.nivel >= 5) habs.push([`★ Veterana — ${classe.vet.n}`, classe.vet.d]);
   if (classe?.lendaria && f.nivel >= 10) habs.push([`★★ Marco de classe — ${classe.lendaria.n}`, classe.lendaria.d]);
   if (filo) habs.push([`Filosofia — ${f.filosofia}`, filo.d]);
-  const implantes = (f.implantes || []).map((nm) => { const im = Object.values(IMPLANTES).find((x) => x.n === nm); return im ? `<li><b>${esc(im.n)}</b> <span class="dim">(${esc(im.g)})</span> — ${esc(im.e)}</li>` : `<li>${esc(nm)}</li>`; }).join("");
-  const deck = (f.deck || []).map((nm) => { const s = SCRIPTS.find((x) => x.n === nm); return s ? `<li><b>${esc(s.n)}</b> <span class="dim">${s.c}◈ · ${esc(s.a)}</span> — ${esc(s.d)}</li>` : `<li>${esc(nm)}</li>`; }).join("");
-  const inv = (f.inventario || []).map((it) => `<li>${it.equip ? "▣ " : ""}<b>${esc(it.nome)}</b> <span class="dim">(${esc(it.tipo)}${it.qtd > 1 ? ` ×${it.qtd}` : ""})</span></li>`).join("");
+  const implantes = (Array.isArray(f.implantes) ? f.implantes : []).map((nm) => { const im = Object.values(IMPLANTES).find((x) => x.n === nm); return im ? `<li><b>${esc(im.n)}</b> <span class="dim">(${esc(im.g)})</span> — ${esc(im.e)}</li>` : `<li>${esc(nm)}</li>`; }).join("");
+  const deck = (Array.isArray(f.deck) ? f.deck : []).map((nm) => { const s = SCRIPTS.find((x) => x.n === nm); return s ? `<li><b>${esc(s.n)}</b> <span class="dim">${s.c}◈ · ${esc(s.a)}</span> — ${esc(s.d)}</li>` : `<li>${esc(nm)}</li>`; }).join("");
+  const inv = (Array.isArray(f.inventario) ? f.inventario : []).map((it) => `<li>${it.equip ? "▣ " : ""}<b>${esc(it.nome)}</b> <span class="dim">(${esc(it.tipo)}${num(it.qtd) > 1 ? ` ×${num(it.qtd)}` : ""})</span></li>`).join("");
   // A cor do tema do personagem tinge a ficha inteira — cada tripulante
   // sai com uma folha que parece dele, não um formulário genérico.
   const tema = TEMAS[f.tema] || TEMAS["Vácuo"];
@@ -173,40 +190,40 @@ export function gerarFichaHTML(nome, f, k) {
   return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Ficha — ${esc(nome || "Personagem")}</title><style>${css}</style></head><body>
   <div class="folha">
   <div class="faixa">
-    <div class="top">${f.foto ? `<img class="retr" src="${f.foto}"/>` : ""}<div style="flex:1">
+    <div class="top">${urlImg(f.foto) ? `<img class="retr" src="${esc(urlImg(f.foto))}"/>` : ""}<div style="flex:1">
       <h1>${esc(nome || "Sem nome")}</h1>
-      <p class="sub">${[raca ? `${raca.nome} — ${raca.planeta}` : "", f.classe].filter(Boolean).join(" · ")}</p>
+      <p class="sub">${esc([raca ? `${raca.nome} — ${raca.planeta}` : "", f.classe].filter(Boolean).join(" · "))}</p>
       <div class="etiquetas">
-        <span class="etq">Nível ${f.nivel}</span>
+        <span class="etq">Nível ${num(f.nivel, 1)}</span>
         ${f.filosofia ? `<span class="etq">${esc(f.filosofia)}</span>` : ""}
         ${raca ? `<span class="etq">Dado de vida 1d${raca.dadoVida}</span>` : ""}
       </div>
     </div></div>
     <div class="grid6">${ATTRS.map(attrCard).join("")}</div>
     <div class="vit">
-      <div><span class="dim">Pontos de Vida</span><b>${f.pvAtual || 0} / ${k.pvMax || 0}</b>
-        <span class="barra"><i style="width:${k.pvMax ? Math.max(0, Math.min(100, 100 * f.pvAtual / k.pvMax)) : 0}%;background:${ACC}"></i></span></div>
-      <div><span class="dim">RAM</span><b>${k.ramLivre} / ${k.ramMax}</b>
-        <span class="barra"><i style="width:${k.ramMax ? Math.max(0, Math.min(100, 100 * k.ramLivre / k.ramMax)) : 0}%;background:${ACC3}"></i></span></div>
-      <div><span class="dim">Defesa (CD)</span><b>${k.cd}</b></div>
-      <div><span class="dim">Iniciativa</span><b>${sign(k.iniciativa)}</b></div>
-      <div><span class="dim">Deslocamento</span><b>${k.deslocamento} m</b></div>
-      <div><span class="dim">Créditos</span><b>${f.creditos ?? 0} CG</b></div>
+      <div><span class="dim">Pontos de Vida</span><b>${num(f.pvAtual)} / ${num(k.pvMax)}</b>
+        <span class="barra"><i style="width:${num(k.pvMax) ? Math.max(0, Math.min(100, 100 * num(f.pvAtual) / num(k.pvMax))) : 0}%;background:${ACC}"></i></span></div>
+      <div><span class="dim">RAM</span><b>${num(k.ramLivre)} / ${num(k.ramMax)}</b>
+        <span class="barra"><i style="width:${num(k.ramMax) ? Math.max(0, Math.min(100, 100 * num(k.ramLivre) / num(k.ramMax))) : 0}%;background:${ACC3}"></i></span></div>
+      <div><span class="dim">Defesa (CD)</span><b>${num(k.cd)}</b></div>
+      <div><span class="dim">Iniciativa</span><b>${esc(sign(num(k.iniciativa)))}</b></div>
+      <div><span class="dim">Deslocamento</span><b>${num(k.deslocamento)} m</b></div>
+      <div><span class="dim">Créditos</span><b>${num(f.creditos)} CG</b></div>
     </div>
   </div>
   <h2>Perícias</h2><div class="cols">${perTab(PERICIAS.slice(0, half))}${perTab(PERICIAS.slice(half))}</div>
   ${habs.length ? `<h2>Habilidades</h2><ul class="hab">${habs.map(([n, d]) => `<li><b>${esc(n)}:</b> ${esc(d)}</li>`).join("")}</ul>` : ""}
   ${implantes ? `<h2>Implantes</h2><ul>${implantes}</ul>` : ""}
-  ${deck ? `<h2>Deck de Scripts (${f.deck.length}/${k.deckMax})</h2><ul>${deck}</ul>` : ""}
+  ${deck ? `<h2>Deck de Scripts (${f.deck.length}/${num(k.deckMax)})</h2><ul>${deck}</ul>` : ""}
   ${inv ? `<h2>Inventário</h2><ul>${inv}</ul>` : ""}
   <h2>Suprimentos</h2>
-  <p><b>Munição:</b> ${(() => { const r2 = normalizaPentes(f); const tp2 = TIPOS_PENTE[f.tipoPente || PENTE_PADRAO];
-    const carregado = `${tp2.n} — ${f.tirosPente ?? TIROS_POR_PENTE}/${TIROS_POR_PENTE} tiros no cano`;
-    const reserva = Object.entries(r2).filter(([, q]) => q > 0).map(([k2, q]) => `${TIPOS_PENTE[k2].n} ×${q}`).join(", ") || "reserva vazia";
+  <p><b>Munição:</b> ${(() => { const r2 = normalizaPentes(f); const tp2 = (TIPOS_PENTE[f.tipoPente] || TIPOS_PENTE[PENTE_PADRAO]);
+    const carregado = `${tp2.n} — ${num(f.tirosPente, TIROS_POR_PENTE)}/${TIROS_POR_PENTE} tiros no cano`;
+    const reserva = Object.entries(r2).filter(([k2, q]) => num(q) > 0 && TIPOS_PENTE[k2]).map(([k2, q]) => `${TIPOS_PENTE[k2].n} ×${num(q)}`).join(", ") || "reserva vazia";
     return `${carregado}. Reserva: ${reserva}.`; })()}</p>
   ${(() => { const cons = (f.inventario || []).filter((it) => ehConsumivel(it.nome) && (it.qtd || 1) > 0);
     return cons.length ? `<p><b>Itens utilizáveis:</b></p><ul>${cons.map((it) => { const c = ehConsumivel(it.nome);
-      return `<li><b>${esc(it.nome)}</b> ×${it.qtd || 1} <span class="dim">(${esc(c.acao)})</span> — ${esc(c.d)}</li>`; }).join("")}</ul>` : ""; })()}
+      return `<li><b>${esc(it.nome)}</b> ×${num(it.qtd, 1)} <span class="dim">(${esc(c.acao)})</span> — ${esc(c.d)}</li>`; }).join("")}</ul>` : ""; })()}
   <h2>Anotações</h2><div class="notas">${esc(f.notas || "")}</div>
   <div class="rodape"><span>Passagem Sombria — Deck de Campo</span><span>${new Date().toLocaleDateString("pt-BR")}</span></div>
   </div></body></html>`;
@@ -576,6 +593,7 @@ async function telaFichaPublica(token) {
       <p><a class="btn-ghost" href="#/hangar">Ir para o app</a></p></div>`;
     return;
   }
+  sanear(data);
   const f = { ...novaFichaDados(), ...(data.dados || {}) };
   aplicarTema(f);
   const html = gerarFichaHTML(data.nome, f, calc(f));
@@ -1130,17 +1148,18 @@ function telaLogin() {
 // ---------------- HANGAR ----------------
 async function telaHangar() {
   const { data: pers } = await sb.from("personagens").select("id,nome,dados,campanha_id").eq("dono_id", usuario.id).order("atualizado_em", { ascending: false });
+  sanear(pers);
   const cards = (pers || []).map((p) => {
     const f = p.dados || {}, k = calc({ ...novaFichaDados(), ...f });
     const tema = TEMAS[f.tema] || TEMAS["Vácuo"];
     return `<article class="card-pers" data-id="${p.id}" style="--acento:${tema.tech}">
-      <span class="selo-nv" style="border-color:${tema.tech};color:${tema.tech}">NV ${f.nivel || 1}</span>
+      <span class="selo-nv" style="border-color:${tema.tech};color:${tema.tech}">NV ${num(f.nivel, 1)}</span>
       <button class="card-del" data-del="${p.id}" title="Apagar tripulante">✕</button>
-      ${f.foto ? `<img class="retrato" src="${f.foto}" alt="${esc(p.nome)}"/>` : `<div class="retrato-vazio">◈</div>`}
+      ${urlImg(f.foto) ? `<img class="retrato" src="${esc(urlImg(f.foto))}" alt="${esc(p.nome)}"/>` : `<div class="retrato-vazio">◈</div>`}
       <div class="info">
         <div class="nome">${esc(p.nome) || "— sem nome —"}</div>
         <div class="meta">${esc(f.raca || "raça?")} · ${esc(f.classe || "classe?")}${p.campanha_id ? " · ☄ em campanha" : ""}</div>
-        <div class="card-stats"><span>PV <b>${f.pvAtual || 0}</b>/${k.pvMax}</span><span>CD <b>${k.cd}</b></span><span class="sombra-c">RAM <b>${k.ramLivre}</b>/${k.ramMax}</span></div>
+        <div class="card-stats"><span>PV <b>${num(f.pvAtual)}</b>/${num(k.pvMax)}</span><span>CD <b>${num(k.cd)}</b></span><span class="sombra-c">RAM <b>${num(k.ramLivre)}</b>/${num(k.ramMax)}</span></div>
       </div>
     </article>`; }).join("");
   shell("hangar", `
@@ -1241,7 +1260,7 @@ async function telaFicha(id) {
         <header><span class="tag">ID</span><h2>Identidade</h2></header>
         <div class="id-topo">
           <div class="retrato">
-            ${f.foto ? `<img src="${f.foto}" alt="Retrato do personagem"/>` : `<div class="retrato-vazio"><span>◈</span><small>sem holograma</small></div>`}
+            ${urlImg(f.foto) ? `<img src="${esc(urlImg(f.foto))}" alt="Retrato do personagem"/>` : `<div class="retrato-vazio"><span>◈</span><small>sem holograma</small></div>`}
             <div class="retrato-btns">
               <label class="btn-foto">${f.foto ? "TROCAR" : "+ FOTO"}<input id="foto-in" type="file" accept="image/*" hidden/></label>
               ${f.foto ? `<button id="foto-rm" class="btn-foto rm">✕</button>` : ""}
@@ -1813,8 +1832,8 @@ async function telaMesa(id) {
     sb.from("campanhas").select("*").eq("id", id).single(),
     // `papel` (jogador/espectador) só existe depois de supabase/social.sql: sem a
     // coluna o select falha inteiro, então tenta com ela e cai pro formato antigo.
-    sb.from("campanha_membros").select("perfil_id,posto,papel,perfis(apelido)").eq("campanha_id", id)
-      .then((r) => r.error ? sb.from("campanha_membros").select("perfil_id,posto,perfis(apelido)").eq("campanha_id", id) : r),
+    sb.from("campanha_membros").select("perfil_id,posto,papel,perfis(apelido,avatar_url)").eq("campanha_id", id)
+      .then((r) => r.error ? sb.from("campanha_membros").select("perfil_id,posto,perfis(apelido,avatar_url)").eq("campanha_id", id) : r),
     sb.from("personagens").select("id,nome,dono_id,dados").eq("campanha_id", id),
     // Pega as 120 MAIS RECENTES (desc) e devolve pro chat em ordem cronológica (asc).
     // Antes buscava com .order(asc).limit(120): pegava as 120 mais ANTIGAS, e com
@@ -1823,6 +1842,9 @@ async function telaMesa(id) {
   ]);
   const msgs = msgsDesc ? [...msgsDesc].reverse() : msgsDesc;
   if (!camp) return (location.hash = "#/campanhas");
+  // Tudo que veio do banco pode ter sido gravado direto pela API por qualquer
+  // membro: força a número os campos que a tela interpola como número.
+  sanear(camp); sanear(pers); sanear(msgs);
   const { data: meus } = await sb.from("personagens").select("id,nome").eq("dono_id", usuario.id);
   // Com mais de um personagem seu na mesma mesa, vale a escolha guardada neste
   // dispositivo; sem escolha, o primeiro. Antes pegava sempre o primeiro e o
@@ -2316,7 +2338,7 @@ async function telaMesa(id) {
             <button id="compartilhar-trecho" class="mini" style="margin-left:auto" title="Gerar um link público de um trecho desta sessão">📤 Compartilhar trecho</button></header>
           <div id="mesa-presence" class="mesa-presence"></div>
           <div id="mesa-conn" class="mesa-conn" hidden></div>
-          ${camp.handout?.visivel && camp.handout?.url ? `<div class="handout"><div class="handout-cab"><b>🖼 ${esc(camp.handout.titulo || "O Mestre mostra algo")}</b><a href="${esc(camp.handout.url)}" target="_blank" rel="noopener" class="mini">abrir</a></div><img src="${esc(camp.handout.url)}" alt="${esc(camp.handout.titulo || "imagem compartilhada pelo Mestre")}"/></div>` : ""}
+          ${camp.handout?.visivel && urlImg(camp.handout?.url) ? `<div class="handout"><div class="handout-cab"><b>🖼 ${esc(camp.handout.titulo || "O Mestre mostra algo")}</b>${urlLink(camp.handout.url) ? `<a href="${esc(urlLink(camp.handout.url))}" target="_blank" rel="noopener noreferrer" class="mini">abrir</a>` : ""}</div><img src="${esc(urlImg(camp.handout.url))}" alt="${esc(camp.handout.titulo || "imagem compartilhada pelo Mestre")}"/></div>` : ""}
           <div id="chat" class="chat"></div>
           <div id="resp-preview" class="resp-preview" style="display:none"><span class="rp-txt"></span><button id="resp-cancel" class="rp-x" title="Cancelar resposta">✕</button></div>
           <button id="abrir-stats-oculto" class="sr-only">Estatísticas de rolagem</button>
@@ -2339,7 +2361,7 @@ async function telaMesa(id) {
     let respondendoA = null;     // mensagem sendo referenciada
     const resumoMsg = (m) => {
       if (m.tipo === "rolagem") return `🎲 ${m.payload?.titulo || "rolagem"}${m.payload?.total !== undefined ? ` = ${m.payload.total}` : ""}`;
-      if (m.tipo === "dano" || m.tipo === "cura") return `${m.tipo === "dano" ? "💥" : "✚"} ${m.payload?.valor} em ${m.payload?.alvo_nome || ""}`;
+      if (m.tipo === "dano" || m.tipo === "cura") return `${m.tipo === "dano" ? "💥" : "✚"} ${num(m.payload?.valor)} em ${m.payload?.alvo_nome || ""}`;
       return (m.conteudo || "").slice(0, 70);
     };
     const iniciarResp = (m) => {
@@ -2351,12 +2373,14 @@ async function telaMesa(id) {
     const cancelarResp = () => { respondendoA = null; const bar = $("#resp-preview"); if (bar) bar.style.display = "none"; };
     const addMsg = (m, aoVivo = false) => {
       if (idsVistos.has(m.id)) return; idsVistos.add(m.id);
+      sanear(m);   // pode ter vindo direto da API, sem passar pela tela
       if (m.payload?.privada && m.autor_id !== usuario.id && !ui.souMestre) return; // rolagem privada: só autor + Mestre
       if (aoVivo && !historico.some((x) => x.id === m.id)) historico.push(m); // persiste entre re-renders
       if (aoVivo && m.autor_id !== usuario.id && m.tipo !== "sistema") { // alerta de mensagem de outra pessoa
         if (m.tipo === "rolagem") { const p = m.payload || {}; if (p.crit) { somCritico(); sacudir(); } else if (p.fumble) { somFalha(); sacudir(); } else somDado(); }
         else somMensagem();
-        notificar(`${m.perfis?.apelido || "Mesa"} · ${esc(camp.nome)}`, m.tipo === "rolagem" ? `🎲 ${m.payload?.titulo || "rolagem"}${m.payload?.total != null ? " = " + m.payload.total : ""}` : (m.conteudo || "").slice(0, 80));
+        // Notificação do sistema operacional é texto puro: nada de esc() aqui, senão "&" vira "&amp;".
+        notificar(`${m.perfis?.apelido || "Mesa"} · ${camp.nome}`, m.tipo === "rolagem" ? `🎲 ${m.payload?.titulo || "rolagem"}${m.payload?.total != null ? " = " + num(m.payload.total) : ""}` : (m.conteudo || "").slice(0, 80));
       }
       const quem = esc(m.perfis?.apelido || "?");
       const persN = m.personagem_id ? esc(pers?.find((x) => x.id === m.personagem_id)?.nome || "") : "";
@@ -2366,29 +2390,29 @@ async function telaMesa(id) {
         const dt = p.tipoDano && ICONE_DANO[p.tipoDano];
         corpo = `<div class="m-roll ${p.crit ? "crit" : ""} ${p.fumble ? "fumble" : ""}">
           <b>${esc(p.titulo)}</b><span class="m-det">${esc(p.detalhe)}</span>
-          ${p.total !== undefined && p.total !== null ? `<span class="m-total" data-final="${p.total}">${p.total}</span>` : ""}
+          ${p.total !== undefined && p.total !== null ? `<span class="m-total" data-final="${num(p.total)}">${num(p.total)}</span>` : ""}
           ${p.crit ? `<span class="log-flag crit">CRÍTICO!</span>` : ""}${p.fumble ? `<span class="log-flag fumble">FALHA CRÍTICA</span>` : ""}
           ${dt ? `<span class="m-dano-tipo" style="color:${dt.cor}" title="Dano ${esc(p.tipoDano)}">${dt.ic} ${esc(p.tipoDano)}</span>` : ""}
           ${p.extra ? `<span class="m-extra">${esc(p.extra)}</span>` : ""}
-          ${p.dano_total != null && !p.alvo_resolvido && ui.souMestre && camp.combate.ativo ? `<button class="m-aplicar" data-dano="${p.dano_total}">🩸 aplicar ${p.dano_total} de dano</button>` : ""}</div>`; }
+          ${p.dano_total != null && !p.alvo_resolvido && ui.souMestre && camp.combate.ativo ? `<button class="m-aplicar" data-dano="${num(p.dano_total)}">🩸 aplicar ${num(p.dano_total)} de dano</button>` : ""}</div>`; }
       else if (m.tipo === "dano" || m.tipo === "cura") { const p = m.payload || {};
         const meu = pers?.find((x) => x.id === p.alvo_id)?.dono_id === usuario.id;
-        corpo = `<div class="m-roll ${m.tipo === "dano" ? "fumble" : "crit"}"><b>${m.tipo === "dano" ? "💥" : "✚"} ${p.valor} em ${esc(p.alvo_nome)}</b>
+        corpo = `<div class="m-roll ${m.tipo === "dano" ? "fumble" : "crit"}"><b>${m.tipo === "dano" ? "💥" : "✚"} ${num(p.valor)} em ${esc(p.alvo_nome)}</b>
           <span class="m-det">${esc(p.origem || "")}</span>
-          ${p.aplicado ? `<span class="m-extra">aplicado ✓</span>` : meu ? `<button class="mini ${m.tipo === "dano" ? "dano" : "eq"}" data-aplicar="${m.id}">APLICAR ${m.tipo === "dano" ? "−" : "+"}${p.valor} PV</button>` : `<span class="m-extra">aguardando o dono aplicar…</span>`}</div>`; }
+          ${p.aplicado ? `<span class="m-extra">aplicado ✓</span>` : meu ? `<button class="mini ${m.tipo === "dano" ? "dano" : "eq"}" data-aplicar="${esc(m.id)}">APLICAR ${m.tipo === "dano" ? "−" : "+"}${num(p.valor)} PV</button>` : `<span class="m-extra">aguardando o dono aplicar…</span>`}</div>`; }
       else if (m.tipo === "nave") corpo = `<div class="m-txt sistema">🚀 ${esc(m.conteudo)}</div>`;
       else if (m.tipo === "descanso") { const p = m.payload || {}; corpo = `<div class="m-txt sistema">${p.tipo === "longo" ? "🌙" : "☾"} ${esc(m.conteudo)}</div>`; }
       else if (m.tipo === "recompensa") { corpo = `<div class="m-txt sistema">🎁 ${esc(m.conteudo)}</div>`; }
       const el = document.createElement("div");
       const persMsg = m.personagem_id ? pers?.find((x) => x.id === m.personagem_id) : null;
-      const av = persMsg?.dados?.foto || m.perfis?.avatar_url || null;
+      const av = urlImg(persMsg?.dados?.foto) || urlImg(m.perfis?.avatar_url) || null;
       const avatarHtml = av ? `<img class="m-avatar" src="${esc(av)}" alt=""/>` : `<div class="m-avatar vazia">◈</div>`;
       const minha = m.autor_id === usuario.id;
       const novaPessoa = m.autor_id !== ultimoAutor; ultimoAutor = m.autor_id;
       const resp = m.payload?.resp;
       const respHtml = resp ? `<div class="m-quote" data-goto="${esc(resp.id)}">↩ <b>${esc(resp.quem)}</b>: ${esc(resp.resumo)}</div>` : "";
       el.className = "m" + (minha ? " minha" : "") + (novaPessoa ? " nova-pessoa" : "");
-      el.dataset.mid = m.id;
+      el.dataset.mid = String(m.id);
       el.innerHTML = `${avatarHtml}<div class="m-corpo"><div class="m-cab">${quem}${persN ? ` <i>como ${persN}</i>` : ""} <time>${new Date(m.criado_em).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</time><button class="m-reply" data-reply title="Responder">↩</button></div>${respHtml}${corpo}</div>`;
       chatEl.appendChild(el); chatEl.scrollTop = chatEl.scrollHeight;
       // Terminal-digitando e "dado rolando" só em mensagens que acabaram de
@@ -2420,7 +2444,7 @@ async function telaMesa(id) {
         await salvarCombate(); render();
       });
       el.querySelector("[data-goto]")?.addEventListener("click", () => {
-        const alvo = chatEl.querySelector(`[data-mid="${resp.id}"]`);
+        const alvo = chatEl.querySelector(`[data-mid="${CSS.escape(String(resp.id))}"]`);
         if (alvo) { alvo.scrollIntoView({ behavior: "smooth", block: "center" }); alvo.classList.add("piscar"); setTimeout(() => alvo.classList.remove("piscar"), 1200); }
       });
       el.querySelector("[data-aplicar]")?.addEventListener("click", async (ev) => {
@@ -2608,14 +2632,14 @@ async function telaMesa(id) {
       const pvP = kx.pvMax ? Math.max(0, Math.min(100, 100 * fx.pvAtual / kx.pvMax)) : 0;
       const ramP = kx.ramMax ? Math.max(0, Math.min(100, 100 * kx.ramLivre / kx.ramMax)) : 0;
       const est = fx.pvAtual <= 0 ? "morto" : pvP <= 30 ? "critico" : pvP <= 60 ? "ferido" : "";
-      const res = normalizaPentes(fx); const tpm = TIPOS_PENTE[fx.tipoPente || PENTE_PADRAO];
+      const res = normalizaPentes(fx); const tpm = (TIPOS_PENTE[fx.tipoPente] || TIPOS_PENTE[PENTE_PADRAO]);
       const totalPentes = Object.values(res).reduce((a2, b2) => a2 + b2, 0);
       const armas = (fx.inventario || []).filter((it) => it.equip && ARMAS.find((w) => w.n === it.nome));
       const cons = (fx.inventario || []).filter((it) => ehConsumivel(it.nome) && (it.qtd || 1) > 0);
       const ov = document.createElement("div"); ov.className = "ss-overlay ov-modal"; ov.style.zIndex = "10000";
       const linhaAttr = (a3) => `<div class="ins-attr"><span>${a3}</span><b>${sign(kx.attr[a3])}</b></div>`;
       ov.innerHTML = `<div class="ss-painel ins-painel">
-        <div class="mp-topo">${fx.foto ? `<img class="ins-foto" src="${esc(fx.foto)}" alt=""/>` : ""}
+        <div class="mp-topo">${urlImg(fx.foto) ? `<img class="ins-foto" src="${esc(urlImg(fx.foto))}" alt=""/>` : ""}
           <b>${esc(alvo.nome) || "sem nome"}</b>
           <span class="best-tag">NV ${fx.nivel || 1}</span>
           <span class="dim">${esc(fx.raca || "?")} · ${esc(fx.classe || "?")}</span>
@@ -2752,8 +2776,8 @@ async function telaMesa(id) {
         const hora = new Date(m.criado_em).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
         if (m.tipo === "sistema" && /^📖/.test(m.conteudo || "")) return `<div class="di-marco">${esc(m.conteudo)}</div>`;
         if (m.tipo === "texto") return `<div class="di-linha"><span class="di-hora">${hora}</span><b>${quem}:</b> ${esc(m.conteudo)}</div>`;
-        if (m.tipo === "rolagem") { const pl = m.payload || {}; return `<div class="di-linha di-rol"><span class="di-hora">${hora}</span>🎲 <b>${quem}</b> ${esc(pl.titulo || "")}${pl.total != null ? ` = <b>${pl.total}</b>` : ""}</div>`; }
-        if (m.tipo === "dano" || m.tipo === "cura") { const pl = m.payload || {}; return `<div class="di-linha"><span class="di-hora">${hora}</span>${m.tipo === "dano" ? "💥" : "✚"} ${pl.valor} em ${esc(pl.alvo_nome || "")}</div>`; }
+        if (m.tipo === "rolagem") { const pl = m.payload || {}; return `<div class="di-linha di-rol"><span class="di-hora">${hora}</span>🎲 <b>${quem}</b> ${esc(pl.titulo || "")}${pl.total != null ? ` = <b>${num(pl.total)}</b>` : ""}</div>`; }
+        if (m.tipo === "dano" || m.tipo === "cura") { const pl = m.payload || {}; return `<div class="di-linha"><span class="di-hora">${hora}</span>${m.tipo === "dano" ? "💥" : "✚"} ${num(pl.valor)} em ${esc(pl.alvo_nome || "")}</div>`; }
         return `<div class="di-linha di-sis"><span class="di-hora">${hora}</span>${esc(m.conteudo || "")}</div>`;
       };
       let ultimoDia = "";

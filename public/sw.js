@@ -1,16 +1,32 @@
 // ============================================================================
 //  Service Worker — Passagem Sombria (PWA)
-//  Cacheia o "app shell" para abrir offline/instantâneo. Dados (Supabase) e
-//  realtime seguem sempre pela rede. Bump em CACHE a cada deploy relevante.
+//  Guarda o "app shell" para abrir offline. Dados (Supabase) e realtime seguem
+//  sempre pela rede.
+//
+//  CACHE: o "__VERSAO__" é trocado pelo commit no build da Vercel
+//  (scripts/build-vercel.sh), então cada deploy ganha um cache novo sozinho —
+//  não precisa mais lembrar de subir um número aqui.
+//
+//  Código (HTML/JS/CSS) vem da REDE primeiro e só cai no cache sem conexão.
+//  Antes era stale-while-revalidate: a página abria com o app.js velho do
+//  cache e, minutos depois, um import() dinâmico (mesa-ficha.js…) já pegava a
+//  versão nova, que podia esperar um export que o app.js velho não tinha
+//  ("does not provide an export named …"). Rede primeiro mantém todos os
+//  módulos da mesma versão enquanto houver internet.
 // ============================================================================
-const CACHE = "ps-shell-v83";
+const CACHE = "ps-shell-__VERSAO__";
+// Arquivos baixados na instalação, para o app abrir offline. Os testes
+// (tests/modulos.test.js) conferem que todo módulo de public/js está aqui.
 const SHELL = [
   "./",
   "./index.html",
   "./manifest.json",
   "./logo.svg",
   "./css/estilo.css",
+  "./vendor/supabase-2.117.2.js",
+  "./js/registrar-sw.js",
   "./js/config.js",
+  "./js/seguro.js",
   "./js/ui.js",
   "./js/dados-jogo.js",
   "./js/dados-bestiario.js",
@@ -41,7 +57,10 @@ const SHELL = [
 self.addEventListener("install", (e) => {
   e.waitUntil((async () => {
     const c = await caches.open(CACHE);
-    await Promise.allSettled(SHELL.map((u) => c.add(u))); // não falha o install se 1 arquivo faltar
+    // Um arquivo faltando não derruba a instalação, mas aparece no console
+    // (antes o allSettled engolia o erro e o arquivo só não funcionava offline).
+    const res = await Promise.allSettled(SHELL.map((u) => c.add(u)));
+    res.forEach((r, i) => { if (r.status === "rejected") console.warn("[sw] não guardei", SHELL[i], r.reason); });
     self.skipWaiting();
   })());
 });
@@ -54,22 +73,31 @@ self.addEventListener("activate", (e) => {
   })());
 });
 
+const ehCodigo = (url, req) => req.mode === "navigate" || /\.(js|mjs|css|html|json)$/.test(url.pathname) || url.pathname.endsWith("/");
+
 self.addEventListener("fetch", (e) => {
   const req = e.request;
   if (req.method !== "GET") return;                       // só GET
   const url = new URL(req.url);
-  if (url.origin !== self.location.origin) return;        // Supabase / esm.sh → rede direta
+  if (url.origin !== self.location.origin) return;        // Supabase / esm.sh / fontes → rede direta
 
-  // Navegações (HTML): rede primeiro, cai pro cache se offline.
-  if (req.mode === "navigate") {
+  // Código: rede primeiro (mesma versão em todos os módulos), cache só offline.
+  if (ehCodigo(url, req)) {
     e.respondWith((async () => {
-      try { const net = await fetch(req); const c = await caches.open(CACHE); c.put("./index.html", net.clone()); return net; }
-      catch { return (await caches.match("./index.html")) || (await caches.match("./")); }
+      const cache = await caches.open(CACHE);
+      try {
+        const net = await fetch(req, { cache: "no-cache" });
+        if (net && net.ok) cache.put(req.mode === "navigate" ? "./index.html" : req, net.clone());
+        return net;
+      } catch {
+        return (await cache.match(req.mode === "navigate" ? "./index.html" : req, { ignoreSearch: true }))
+          || (await cache.match("./")) || new Response("", { status: 504 });
+      }
     })());
     return;
   }
 
-  // Demais estáticos: stale-while-revalidate (serve rápido do cache, atualiza em segundo plano).
+  // Imagens e outros estáticos: stale-while-revalidate (rápido, versão não importa).
   e.respondWith((async () => {
     const cache = await caches.open(CACHE);
     const cached = await cache.match(req);
