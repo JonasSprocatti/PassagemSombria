@@ -640,6 +640,25 @@ async function telaFichaPublica(token) {
   document.getElementById("pub-print").onclick = () => imprimirFichaHTML(html);
 }
 
+// Ícones de linha (SVG inline — sem biblioteca, sem pedido de rede e liberado pela CSP).
+// Herdam a cor do texto via `stroke: currentColor` (classe .ic no CSS).
+const ICONES = {
+  hangar: '<rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="11" r="2.2"/><path d="M5.6 16.4c.6-1.5 1.9-2.3 3.4-2.3s2.8.8 3.4 2.3M14.5 10h4M14.5 13.5h3"/>',
+  campanhas: '<circle cx="12" cy="12" r="4.2"/><ellipse cx="12" cy="12" rx="10" ry="3.6" transform="rotate(-24 12 12)"/>',
+  biblioteca: '<path d="M5 4.5A1.5 1.5 0 0 1 6.5 3H19v15H6.5A1.5 1.5 0 0 0 5 19.5z"/><path d="M5 19.5A1.5 1.5 0 0 0 6.5 21H19v-3M9 7.5h6"/>',
+  social: '<circle cx="9" cy="8.5" r="3"/><path d="M3.5 19c.8-3 3-4.6 5.5-4.6s4.7 1.6 5.5 4.6"/><path d="M15.5 5.8a3 3 0 0 1 0 5.4M17.6 14.7c1.5.6 2.5 2 2.9 4.3"/>',
+  ficha: '<path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5M10 12.5h6M10 16h6"/>',
+  combate: '<path d="M14.5 17.5 3 6V3h3l11.5 11.5M13 19l6-6M16 16l4 4M19 21l2-2M14.5 6.5 18 3h3v3l-3.5 3.5M5 14l4 4M7 17l-3 3M3 19l2 2"/>',
+  nave: '<path d="M12 2.5c3 2.4 4.5 5.6 4.5 9.3V16h-9v-4.2c0-3.7 1.5-6.9 4.5-9.3z"/><circle cx="12" cy="9.5" r="1.7"/><path d="M7.5 12.5 4.5 15v3l3-1.2M16.5 12.5l3 2.5v3l-3-1.2M10 19.5l2 2 2-2"/>',
+  mesa: '<rect x="8" y="2.5" width="8" height="4" rx="1"/><path d="M16 4.5h2a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-13a2 2 0 0 1 2-2h2M8.5 11h7M8.5 15h7"/>',
+};
+export const icone = (nome) => `<svg class="ic" viewBox="0 0 24 24" aria-hidden="true">${ICONES[nome] || ""}</svg>`;
+
+// Entrada de tela: shell() marca o .frame com `entrando` só quando a ROTA mudou
+// (re-render da mesma tela não anima de novo) e tira a classe depois que a
+// última animação da fila terminou — ver a seção ENTRADAS no fim do CSS.
+let ultimaRotaShell = null, timerEntrada = 0;
+
 export function shell(titulo, corpo, ativo = "") {
   // Tela cheia (hoje só o login): zera o padding do body pra `.tela-login` virar
   // um container de tela inteira de verdade (min-height:100dvh direto, sem ter
@@ -659,15 +678,21 @@ export function shell(titulo, corpo, ativo = "") {
       <a href="#/hangar" class="brand" title="Passagem Sombria"><img src="logo.svg" alt="Passagem Sombria" class="brand-logo"/><span class="brand-txt">PASSAGEM<b>SOMBRIA</b></span></a>
       <button id="menu-burger" class="menu-burger" type="button" aria-label="Abrir menu" aria-expanded="false" aria-controls="menu-links">☰</button>
       <div class="menu-links" id="menu-links">
-        <a href="#/hangar" class="${ativo === "hangar" ? "on" : ""}">◈ Hangar</a>
-        <a href="#/campanhas" class="${ativo === "campanhas" ? "on" : ""}">☄ Campanhas</a>
-        <a href="#/biblioteca" class="${ativo === "biblioteca" ? "on" : ""}">📖 Biblioteca</a>
-        <a href="#/social" class="${ativo === "social" ? "on" : ""}">👥 Social <b id="soc-badge" class="soc-badge" hidden></b></a>
+        <a href="#/hangar" class="${ativo === "hangar" ? "on" : ""}" ${ativo === "hangar" ? 'aria-current="page"' : ""}>${icone("hangar")}Hangar</a>
+        <a href="#/campanhas" class="${ativo === "campanhas" ? "on" : ""}" ${ativo === "campanhas" ? 'aria-current="page"' : ""}>${icone("campanhas")}Campanhas</a>
+        <a href="#/biblioteca" class="${ativo === "biblioteca" ? "on" : ""}" ${ativo === "biblioteca" ? 'aria-current="page"' : ""}>${icone("biblioteca")}Biblioteca</a>
+        <a href="#/social" class="${ativo === "social" ? "on" : ""}" ${ativo === "social" ? 'aria-current="page"' : ""}>${icone("social")}Social <b id="soc-badge" class="soc-badge" hidden></b></a>
         <a href="#/social/perfil/${usuario.id}" class="menu-user" title="Seu perfil e estatísticas">${esc(perfil?.apelido || "")}</a>
-        <button id="sair" class="btn-ghost">SAIR</button>
+        <button id="sair" class="btn-ghost">Sair</button>
       </div>
     </nav>` : "";
-  app.innerHTML = `<div class="frame">${nav}${corpo}</div>`;
+  const rotaNova = location.hash !== ultimaRotaShell; ultimaRotaShell = location.hash;
+  app.innerHTML = `<div class="frame${rotaNova ? " entrando" : ""}">${nav}${corpo}</div>`;
+  if (rotaNova) {
+    clearTimeout(timerEntrada);
+    const frame = app.firstElementChild;
+    timerEntrada = setTimeout(() => frame?.classList.remove("entrando"), 1300);
+  }
   $("#sair")?.addEventListener("click", async () => { await sb.auth.signOut(); location.hash = "#/login"; });
   // Contador do 👥 Social (conversas não lidas + pedidos). Assíncrono e à parte:
   // se falhar (ou o banco ainda não tiver as tabelas), o menu só fica sem número.
@@ -1014,11 +1039,13 @@ function mostrarAtalhos() {
     </tbody></table>` }], okLabel: "Fechar", semCancelar: true });
 }
 
-// Ondulação a partir do ponto clicado, em qualquer botão do app.
+// Ondulação a partir do ponto clicado, nos botões do app.
 // Um só listener no documento: funciona também para botões criados depois.
+// Só nas classes que têm overflow:hidden no CSS — antes valia para qualquer
+// <button> e a onda escapava do botão (ia parar no canto do contêiner).
 document.addEventListener("pointerdown", (e) => {
-  const b = e.target.closest("button, .filtros a, .mesa-aba, .btn-ghost, .btn-primario, .btn-novo");
-  if (!b || document.body.classList.contains("a11y-reduzir")) return;
+  const b = e.target.closest(".mini, .btn-ghost, .btn-primario, .btn-novo, .cb-dmg, .cb-atk, .cb-rm, .mp-x");
+  if (!b || b.disabled || document.body.classList.contains("a11y-reduzir")) return;
   const r = b.getBoundingClientRect();
   b.style.setProperty("--ox", `${e.clientX - r.left}px`);
   b.style.setProperty("--oy", `${e.clientY - r.top}px`);
@@ -1031,6 +1058,15 @@ document.addEventListener("pointerdown", (e) => {
     b.classList.remove(cls); void b.offsetWidth; b.classList.add(cls);
     setTimeout(() => b.classList.remove(cls), 470); }
 }, { passive: true });
+
+// Abrir um <details>: o conteúdo entra em vez de saltar. Só por clique no
+// <summary> (teclado também dispara click); quem chega já aberto num re-render
+// não anima. A classe sai sozinha para não repetir no próximo render.
+document.addEventListener("click", (e) => {
+  const s = e.target.closest("summary"); const det = s?.parentElement;
+  if (!det || det.tagName !== "DETAILS" || det.open) return;   // ainda fechado: este clique vai abrir
+  det.classList.add("abrindo"); setTimeout(() => det.classList.remove("abrindo"), 400);
+});
 
 // Conta um número até o novo valor. Usado quando créditos e XP mudam:
 // ver o número subindo diz o que aconteceu melhor do que ele simplesmente trocar.
@@ -1197,13 +1233,13 @@ function telaLogin() {
     <div class="tela-login"><div class="estrelas"></div>
     <div class="login-caixa">
       <img src="logo.svg" alt="Passagem Sombria" class="login-logo"/>
-      <div class="mast-eyebrow" style="text-align:center">CONFEDERAÇÃO SOLAR · TERMINAL DE ACESSO</div>
-      <h1>PASSAGEM<span> SOMBRIA</span></h1>
+      <div class="mast-eyebrow" style="text-align:center">Confederação Solar · terminal de acesso</div>
+      <h1>PASSAGEM SOMBRIA</h1>
       <p class="sub">O sistema é grande, e o vazio entre os mundos é maior.</p>
-      <button id="google" class="btn-primario">ENTRAR COM GOOGLE</button>
+      <button id="google" class="btn-primario">Entrar com Google</button>
       <div class="ou">ou receba um link mágico por e-mail</div>
-      <div class="linha-email"><input id="email" type="email" placeholder="voce@estacao.orbital"/>
-      <button id="magic" class="btn-ghost">ENVIAR LINK</button></div>
+      <div class="linha-email"><input id="email" type="email" placeholder="voce@estacao.orbital" aria-label="E-mail"/>
+      <button id="magic" class="btn-ghost">Enviar link</button></div>
       <p class="regra">Ao entrar, um perfil de tripulante é criado automaticamente. <a href="#/biblioteca">Explorar a Biblioteca sem login →</a></p>
     </div></div>`);
   $("#google").onclick = () => sb.auth.signInWithOAuth({ provider: "google", options: { redirectTo: location.origin } });
@@ -1232,11 +1268,11 @@ async function telaHangar() {
       </div>
     </article>`; }).join("");
   shell("hangar", `
-    <header class="masthead"><div class="mast-eyebrow">ARQUIVO DE PESSOAL · ${esc(perfil?.apelido || "")}</div>
-      <h1>HANGAR<span> DE TRIPULANTES</span></h1></header>
-    <div class="grid-fichas">${cards || `<div class="vazio"><p class="vazio-t">Nenhum tripulante registrado.</p></div>`}</div>
-    <div class="hangar-acoes"><button id="novo" class="btn-novo">+ REGISTRAR NOVO TRIPULANTE</button>
-      <button id="novo-vazio" class="mini" title="Cria a ficha em branco, para preencher na mão">ficha em branco</button></div>`, "hangar");
+    <header class="masthead"><div><div class="mast-eyebrow">Arquivo de pessoal · ${esc(perfil?.apelido || "")}</div>
+      <h1>Hangar de tripulantes</h1></div>
+      <div class="mast-acoes"><button id="novo-vazio" class="btn-ghost" title="Cria a ficha em branco, para preencher na mão">Ficha em branco</button>
+      <button id="novo" class="btn-primario">+ Novo tripulante</button></div></header>
+    <div class="grid-fichas">${cards || `<div class="vazio"><p class="vazio-t">Nenhum tripulante registrado.</p></div>`}</div>`, "hangar");
   $("#novo").onclick = async () => {
     const u = await sessaoAtiva(); if (!u) return;
     const { abrirCriacao } = await import("./criacao.js");
@@ -1342,7 +1378,7 @@ async function telaFicha(id) {
     const xpAntes = xpVisto[p.id];
     xpVisto[p.id] = f.xp;
     shell("ficha", `
-      <nav class="topo"><a class="btn-ghost" href="${comoAdmin ? "#/biblioteca" : "#/hangar"}">← ${comoAdmin ? "BIBLIOTECA" : "HANGAR"}</a><div class="topo-status" id="st"></div><button id="imprimir" class="btn-ghost" title="Abre o diálogo de impressão — escolha 'Salvar como PDF'">🖨 PDF</button><button id="baixar" class="btn-ghost" title="Baixa a ficha como arquivo .html">💾 .html</button><button id="compartilhar" class="btn-ghost" title="Gerar link público (somente leitura)">🔗 LINK</button><button id="salvar" class="btn-primario">SALVAR</button></nav>
+      <nav class="topo"><a class="btn-ghost" href="${comoAdmin ? "#/biblioteca" : "#/hangar"}">← ${comoAdmin ? "Biblioteca" : "Hangar"}</a><div class="topo-status" id="st"></div><button id="imprimir" class="btn-ghost" title="Abre o diálogo de impressão — escolha 'Salvar como PDF'">PDF</button><button id="baixar" class="btn-ghost" title="Baixa a ficha como arquivo .html">.html</button><button id="compartilhar" class="btn-ghost" title="Gerar link público (somente leitura)">Link</button><button id="salvar" class="btn-primario">Salvar</button></nav>
       ${comoAdmin ? `<div class="adm-editando">🛠 <b>Modo admin</b> — editando a ficha de <b>${esc(donoApelido)}</b>. Toda mudança grava direto na ficha dessa pessoa.</div>` : ""}
 
       <section class="sec">
@@ -1351,7 +1387,7 @@ async function telaFicha(id) {
           <div class="retrato">
             ${urlImg(f.foto) ? `<img src="${esc(urlImg(f.foto))}" alt="Retrato do personagem"/>` : `<div class="retrato-vazio"><span>◈</span><small>sem holograma</small></div>`}
             <div class="retrato-btns">
-              <label class="btn-foto">${f.foto ? "TROCAR" : "+ FOTO"}<input id="foto-in" type="file" accept="image/*" hidden/></label>
+              <label class="btn-foto">${f.foto ? "Trocar" : "+ Foto"}<input id="foto-in" type="file" accept="image/*" hidden/></label>
               ${f.foto ? `<button id="foto-rm" class="btn-foto rm">✕</button>` : ""}
             </div>
           </div>
@@ -1456,7 +1492,7 @@ async function telaFicha(id) {
             <label>XP para subir<input id="xpMeta" type="number" value="${f.xpMeta}"/></label>` : ""}
           ${f.metodoNivel === "marcos" ? `
             <label>Marcos concluídos<input id="marcos" type="number" value="${f.marcos}"/></label>
-            <label>&nbsp;<button id="add-marco" class="mini eq">+1 MARCO ALCANÇADO</button></label>` : ""}
+            <label>&nbsp;<button id="add-marco" class="mini eq">+1 marco alcançado</button></label>` : ""}
         </div>
         ${f.metodoNivel === "xp" ? `<div class="barra xp-barra" style="margin-bottom:10px"><span>Progresso: <b id="xp-num">${f.xp}</b>/${f.xpMeta} XP ${f.xp >= f.xpMeta ? "— PRONTO PARA SUBIR!" : ""}</span><div><i style="width:${Math.min(100, (100 * f.xp / Math.max(1, f.xpMeta)) | 0)}%;background:var(--tech)"></i></div></div>` : ""}
         ${f.nivel < 10 ? `
@@ -1894,14 +1930,14 @@ async function telaFicha(id) {
 async function telaCampanhas() {
   const { data: minhas } = await sb.from("campanhas").select("id,nome,codigo,mestre_id");
   shell("campanhas", `
-    <header class="masthead"><h1>CAMPANHAS<span> ATIVAS</span></h1></header>
+    <header class="masthead"><h1>Campanhas</h1></header>
     <section class="sec"><header><span class="tag">☄</span><h2>Minhas mesas</h2></header>
-      ${(minhas || []).map((c) => `<div class="inv"><span><b>${esc(c.nome)}</b> · código <b class="chrome">${c.codigo}</b>${c.mestre_id === usuario.id ? " · você é o Mestre" : ""}</span>
-        <span style="display:flex;gap:6px"><a class="mini" href="#/mesa/${c.id}">ABRIR MESA</a>${c.mestre_id === usuario.id ? `<button class="mini rm" data-del-camp="${c.id}" data-nome="${esc(c.nome)}">EXCLUIR</button>` : ""}</span></div>`).join("") || `<div class="vazio-msg"><span class="icone">☄</span><p>Nenhuma mesa ainda. O sistema é grande — crie uma campanha ou entre na de alguém com um código.</p></div>`}
+      ${(minhas || []).map((c) => `<div class="inv camp-linha"><span><b>${esc(c.nome)}</b> · código <span class="camp-cod">${esc(c.codigo)}</span>${c.mestre_id === usuario.id ? ` · <span class="dim">você é o Mestre</span>` : ""}</span>
+        <span style="display:flex;gap:6px"><a class="mini" href="#/mesa/${c.id}">Abrir mesa</a>${c.mestre_id === usuario.id ? `<button class="mini rm" data-del-camp="${c.id}" data-nome="${esc(c.nome)}">Excluir</button>` : ""}</span></div>`).join("") || `<div class="vazio-msg"><span class="icone">☄</span><p>Nenhuma mesa ainda. O sistema é grande — crie uma campanha ou entre na de alguém com um código.</p></div>`}
     </section>
     <section class="sec"><header><span class="tag">+</span><h2>Criar ou entrar</h2></header>
-      <div class="linha-add"><input id="nova-nome" placeholder="Nome da nova campanha"/><button id="criar" class="btn-primario">CRIAR</button></div>
-      <div class="linha-add"><input id="codigo" placeholder="Código de convite (6 letras)" maxlength="6"/><button id="entrar" class="btn-ghost">ENTRAR</button></div>
+      <div class="linha-add"><input id="nova-nome" placeholder="Nome da nova campanha" aria-label="Nome da nova campanha"/><button id="criar" class="btn-primario">Criar</button></div>
+      <div class="linha-add" style="margin-top:8px"><input id="codigo" placeholder="Código de convite (6 letras)" maxlength="6" aria-label="Código de convite"/><button id="entrar" class="btn-ghost">Entrar</button></div>
     </section>`, "campanhas");
   $("#criar").onclick = async () => {
     const nome = $("#nova-nome").value.trim(); if (!nome) return;
@@ -2613,7 +2649,7 @@ async function telaMesa(id) {
           const meu = pers?.find((x) => x.id === p.alvo_id)?.dono_id === usuario.id;
           corpo = `<div class="m-roll ${m.tipo === "dano" ? "fumble" : "crit"}"><b>${m.tipo === "dano" ? "💥" : "✚"} ${num(p.valor)} em ${esc(p.alvo_nome)}</b>
             <span class="m-det">${esc(p.origem || "")}</span>
-            ${p.aplicado ? `<span class="m-extra">aplicado ✓</span>` : meu ? `<button class="mini ${m.tipo === "dano" ? "dano" : "eq"}" data-aplicar="${esc(m.id)}">APLICAR ${m.tipo === "dano" ? "−" : "+"}${num(p.valor)} PV</button>` : `<span class="m-extra">aguardando o dono aplicar…</span>`}</div>`; }
+            ${p.aplicado ? `<span class="m-extra">aplicado ✓</span>` : meu ? `<button class="mini ${m.tipo === "dano" ? "dano" : "eq"}" data-aplicar="${esc(m.id)}">Aplicar ${m.tipo === "dano" ? "−" : "+"}${num(p.valor)} PV</button>` : `<span class="m-extra">aguardando o dono aplicar…</span>`}</div>`; }
         else if (m.tipo === "nave") corpo = `<div class="m-txt sistema">🚀 ${esc(m.conteudo)}</div>`;
         else if (m.tipo === "descanso") { const p = m.payload || {}; corpo = `<div class="m-txt sistema">${p.tipo === "longo" ? "🌙" : "☾"} ${esc(m.conteudo)}</div>`; }
         else if (m.tipo === "recompensa") { corpo = `<div class="m-txt sistema">🎁 ${esc(m.conteudo)}</div>`; }
@@ -2625,7 +2661,7 @@ async function telaMesa(id) {
         const novaPessoa = m.autor_id !== ultimoAutor; ultimoAutor = m.autor_id;
         const resp = m.payload?.resp;
         const respHtml = resp ? `<div class="m-quote" data-goto="${esc(resp.id)}">↩ <b>${esc(resp.quem)}</b>: ${esc(resp.resumo)}</div>` : "";
-        el.className = "m" + (minha ? " minha" : "") + (novaPessoa ? " nova-pessoa" : "");
+        el.className = "m" + (minha ? " minha" : "") + (novaPessoa ? " nova-pessoa" : "") + (aoVivo ? " m-chega" : "");
         el.dataset.mid = String(m.id);
         el.innerHTML = `${avatarHtml}<div class="m-corpo"><div class="m-cab">${quem}${persN ? ` <i>como ${persN}</i>` : ""} <time>${new Date(m.criado_em).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</time><button class="m-reply" data-reply title="Responder">↩</button></div>${respHtml}${corpo}</div>`;
         // Só desce sozinho se a pessoa já estava no fim (ou se a mensagem é dela).
@@ -2835,14 +2871,14 @@ async function telaMesa(id) {
     const ctxFicha = { id, camp, pers, meus, semImplantes, chavePers, ui, f, k,
       enviar, salvarCamp, salvarCombate, render, snapshot,
       aplicarDanoAlvo, gastarAcao, sincronizarCdCombate, aurasSobre, minhaLinhaCb };
-    const navHtml = `<a class="btn-ghost" href="#/campanhas">← CAMPANHAS</a>
-        <div class="topo-status">${esc(camp.nome)} · código <b class="chrome">${esc(camp.codigo)}</b></div><span style="display:flex;gap:6px"><button id="atalhos" class="btn-ghost so-desktop" title="Atalhos de teclado (?)">⌨</button><button id="abrir-diario" class="btn-ghost" title="Diário da campanha">📔 DIÁRIO</button>${ehMestreReal ? `<button id="modo-jogador" class="btn-ghost ${ui.modoJogador ? "on" : ""}" title="${ui.modoJogador ? "Você está jogando como tripulante. Clique para voltar a ser Mestre." : "Testar/jogar como um tripulante comum — some as ferramentas e os privilégios de Mestre."}">${ui.modoJogador ? "🎭 MODO JOGADOR" : "👑 MESTRE"}</button>` : ""}${ui.souMestre ? `<button id="abrir-mestre" class="btn-ghost" title="Tela do Mestre">🎛 MESTRE</button>` : ""}<a href="#/biblioteca/regras" target="_blank" rel="noopener" class="btn-ghost" title="Manual de regras — abre numa aba nova, a mesa continua aberta aqui">📖 REGRAS</a><button id="abrir-mapa" class="btn-ghost" title="Mapa do sistema (compartilhado)">🗺 MAPA</button></span>`;
+    const navHtml = `<a class="btn-ghost" href="#/campanhas">← Campanhas</a>
+        <div class="topo-status">${esc(camp.nome)} · código <b class="chrome">${esc(camp.codigo)}</b></div><span style="display:flex;gap:6px"><button id="atalhos" class="btn-ghost so-desktop" title="Atalhos de teclado (?)">⌨</button><button id="abrir-diario" class="btn-ghost" title="Diário da campanha">Diário</button>${ehMestreReal ? `<button id="modo-jogador" class="btn-ghost ${ui.modoJogador ? "on" : ""}" title="${ui.modoJogador ? "Você está jogando como tripulante. Clique para voltar a ser Mestre." : "Testar/jogar como um tripulante comum — some as ferramentas e os privilégios de Mestre."}">${ui.modoJogador ? "🎭 Modo jogador" : "👑 Mestre"}</button>` : ""}${ui.souMestre ? `<button id="abrir-mestre" class="btn-ghost" title="Tela do Mestre">Tela do Mestre</button>` : ""}<a href="#/biblioteca/regras" target="_blank" rel="noopener" class="btn-ghost" title="Manual de regras — abre numa aba nova, a mesa continua aberta aqui">Regras ↗</a><button id="abrir-mapa" class="btn-ghost" title="Mapa do sistema (compartilhado)">Mapa</button></span>`;
     const lateralHtml = `
           <nav class="mesa-abas" role="tablist">
-            ${ui.espectador ? "" : `<button class="mesa-aba ${ui.abaMesa === "ficha" ? "on" : ""}" data-mesa-aba="ficha" role="tab">◈ <span>Ficha</span></button>`}
-            <button class="mesa-aba ${ui.abaMesa === "combate" ? "on" : ""}" data-mesa-aba="combate" role="tab">⚔ <span>Combate</span>${camp.combate.ativo ? `<i class="aba-dot"></i>` : ""}</button>
-            <button class="mesa-aba ${ui.abaMesa === "nave" ? "on" : ""}" data-mesa-aba="nave" role="tab">🚀 <span>Nave</span>${cbn.ativo ? `<i class="aba-dot"></i>` : ""}</button>
-            <button class="mesa-aba ${ui.abaMesa === "mesa" ? "on" : ""}" data-mesa-aba="mesa" role="tab">📋 <span>Mesa</span></button>
+            ${ui.espectador ? "" : `<button class="mesa-aba ${ui.abaMesa === "ficha" ? "on" : ""}" data-mesa-aba="ficha" role="tab" aria-selected="${ui.abaMesa === "ficha"}">${icone("ficha")}<span>Ficha</span></button>`}
+            <button class="mesa-aba ${ui.abaMesa === "combate" ? "on" : ""}" data-mesa-aba="combate" role="tab" aria-selected="${ui.abaMesa === "combate"}">${icone("combate")}<span>Combate</span>${camp.combate.ativo ? `<i class="aba-dot" title="Combate em andamento"></i>` : ""}</button>
+            <button class="mesa-aba ${ui.abaMesa === "nave" ? "on" : ""}" data-mesa-aba="nave" role="tab" aria-selected="${ui.abaMesa === "nave"}">${icone("nave")}<span>Nave</span>${cbn.ativo ? `<i class="aba-dot" title="Combate espacial em andamento"></i>` : ""}</button>
+            <button class="mesa-aba ${ui.abaMesa === "mesa" ? "on" : ""}" data-mesa-aba="mesa" role="tab" aria-selected="${ui.abaMesa === "mesa"}">${icone("mesa")}<span>Mesa</span></button>
           </nav>
           ${renderCombate(ctxCombate)}
           ${renderFicha(ctxFicha)}
@@ -2917,8 +2953,13 @@ async function telaMesa(id) {
     // ---- binds (topo e coluna lateral, redesenhados a cada render) ----
     app.querySelectorAll("[data-mesa-aba]").forEach((b) => b.onclick = () => {
       ui.abaMesa = b.dataset.mesaAba; sessionStorage.setItem("ps-aba-mesa", ui.abaMesa);
-      app.querySelectorAll("[data-mesa-aba]").forEach((x) => x.classList.toggle("on", x.dataset.mesaAba === ui.abaMesa));
-      app.querySelectorAll(".mesa-painel").forEach((p2, i2) => { p2.hidden = ["combate", "ficha", "nave", "mesa"][i2] !== ui.abaMesa; });
+      app.querySelectorAll("[data-mesa-aba]").forEach((x) => { x.classList.toggle("on", x.dataset.mesaAba === ui.abaMesa); x.setAttribute("aria-selected", String(x.dataset.mesaAba === ui.abaMesa)); });
+      app.querySelectorAll(".mesa-painel").forEach((p2, i2) => {
+        p2.hidden = ["combate", "ficha", "nave", "mesa"][i2] !== ui.abaMesa;
+        // Só a troca de aba anima o painel (o re-render do Realtime, não).
+        p2.classList.toggle("troca-aba", !p2.hidden);
+        if (!p2.hidden) setTimeout(() => p2.classList.remove("troca-aba"), 320);
+      });
     });
     // Inspetor de personagem: o Mestre precisa ver vida, RAM, armas e scripts
     // de qualquer jogador sem sair da mesa e sem pedir print.

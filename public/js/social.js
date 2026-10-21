@@ -39,7 +39,7 @@ const hora = (iso) => new Date(iso).toLocaleString("pt-BR", { day: "2-digit", mo
 
 const ABAS = [["amigos", "👥 Amigos"], ["geral", "🌐 Chat geral"], ["conversas", "✉ Conversas"], ["mesas", "🎲 Mesas"]];
 const cabecalho = (aba) => `<div class="filtros soc-abas">${ABAS.map(([id, rot]) =>
-  `<a class="mini ${aba === id ? "eq" : ""}" href="#/social/${id}">${rot}</a>`).join("")}</div>`;
+  `<a class="${aba === id ? "on" : ""}" ${aba === id ? 'aria-current="page"' : ""} href="#/social/${id}">${rot}</a>`).join("")}</div>`;
 
 // ---------------------------------------------------------------------------
 //  Contador do menu (👥 Social N): conversas não lidas + pedidos de amizade
@@ -79,7 +79,7 @@ async function telaAmigos() {
   const enviados = (contatos || []).filter((c) => c.status === "pendente" && c.enviei);
   shell("social", `${cabecalho("amigos")}
     <section class="sec"><header><span class="tag">🔎</span><h2>Adicionar amigo</h2></header>
-      <div class="linha-add"><input id="soc-busca" placeholder="Apelido (mínimo 2 letras)" maxlength="40"/><button id="soc-buscar" class="btn-ghost">BUSCAR</button></div>
+      <div class="linha-add"><input id="soc-busca" placeholder="Apelido (mínimo 2 letras)" maxlength="40"/><button id="soc-buscar" class="btn-ghost">Buscar</button></div>
       <div id="soc-result"></div>
     </section>
     ${recebidos.length ? `<section class="sec"><header><span class="tag">📨</span><h2>Pedidos recebidos</h2></header>

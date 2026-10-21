@@ -67,7 +67,7 @@ export function renderNave(ctx) {
                 ${Object.entries(ESTACOES).map(([pk, e]) => `<option value="${pk}" ${meuPosto === pk ? "selected" : ""}>${e.n}</option>`).join("")}</select></label>`}
               ${meuPosto && f ? `<div class="acoes-mesa">${ESTACOES[meuPosto].acoes.map((a, i) => `<button class="mini" data-est="${i}" title="${esc(a.d)}">${esc(a.n)}</button>`).join("")}</div>` : ""}
               ${(cbn.avarias || []).length ? `<div class="avarias">${cbn.avarias.map((av, ai) => `<div class="avaria"><b>⚠ ${esc(av.n)}</b> <span class="regra">${esc(av.e)}</span>${ui.souMestre ? `<button class="mini rm" data-av-fix="${ai}" title="Consertar">✔</button>` : ""}</div>`).join("")}</div>` : ""}
-              ${ui.souMestre ? `<div class="acoes-mesa"><input id="nave-dano" type="number" placeholder="dano" style="width:70px"/><button id="nave-hit" class="mini dano">💥 NAVE SOFRE</button><button id="nave-upg" class="mini">🔧 Upgrades</button><button id="nave-repar" class="mini eq">🛠 Estaleiro</button></div>` : ""}
+              ${ui.souMestre ? `<div class="acoes-mesa"><input id="nave-dano" type="number" placeholder="dano" style="width:70px"/><button id="nave-hit" class="mini dano">💥 Nave sofre</button><button id="nave-upg" class="mini">🔧 Upgrades</button><button id="nave-repar" class="mini eq">🛠 Estaleiro</button></div>` : ""}
               ${(cbn.ativo && !camp.combate.ordem.some((x) => ehNave(x))) ? `
                 <div class="cbn-box">
                   <div class="cbn-cab"><b>🚀 COMBATE ESPACIAL</b><span class="regra">Rodada ${cbn.rodada}</span></div>
@@ -84,7 +84,7 @@ export function renderNave(ctx) {
             ` : ui.souMestre ? `
               <select id="sel-nave">${NAVES.map((n) => `<option>${esc(n.n)}</option>`).join("")}</select>
               <input id="nave-nome" placeholder="Nome de batismo"/>
-              <button id="def-nave" class="btn-primario" style="margin-top:8px">DEFINIR NAVE</button>` : `<p class="regra">O Mestre ainda não definiu a nave.</p>`}
+              <button id="def-nave" class="btn-primario" style="margin-top:8px">Definir nave</button>` : `<p class="regra">O Mestre ainda não definiu a nave.</p>`}
           </section>
           </div>`;
 }

@@ -103,7 +103,7 @@ export function abrirCriacao({ onCriar, onCancelar, abrirSistemaSolar }) {
       <p class="cri-ajuda">A Origem define de onde você parte. Role <b>2d8 sete vezes</b>: a pior soma é descartada
         e as seis restantes viram os seus atributos. Cada soma converte assim:
         2–4 = −1 · 5–10 = +0 · 11–15 = +1 · 16 = +2.</p>
-      <div class="cri-centro"><button id="cri-rolar" class="btn-primario">🎲 ROLAR A ORIGEM</button></div>`;
+      <div class="cri-centro"><button id="cri-rolar" class="btn-primario">🎲 Rolar a origem</button></div>`;
     const usadas = Object.values(esc0.distrib);
     return `
       <p class="cri-ajuda">Escolha uma soma para cada atributo. O modificador racial entra por cima.</p>
@@ -191,7 +191,7 @@ export function abrirCriacao({ onCriar, onCancelar, abrirSistemaSolar }) {
         <span class="cri-dica">${podeAvancar() ? "" : dicaFalta()}</span>
         ${passo < PASSOS.length - 1
           ? `<button id="cri-proximo" class="btn-primario" ${podeAvancar() ? "" : "disabled"}>Continuar →</button>`
-          : `<button id="cri-criar" class="btn-primario" ${podeAvancar() ? "" : "disabled"}>✓ CRIAR TRIPULANTE</button>`}
+          : `<button id="cri-criar" class="btn-primario" ${podeAvancar() ? "" : "disabled"}>✓ Criar tripulante</button>`}
       </div></div>`;
     ligar();
   };
